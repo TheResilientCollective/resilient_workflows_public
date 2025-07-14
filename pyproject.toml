@@ -1,0 +1,58 @@
+[project]
+name = "resilient-workflows"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+
+
+dependencies = [
+    "dagit >=1.10.14 ",
+    "dagster-postgres >=0.26.14",
+    "dagster >=1.10.14 ",
+    "dagster-webserver >=1.10.14 ",
+    "dagster-docker >=0.26.14",
+    "dagster-aws >=0.26.14",
+    "dagstermill >=0.26.14",
+    "dagster_slack >=0.26.14",
+    "zeep[workflows]>=4.3.1",
+    "suds>=1.2.0",
+    "icecream>=2.1.4",
+    "simplepbi>=1.00"
+]
+
+
+[project.optional-dependencies]
+workflows = [
+    "ipython-genutils ==0.2.0",
+    "minio ==7.1.13",
+    "docker >=6.1.0",
+    "dagstermill >=0.23.10",
+    "beautifulsoup4",
+    "notebook",
+    "pydash",
+    "pyyaml",
+    "pandas>=2.2.0",
+    # orjson was used by game.ipnb - Comments are allowed in pyproject.toml
+    "geopandas",
+    # fiona  takes a long time to build in the docker container. do not use unless we need it.
+    #fiona = ""
+    "kml2geojson",
+    "pydantic <3.0.0, >=2",
+    # sodapy
+    "foursquare-data-sdk",
+    "openmeteo-requests",
+    "requests-cache",
+    "retry-requests",
+    "pyairtable >3",
+    "scikit-learn",
+    # arcgis
+    "awswrangler",
+    "dagster-openai",
+    "dagster-embedded-elt",
+    "dagster-duckdb",
+    "dagster-duckdb-pandas",
+    "lxml",
+    "aqicalc",
+    "geopy",
+ "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+]

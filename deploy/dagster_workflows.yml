@@ -1,0 +1,117 @@
+version: "3.9"
+networks:
+  dagster_host:
+    external: true
+    name: ${RESILIENT_DAGSTER_NETWORK:-dagster_host}
+  traefik_proxy:
+     external: true
+volumes:
+
+  dagster-storage:
+    driver: local
+    name: ${RESILIENT_DAGSTER_STORAGE:-dagster_storage}
+
+# DO NOT START IN PYCHARM (unless you set the env variables in your runconfig
+# USE:
+# ./docker_RESILIENT_prod_start.h
+services:
+## GRPC servers are not just serving the code
+# they need to compile it, so same image for all dagster-*
+# for this a PROJECT IS REQUIRED to allow for multiple communities
+    dagster-code-public:
+        hostname: dagster-code-${PROJECT}-public
+        image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        environment: &env
+            - DEBUG_CONTAINER=${DEBUG_CONTAINER:-false}
+            - PROJECT=${PROJECT}
+            - RESILIENT_DOCKER_WORKSPACE_CONFIG=${RESILIENT_DOCKER_WORKSPACE_CONFIG}
+            - S3_SECRET_KEY=${S3_SECRET_KEY}
+            - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+            - S3_ADDRESS=${S3_ADDRESS}
+            - S3_BUCKET=${S3_BUCKET}
+            - S3_PORT=${S3_PORT}
+            - S3_USE_SSL=${S3_USE_SSL}
+            - AIRTABLE_API_KEY=${AIRTABLE_API_KEY}
+            - AIRTABLE_BASE=${AIRTABLE_BASE}
+            - AIRTABLE_ACCESS_TOKEN=${AIRTABLE_ACCESS_TOKEN}
+            - AIRTABLE_BASE_ID=${AIRTABLE_BASE_ID}
+            - AIRTABLE_MPOX_TABLE_ID=${AIRTABLE_MPOX_TABLE_ID}
+            - RESILIENT_DEFAULT_SCHEDULE=${RESILIENT_DEFAULT_SCHEDULE:-@weekly}
+            - RESILIENT_DEFAULT_SCHEDULE_TIMEZONE=${RESILIENT_DEFAULT_SCHEDULE_TIMEZONE:-America/Los_Angeles}
+            - RESILIENT_WORKSPACE_CONFIG_PATH=${RESILIENT_WORKSPACE_CONFIG_PATH}
+            - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+# these SLACK_ are evn variables used by the Dagster slack library
+            - SLACK_CHANNEL=${SLACK_CHANNEL:-"#test"}
+            - SLACK_TOKEN=${SLACK_TOKEN}
+            - OPENAI_API_KEY=${OPENAI_API_KEY}
+            - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+            - OPENAI_BASE_MODEL=${OPENAI_BASE_MODEL}
+            - PURPLE_AIR_API_KEY_READ=${PURPLE_AIR_API_KEY_READ}
+            - PURPLE_AIR_API_KEY_WRITE=${PURPLE_AIR_API_KEY_WRITE}
+            - AIRNOW_API_KEY=${AIRNOW_API_KEY}
+            - HOST=${HOST}
+        command:
+            - "dagster"
+            - "code-server"
+            - "start"
+            - "-h"
+            - "0.0.0.0"
+            - "-p"
+            - "4000"
+            - "-m"
+            - "workflows.public.public"
+            - "-d"
+            - "/usr/src/app/"
+
+        volumes: &codevol
+            - dagster-storage:/usr/src/app/storage
+        depends_on:
+            - dagster-postgres
+        networks:
+            - dagster_host
+            - traefik_proxy
+
+
+    dagster-code-restricted:
+        hostname:  dagster-code-${PROJECT}-restricted
+        image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        environment: *env
+        command:
+        - "dagster"
+        - "code-server"
+        - "start"
+        - "-h"
+        - "0.0.0.0"
+        - "-p"
+        - "4000"
+        - "-m"
+        - "workflows.restricted.restricted"
+        - "-d"
+        - "/usr/src/app/"
+
+        volumes: *codevol
+        depends_on:
+            - dagster-postgres
+        networks:
+            - dagster_host
+            - traefik_proxy
+
+
+# for some reason, the script does not work. ${COMPOSE_PROJECT_NAME} is empty
+#    restarter:
+#      image: docker:cli
+#      restart: unless-stopped
+#      volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+#      entrypoint: ["/bin/sh","-c"]
+#      environment:
+#        - CONTAINER_NAME=${COMPOSE_PROJECT_NAME}_headless
+#      command:
+#        - |
+#          while true; do
+#            if [ "$$(date +'%H:%M')" = '22:00' ]; then
+#              env
+#              docker restart $$CONTAINER_NAME
+#              echo restarted
+#            fi
+#            sleep 60
+#          done

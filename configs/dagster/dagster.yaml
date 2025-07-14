@@ -1,0 +1,47 @@
+retention:
+  schedule:
+    purge_after_days: 90 # sets retention policy for schedule ticks of all types
+  sensor:
+    purge_after_days:
+      skipped: 7
+      failure: 30
+      success: 180 # -1 is keep success ticks indefinitely
+# postgres on private network in container space.
+run_storage:
+  module: dagster_postgres.run_storage
+  class: PostgresRunStorage
+  config:
+    postgres_db:
+      username: postgres
+      password: secret
+      hostname: dagster-postgres
+      db_name: postgres
+      port: 5432
+event_log_storage:
+  module: dagster_postgres.event_log
+  class: PostgresEventLogStorage
+  config:
+    postgres_db:
+      username: postgres
+      password: secret
+      hostname: dagster-postgres
+      db_name: postgres
+      port: 5432
+schedule_storage:
+  module: dagster_postgres.schedule_storage
+  class: PostgresScheduleStorage
+  config:
+    postgres_db:
+      username: postgres
+      password: secret
+      hostname: dagster-postgres
+      db_name: postgres
+      port: 5432
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    #    max_concurrent_runs: 4
+    max_concurrent_runs: 2
+telemetry:
+  enabled: false

@@ -1,0 +1,14 @@
+load_from:
+
+  # module starting out with the definitions api
+  # - python_module: "workflows.tasks.tasks"
+
+  - grpc_server:
+      host: dagster-code-resilient-public
+      port: 4000
+      location_name: "resilient-tasks"
+#  - grpc_server:
+#      host: dagster-code-resilient-restricted
+#      port: 4000
+#      location_name: "resilient-restricted"
+

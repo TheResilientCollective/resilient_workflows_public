@@ -1,0 +1,4 @@
+output/genus/** filter=lfs diff=lfs merge=lfs -text
+data/ibiogram/output/genus/** filter=lfs diff=lfs merge=lfs -text
+data/ibiogram/output/merged/** filter=lfs diff=lfs merge=lfs -text
+data/cdc/all_2024_01/** filter=lfs diff=lfs merge=lfs -text

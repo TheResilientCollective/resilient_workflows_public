@@ -1,0 +1,29 @@
+
+Key baterial
+
+Resitant Bacteria
+
+Add COVID
+
+Add HepA
+
+
+https://api.healthyplacesindex.org/api/hpi?geography=tracts&year=2022&indicator=hpiscore&format=geojson&key=
+
+
+need cdd data back as far as posible:
+weekly tables
+https://wonder.cdc.gov/nndss/nndss_weekly_tables_menu.asp
+
+annual tables
+https://wonder.cdc.gov/nndss/nndss_annual_tables_menu.asp
+
+CDC places Now
+https://www.esri.com/arcgis-blog/products/arcgis-living-atlas/health/cdc-places-2024/
+https://www.cdc.gov/places/
+https://data.cdc.gov/browse?q=places&sortBy=relevance
+https://data.cdc.gov/browse?category=500+Cities+%26+Places&q=places&sortBy=relevance
+
+
+Living atlast wayback
+https://livingatlas.arcgis.com/wayback/#active=44710&mapCenter=-117.07842%2C32.58024%2C14

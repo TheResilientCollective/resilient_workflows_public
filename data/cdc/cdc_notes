@@ -1,0 +1,47 @@
+using odata
+https://python-odata.readthedocs.io/en/latest/index.html
+
+mpox:
+https://data.cdc.gov/resource/x9gk-5huc.geojson?$query=SELECT%0A%20%20%60states%60%2C%0A%20%20%60year%60%2C%0A%20%20%60week%60%2C%0A%20%20%60label%60%2C%0A%20%20%60m1%60%2C%0A%20%20%60m1_flag%60%2C%0A%20%20%60m2%60%2C%0A%20%20%60m2_flag%60%2C%0A%20%20%60m3%60%2C%0A%20%20%60m3_flag%60%2C%0A%20%20%60m4%60%2C%0A%20%20%60m4_flag%60%2C%0A%20%20%60location1%60%2C%0A%20%20%60location2%60%2C%0A%20%20%60sort_order%60%2C%0A%20%20%60geocode%60%0AWHERE%20caseless_one_of(%60label%60%2C%20%22Mpox%22)%0AORDER%20BY%20%60sort_order%60%20ASC%20NULL%20LAST
+
+soda-py is archived.
+
+ndss
+https://data.cdc.gov/browse?category=NNDSS
+https://data.cdc.gov/api/views/x9gk-5huc/rows.csv?fourfour=x9gk-5huc&cacheBust=1714061648&date=20240501&accessType=DOWNLOAD
+m
+wonder:
+https://wonder.cdc.gov/nndss/nndss_weekly_tables_menu.asp?mmwr_year=2024&mmwr_week=37
+
+
+nors
+https://wwwn.cdc.gov/norsdashboard/
+
+
+covid
+https://data.cdc.gov/Case-Surveillance/COVID-19-Case-Surveillance-Public-Use-Data/vbim-akqf/about_data
+https://data.cdc.gov/resource/n8mc-b4w4.json
+
+US (using san diego query)
+https://data.cdc.gov/Case-Surveillance/COVID-19-Case-Surveillance-Public-Use-Data-with-Ge/n8mc-b4w4/data_preview
+
+san diego county covid query
+https://data.cdc.gov/resource/n8mc-b4w4.json?$query=SELECT%0A%20%20%60case_month%60%2C%0A%20%20%60res_state%60%2C%0A%20%20%60state_fips_code%60%2C%0A%20%20%60res_county%60%2C%0A%20%20%60county_fips_code%60%2C%0A%20%20%60age_group%60%2C%0A%20%20%60sex%60%2C%0A%20%20%60race%60%2C%0A%20%20%60ethnicity%60%2C%0A%20%20%60case_positive_specimen%60%2C%0A%20%20%60case_onset_interval%60%2C%0A%20%20%60process%60%2C%0A%20%20%60exposure_yn%60%2C%0A%20%20%60current_status%60%2C%0A%20%20%60symptom_status%60%2C%0A%20%20%60hosp_yn%60%2C%0A%20%20%60icu_yn%60%2C%0A%20%20%60death_yn%60%2C%0A%20%20%60underlying_conditions_yn%60%0AWHERE%20caseless_eq(%60county_fips_code%60%2C%20%2206073%22)
+
+RESP-NET
+https://data.cdc.gov/Public-Health-Surveillance/Rates-of-Laboratory-Confirmed-RSV-COVID-19-and-Flu/kvib-3txy/about_data
+https://data.cdc.gov/Public-Health-Surveillance/Rates-of-Laboratory-Confirmed-RSV-COVID-19-and-Flu/kvib-3txy/data_preview
+https://data.cdc.gov/resource/kvib-3txy.json
+
+Annual:
+https://wonder.cdc.gov/nndss-annual-summary.html
+
+wastewater
+https://www.wastewaterscan.org/en
+https://data.wastewaterscan.org/
+
+ca hhs:
+
+https://data.chhs.ca.gov/dataset/respiratory-virus-dashboard-metrics
+
+https://data.chhs.ca.gov/dataset/covid-19-sewershed-restricted-case-data

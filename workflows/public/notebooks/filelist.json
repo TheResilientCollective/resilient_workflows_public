@@ -1,0 +1,11 @@
+{
+    "demo": {"file":"decs-1290-demo.txt","parse_dates":[], "dtype": {}},
+
+"problems":{"file":"decs-1290-problems.txt","parse_dates":["NOTED_DATE"], "dtype":{}},
+"visits":{"file":"decs-1290-visits.txt",
+          "parse_dates":["HOSP_ADMSN_TIME","HOSP_DISCH_TIME"],
+          "dtype":{
+              "PAT_ENC_CSN_DI": "string"
+          }},
+"sensitivity":{"file":"decs-1290-sensitivity.txt","parse_dates":["RESULT_DATE"], "dtype":{}}
+}

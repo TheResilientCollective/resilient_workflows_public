@@ -1,0 +1,128 @@
+version: "3.9"
+# this NEEDS
+# $HOST
+# $PROJECT
+
+
+# not sure is a named external network works well with traffik, or if the label
+#            - "traefik.docker.network=traefik_proxy"
+# is even needed if the network is defined.
+
+networks:
+  traefik_proxy:
+    external: true
+    name: ${RESILIENT_PROXY_NETWORK:-traefik_proxy}
+  dagster_host:
+    external: true
+    name: ${RESILIENT_DAGSTER_NETWORK:-dagster_host}
+volumes:
+  dagster-postgres:
+    driver: local
+  dagster-storage:
+    driver: local
+# external so it could be shared accross docker swarms
+configs:
+
+  workspace:
+    name: ${RESILIENT_DOCKER_WORKSPACE_CONFIG:-workspace}
+    external: true
+  dagster:
+    name: ${RESILIENT_DOCKER_DAGSTER_CONFIG:-dagster}
+    external: true
+
+services:
+  dagster-dagit:
+    image: docker.io/resilientucsd/dagster-resilient:${CONTAINER_DAGSTER_TAG:-latest}
+    command:
+      - "dagster-webserver"
+      - "-w"
+      - "${RESILIENT_WORKSPACE_CONFIG_PATH:-/usr/src/app/workspace.yaml}"
+      - "-h"
+      - "0.0.0.0"
+      - "-p"
+      - "3000"
+    configs: &configs
+      - source: workspace
+        target: /usr/src/app/workspace.yaml
+        # uid: "103"
+        # gid: "103"
+        mode:
+          0444
+      - source: dagster
+        target: /usr/src/app/dagster.yaml
+        # uid: "103"
+        # gid: "103"
+        mode:
+          0444
+
+        # RESILIENT_  the environment variables for this stack, passed into containers
+        # the variables passed into the containers varies due to inconsistent standards.
+
+      # DO NOT RENAME THE FIRST PART, aka the container environment variable,
+      #     unless you sure what you are doing
+    environment: &env
+      # sort these in BBedit to make finding them easier
+      - DEBUG_CONTAINER=${DEBUG_CONTAINER:-false}
+      - RESILIENT_DOCKER_WORKSPACE_CONFIG=${RESILIENT_DOCKER_WORKSPACE_CONFIG}
+      - RESILIENT_MINIO_ACCESS_KEY=${RESILIENT_MINIO_ACCESS_KEY}
+      - RESILIENT_MINIO_ADDRESS=${RESILIENT_MINIO_ADDRESS}
+      - RESILIENT_MINIO_BUCKET=${RESILIENT_MINIO_BUCKET}
+      - RESILIENT_MINIO_PORT=${RESILIENT_MINIO_PORT}
+      - RESILIENT_MINIO_SECRET_KEY=${RESILIENT_MINIO_SECRET_KEY}
+      - RESILIENT_MINIO_USE_SSL=${RESILIENT_MINIO_USE_SSL}
+      - RESILIENT_DEFAULT_SCHEDULE=${RESILIENT_DEFAULT_SCHEDULE:-@weekly}
+      - RESILIENT_DEFAULT_SCHEDULE_TIMEZONE=${RESILIENT_DEFAULT_SCHEDULE_TIMEZONE:-America/Los_Angeles}
+      - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+      - HOST=${HOST}
+
+#    ports:
+#      - 3000:3000
+    networks:
+      - traefik_proxy
+      - dagster_host
+    depends_on:
+      - dagster-postgres
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sched-${PROJECT:-res}.entrypoints=http"
+      - "traefik.http.routers.sched-${PROJECT:-res}.priority=13"
+      - "traefik.http.routers.sched-${PROJECT:-res}.rule=Host(`${SCHED_HOSTNAME:-sched}.${HOST? HOST is required}`)"
+      - "traefik.http.middlewares.sched-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.sched-${PROJECT:-res}.middlewares=sched-https-redirect"
+      - "traefik.http.routers.sched-${PROJECT:-res}-secure.entrypoints=https"
+      - "traefik.http.routers.sched-${PROJECT:-res}-secure.priority=12"
+      - "traefik.http.routers.sched-${PROJECT:-res}-secure.rule=Host(`${SCHED_HOSTNAME:-sched}.${HOST? HOST is required}`)"
+      - "traefik.http.routers.sched-${PROJECT:-res}-secure.tls=true"
+      - "traefik.http.routers.sched-${PROJECT:-res}-secure.tls.certresolver=httpresolver"
+      - "traefik.http.routers.sched-${PROJECT:-res}-secure.service=sched-${PROJECT:-res}"
+      - "traefik.http.services.sched-${PROJECT:-res}.loadbalancer.server.port=3000"
+      - "traefik.docker.network=${RESILIENT_PROXY_NETWORK:-traefik_proxy}"
+      - "traefik.http.middlewares.sched-${PROJECT:-res}.headers.accesscontrolallowmethods=GET,OPTIONS,POST"
+      - "traefik.http.middlewares.sched-${PROJECT:-res}.headers.accessControlAllowOriginList=*"
+      - "traefik.http.middlewares.sched-${PROJECT:-res}.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.sched-${PROJECT:-res}.headers.addvaryheader=true"
+  dagster-daemon:
+    image: docker.io/resilientucsd/dagster-resilient:${CONTAINER_DAGSTER_TAG:-latest}
+    configs: *configs
+
+    environment: *env
+
+    command:
+      - "dagster-daemon"
+      - "run"
+      - "-w"
+      - "${RESILIENT_WORKSPACE_CONFIG_PATH:-/usr/src/app/workspace.yaml}"
+    depends_on:
+      - dagster-postgres
+    networks:
+      - dagster_host
+  dagster-postgres:
+    image: postgres:13.3
+    # ports:
+    #   - 5432:5432
+    environment:
+      - POSTGRES_PASSWORD=secret
+    volumes:
+      - dagster-postgres:/var/lib/postgresql/data
+    networks:
+      - dagster_host
