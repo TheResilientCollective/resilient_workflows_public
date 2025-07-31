@@ -8,7 +8,7 @@ more easily maintainable and customizable, and not bound to the code project tha
 
 ## Deployment
 Deployment will be done with containers where each workfow will run in separate  code container.
-This will allow for workflows to be developed independently, and be isolated in case constraints come up.
+This will allow for workflows to be developed independently and be isolated in case constraints come up.
 
 ## Workflows
 

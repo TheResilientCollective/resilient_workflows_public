@@ -33,7 +33,14 @@ def forecast(context):
     params = {
         "latitude": 32.552794,
         "longitude": -117.047286,
-        "hourly": ["temperature_2m", "wind_speed_10m", "wind_direction_10m", "precipitation", "relative_humidity_2m"],
+        "hourly": ["temperature_2m", "wind_speed_10m",
+                   "wind_direction_10m", "precipitation",
+                   "relative_humidity_2m",
+                   'surface_pressure',
+                                   'cloud_cover',
+                   'visibility',
+                   'dewpoint_2m'
+                   ],
         "past_days": 30
     }
     responses = openmeteo.weather_api(url, params=params)
@@ -50,8 +57,12 @@ def forecast(context):
     hourly_temperature_2m = hourly.Variables(0).ValuesAsNumpy()
     hourly_wind_speed_10m = hourly.Variables(1).ValuesAsNumpy()
     hourly_wind_direction_10m = hourly.Variables(2).ValuesAsNumpy()
-    hourly_relative_humidity_2m = hourly.Variables(4).ValuesAsNumpy()
     hourly_precipitation = hourly.Variables(3).ValuesAsNumpy()
+    hourly_relative_humidity_2m = hourly.Variables(4).ValuesAsNumpy()
+    hourly_surface_pressure = hourly.Variables(6).ValuesAsNumpy()
+    hourly_cloud_cover = hourly.Variables(7).ValuesAsNumpy()
+    hourly_visibility = hourly.Variables(8).ValuesAsNumpy()
+    hourly_dewpoint_2m = hourly.Variables(9).ValuesAsNumpy()
 
     hourly_data = {"date": pd.date_range(
         start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
@@ -66,6 +77,10 @@ def forecast(context):
     hourly_data["wind_direction_10m"] = hourly_wind_direction_10m
     hourly_data["relative_humidity_2m"] = hourly_relative_humidity_2m
     hourly_data["precipitation"] = hourly_precipitation
+    hourly_data["surface_pressure"] = hourly_surface_pressure
+    hourly_data["cloud_cover"] = hourly_cloud_cover
+    hourly_data["visibility"] = hourly_visibility
+    hourly_data["dewpoint_2m"] = hourly_dewpoint_2m
 
     hourly_dataframe = pd.DataFrame(data=hourly_data)
 
@@ -104,7 +119,12 @@ def weather_historical(context):
          "start_date": start,
          "end_date": end,
          "hourly": ["temperature_2m", "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m", "precipitation",
-                    "relative_humidity_2m"]
+                    "relative_humidity_2m",
+                    'surface_pressure',
+            'cloud_cover',
+            'visibility',
+            'dewpoint_2m'
+                    ]
      }
      responses = openmeteo.weather_api(url, params=params)
 
@@ -123,6 +143,10 @@ def weather_historical(context):
      hourly_wind_gusts_10m = hourly.Variables(3).ValuesAsNumpy()
      hourly_precipitation = hourly.Variables(4).ValuesAsNumpy()
      hourly_relative_humidity_2m = hourly.Variables(5).ValuesAsNumpy()
+     hourly_surface_pressure = hourly.Variables(6).ValuesAsNumpy()
+     hourly_cloud_cover = hourly.Variables(7).ValuesAsNumpy()
+     hourly_visibility = hourly.Variables(8).ValuesAsNumpy()
+     hourly_dewpoint_2m = hourly.Variables(9).ValuesAsNumpy()
 
      hourly_data = {"date": pd.date_range(
          start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
@@ -138,6 +162,11 @@ def weather_historical(context):
      hourly_data["wind_gusts_10m"] = hourly_wind_gusts_10m
      hourly_data["precipitation"] = hourly_precipitation
      hourly_data["relative_humidity_2m"] = hourly_relative_humidity_2m
+     hourly_data["surface_pressure"] = hourly_surface_pressure
+     hourly_data["cloud_cover"] = hourly_cloud_cover
+     hourly_data["visibility"] = hourly_visibility
+     hourly_data["dewpoint_2m"] = hourly_dewpoint_2m
+
 
      hourly_dataframe = pd.DataFrame(data=hourly_data)
 

@@ -6,41 +6,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Running the Application
 ```bash
-# Start Dagster development server
-dagster dev
-
-# Start from specific workflow directory
-cd workflows/public && dagster dev
+# Start from public workflow directory
+cd workflows/public && dagster dev -m public
 ```
 
 ### Installation and Setup
 ```bash
-# Install in editable mode with dev dependencies
-pip install -e ".[dev]"
+# Create virtual environment
+uv venv
 
-# For workflow-specific dependencies
-pip install -e ".[workflows]"
+# Install all dependencies with all extras for development
+uv sync --all-extras
+source .venv/bin/active
 ```
 
-### Testing
+### Configuration
+Set environment variables for API access:
 ```bash
-# Run all tests
-pytest sheild_tests
-
-# Run from workflows/public directory
-cd workflows/public && pytest sheild_tests
+export AIRNOW_API_KEY="your_key"
+export PURPLEAIR_API_KEY="your_key"
+export AIRTABLE_API_KEY="your_key"
+export AIRTABLE_BASE_ID="your_base_id"
+export SLACK_WEBHOOK_URL="your_webhook"
+export MINIO_ENDPOINT="your_endpoint"
+export MINIO_ACCESS_KEY="your_access_key"
+export MINIO_SECRET_KEY="your_secret_key"
 ```
 
 ### Asset Management
 ```bash
 # Materialize specific assets
-dagster asset materialize --select airnow_current_conditions
-dagster asset materialize --select beach_water_quality
-dagster asset materialize --select ibwc_spills
+cd workflows/public
+dagster asset materialize --select airnow_current_conditions -m public
+dagster asset materialize --select beach_water_quality -m public
+dagster asset materialize --select ibwc_spills -m public
 
 # Materialize asset groups
-dagster asset materialize --select tag:tijuana
-dagster asset materialize --select tag:waterquality
+dagster asset materialize --select tag:tijuana -m public
+dagster asset materialize --select tag:waterquality -m public
 ```
 
 ## Architecture Overview
@@ -74,18 +77,7 @@ All assets follow consistent patterns:
 - **slack**: Automated notifications and alerts
 - **openai**: Translation and AI processing tasks
 
-### Configuration
-Set environment variables for API access:
-```bash
-export AIRNOW_API_KEY="your_key"
-export PURPLEAIR_API_KEY="your_key"
-export AIRTABLE_API_KEY="your_key"
-export AIRTABLE_BASE_ID="your_base_id"
-export SLACK_WEBHOOK_URL="your_webhook"
-export MINIO_ENDPOINT="your_endpoint"
-export MINIO_ACCESS_KEY="your_access_key"
-export MINIO_SECRET_KEY="your_secret_key"
-```
+
 
 ### Asset Development Guidelines
 When creating new assets:
