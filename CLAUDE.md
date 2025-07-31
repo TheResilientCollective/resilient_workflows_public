@@ -32,6 +32,7 @@ export MINIO_ENDPOINT="your_endpoint"
 export MINIO_ACCESS_KEY="your_access_key"
 export MINIO_SECRET_KEY="your_secret_key"
 ```
+`export $(grep -v '^#' workflows/.env | xargs)`
 
 ### Asset Management
 ```bash
