@@ -34,7 +34,7 @@ export MINIO_SECRET_KEY="your_secret_key"
 ```
 `export $(grep -v '^#' workflows/.env | xargs)`
 
-### Asset Management
+### Asset Testing
 ```bash
 # Materialize specific assets
 cd workflows/public
@@ -46,6 +46,13 @@ dagster asset materialize --select ibwc_spills -m public
 dagster asset materialize --select tag:tijuana -m public
 dagster asset materialize --select tag:waterquality -m public
 ```
+### Development Server
+```bash
+# Materialize specific assets
+cd workflows/public
+dagster dev -m public
+```
+go to http://localhost:3000/
 
 ## Architecture Overview
 
