@@ -17,7 +17,7 @@ uv venv
 
 # Install all dependencies with all extras for development
 uv sync --all-extras
-source .venv/bin/active
+source .venv/bin/activate
 ```
 
 ### Configuration
@@ -48,11 +48,21 @@ dagster asset materialize --select tag:waterquality -m public
 ```
 ### Development Server
 ```bash
-# Materialize specific assets
 cd workflows/public
 dagster dev -m public
 ```
-go to http://localhost:3000/
+Access at http://localhost:3000/
+
+### Docker Deployment
+```bash
+# Production deployment with containers
+cd deploy
+docker compose -f dagster_core.yml -f dagster_workflows.yml up
+```
+
+## Project Overview
+
+This is a Dagster-based data pipeline system for environmental monitoring and public health surveillance, focusing on the San Diego/Tijuana border region. The system processes data from multiple APIs and sources to create standardized datasets for air quality, water quality, health surveillance, and environmental complaints.
 
 ## Architecture Overview
 
