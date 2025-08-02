@@ -21,6 +21,7 @@ dependencies = [
     "pandas-stubs==2.3.0.250703",
     "dagster-openai==0.27.3",
     "pyarrow>=20",
+    "tableauhyperapi==0.0.22502",
 ]
 
 
@@ -57,5 +58,6 @@ workflows = [
     "lxml",
     "aqicalc",
     "geopy",
+    "tableauhyperapi",
  "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
 ]

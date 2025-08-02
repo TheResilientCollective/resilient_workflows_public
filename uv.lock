@@ -30,13 +30,13 @@ name = "aiohttp"
 version = "3.12.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohappyeyeballs", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "aiosignal", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "attrs", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "frozenlist", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "multidict", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "propcache", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "yarl", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
+    { name = "aiohappyeyeballs", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "aiosignal", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "attrs", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "frozenlist", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "multidict", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "propcache", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "yarl", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9b/e7/d92a237d8802ca88483906c388f7c201bbe96cd80a165ffd0ac2f6a8d59f/aiohttp-3.12.15.tar.gz", hash = "sha256:4fc61385e9c98d72fcdf47e6dd81833f47b2f77c114c29cd64a361be57a763a2", size = 7823716, upload-time = "2025-07-29T05:52:32.215Z" }
 wheels = [
@@ -81,7 +81,7 @@ name = "aiosignal"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "frozenlist", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
+    { name = "frozenlist", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7", size = 25007, upload-time = "2025-07-03T22:54:43.528Z" }
@@ -3171,6 +3171,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "simplepbi" },
     { name = "suds" },
+    { name = "tableauhyperapi" },
     { name = "zeep" },
 ]
 
@@ -3203,6 +3204,7 @@ workflows = [
     { name = "requests-cache" },
     { name = "retry-requests" },
     { name = "scikit-learn" },
+    { name = "tableauhyperapi" },
 ]
 
 [package.metadata]
@@ -3248,6 +3250,8 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'workflows'" },
     { name = "simplepbi", specifier = ">=1.0" },
     { name = "suds", specifier = ">=1.2.0" },
+    { name = "tableauhyperapi", specifier = "==0.0.22502" },
+    { name = "tableauhyperapi", marker = "extra == 'workflows'" },
     { name = "zeep", extras = ["workflows"], specifier = ">=4.3.1" },
 ]
 provides-extras = ["workflows"]
@@ -3767,6 +3771,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/3e/a1/c3783be8de318678c822d6edf9855729c528ba06ac9004398c225ecf2dbd/suds-1.2.0.tar.gz", hash = "sha256:83b162c3d2355374e11d8b9acf15eeaa158b416b4625821844f9f628d679deaf", size = 271331, upload-time = "2024-08-24T20:07:28.95Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c4/43/658bd1825a5f58c1182269eaa6165084d8d95e031cd7e34a2a1bcf773579/suds-1.2.0-py3-none-any.whl", hash = "sha256:2cf8ed43ed8a0df350027c741f5295d6be8443d4e820cb36f2c17b033e331d5b", size = 145151, upload-time = "2024-08-24T20:07:27.206Z" },
+]
+
+[[package]]
+name = "tableauhyperapi"
+version = "0.0.22502"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/06/87/6a5e6b961051577d6b9b5f366c9fab74b3a14c5160da7e21d2268a81f479/tableauhyperapi-0.0.22502-py3-none-macosx_10_11_x86_64.whl", hash = "sha256:b9b82e09ce2add4a066eef173c2695d7b58485e75d144e1654433a0fd96bea3c", size = 75228177, upload-time = "2025-06-19T15:45:11.069Z" },
+    { url = "https://files.pythonhosted.org/packages/19/38/9bf92b8c5caaaac7b0d4ed4d0b5e09d50d45b93a35cb79bb16aada488430/tableauhyperapi-0.0.22502-py3-none-macosx_13_0_arm64.whl", hash = "sha256:e164c78867bc726ee67d3d6c67f798375ddd8e631120219e0a0826762d5d951a", size = 68468286, upload-time = "2025-06-19T15:44:55.205Z" },
+    { url = "https://files.pythonhosted.org/packages/92/c0/54c4ffd025421c9005e60911a6caac224159d41e4d62a7c2ca36101e07a9/tableauhyperapi-0.0.22502-py3-none-manylinux2014_x86_64.whl", hash = "sha256:976f2d80e37cc54a3aa6907a1b1aae7513ea14a53eb0a866320240e8a7bdb68a", size = 78614170, upload-time = "2025-06-19T15:45:20.503Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/3c/0027e22fac01b048522f181d47c8663a15e345490653af01c2061db74289/tableauhyperapi-0.0.22502-py3-none-win_amd64.whl", hash = "sha256:0b832ded8f9401079f30c1903d523454154db2d4e1ff5a0b707664a3c946b4ff", size = 61683109, upload-time = "2025-06-19T15:45:02.667Z" },
 ]
 
 [[package]]
