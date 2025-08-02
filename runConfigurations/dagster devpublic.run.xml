@@ -6,7 +6,7 @@
     <option name="PARENT_ENVS" value="true" />
     <envs>
       <env name="PYTHONUNBUFFERED" value="1" />
-      <env name="DAGSTER_HOME" value="$PROJECT_DIR$/dev_resources" />
+      <env name="DAGSTER_HOME" value="$PROJECT_DIR$/../../dev_resilient/resilient_workflows_public/dev_resources" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/information/venv/bin/python" />
     <option name="SDK_NAME" value="uv (resilient_workflows_public) (2)" />
