@@ -10,7 +10,9 @@ on:
       - public
       - master
       - dev
-      - feature/uv
+      - feature/*
+      - data/*
+      - fix/*
     tags:
       - "v*.*.*"
 
