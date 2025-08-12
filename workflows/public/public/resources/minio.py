@@ -62,12 +62,12 @@ class S3Resource(ResourceWithS3Configuration):
     def getFile(self, path='test'):
         try:
             result =   self.getClient().get_object(
-                Bucket=self.S3_BUCKET,
-                Key=path,
+                self.S3_BUCKET,
+                path,
             )
             get_dagster_logger().info(
-                f"file {result['Body']}" )
-            return result["Body"]
+                f"file {result.status}" )
+            return result.data
         except Exception as ex:
             get_dagster_logger().info(f"file {path} not found  in {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} not found  in {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
@@ -93,3 +93,22 @@ class S3Resource(ResourceWithS3Configuration):
             get_dagster_logger().info(f"file {path} failed to push  to {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} failed to push  to {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
 
+    def putFile(self, data, metadata={}, path='test', content_type='application/octet-stream'):
+        try:
+            result =  self.getClient().put_object(
+                self.S3_BUCKET, path,
+                data=io.BytesIO(data),
+                length=len(data),
+                content_type=content_type, metadata=metadata
+            )
+            get_dagster_logger().info(
+                "created {0} object; etag: {1}, version-id: {2}".format(
+                    result.object_name, result.etag, result.version_id,
+                ),
+            )
+            get_dagster_logger().info(
+                f"file {result.object_name}" )
+            return result.object_name
+        except Exception as ex:
+            get_dagster_logger().info(f"file {path} failed to push  to {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} failed to push  to {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")

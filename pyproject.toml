@@ -35,6 +35,7 @@ dependencies = [
     "pandas>=2.2.0",
     # orjson was used by game.ipnb - Comments are allowed in pyproject.toml
     "geopandas",
+    "matplotlib",
     # fiona  takes a long time to build in the docker container. do not use unless we need it.
     #fiona = ""
     "kml2geojson",
@@ -56,8 +57,16 @@ dependencies = [
     "aqicalc",
     "geopy",
     "tableauhyperapi",
+    "tableaudocumentapi",
+    "tableau_parser",
+    "pantab", # for tableau hyper file processing
     "openmeteo_requests",
     "requests_cache",
     "retry_requests",
  "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
 ]
