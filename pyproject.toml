@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 
+# this is dagster plus the optional workflow dependencies.
 
 dependencies = [
     "dagit>=1.10.14",
@@ -21,11 +22,7 @@ dependencies = [
     "pandas-stubs==2.3.0.250703",
     "dagster-openai==0.27.3",
     "pyarrow>=20",
-]
-
-
-[project.optional-dependencies]
-workflows = [
+    # below were optional workflows, but this is only a workflow, so saves the extras
     "ipython-genutils ==0.2.0",
     "minio ==7.1.13",
     "docker >=6.1.0",

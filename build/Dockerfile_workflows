@@ -24,7 +24,7 @@ WORKDIR /usr/src/app/
 COPY pyproject.toml uv.lock ./
 RUN uv venv .venv
 RUN chmod +x .venv/bin/activate && .venv/bin/activate && \
-    uv sync --no-install-project --extra workflows
+    uv sync --no-install-project
 
 # Stage 2: Create the runtime image
 FROM python:3.12-slim
