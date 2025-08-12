@@ -29,7 +29,7 @@ all_schedules = [assets.beach_waterquality_schedule,
                  assets.spills_historic_schedule,
                  assets.cdc_nnds.cdc_nndss_raw_schedule,
                  assets.mpox_counties_weekly_schedule,
-                 assets.sandiego_epidemiology_schedule
+              #   assets.sandiego_epidemiology_schedule
                  ]
 all_sensors=[slack_on_run_failure,
              assets.complaints_data_sensor,

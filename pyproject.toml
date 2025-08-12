@@ -22,6 +22,7 @@ dependencies = [
     "dagster-openai==0.27.3",
     "pyarrow>=20",
     "tableauhyperapi==0.0.22502",
+    "geopandas==1.1.1",
 ]
 
 
@@ -38,6 +39,7 @@ workflows = [
     "pandas>=2.2.0",
     # orjson was used by game.ipnb - Comments are allowed in pyproject.toml
     "geopandas",
+    "matplotlib",
     # fiona  takes a long time to build in the docker container. do not use unless we need it.
     #fiona = ""
     "kml2geojson",
@@ -59,5 +61,13 @@ workflows = [
     "aqicalc",
     "geopy",
     "tableauhyperapi",
+    "tableaudocumentapi",
+    "tableau_parser",
+    "pantab", # for tableau hyper file processing
  "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
 ]

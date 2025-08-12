@@ -34,6 +34,16 @@ def addLastUpdatedRecords(json_str, date_str) -> str:
     json_obj = json.loads(json_str)
     new_json = {'lastUpdated': date_str, 'data': json_obj}
     return json.dumps(new_json, indent=2)
+def raw_to_s3(rawdata, path_w_name, s3_resource:S3Resource
+              ,contenttype='application/octet-stream'
+              , metadata=None):
+    '''This will write out objectMetadata to as a file'''
+    s3_resource.putFile(data=rawdata, path=f"{path_w_name}"
+                             , content_type=contenttype
+                    )
+    if metadata is not None:
+        metadata_to_s3(metadata, path_w_name, s3_resource) # just append the metadata.json to the end of the path
+
 def geodataframe_to_s3(geodataframe, path_w_basename, s3_resource:S3Resource,
                        formats=[
                              'geojson',
@@ -198,7 +208,7 @@ def metadata_to_s3(metadata:objectMetadata, path_w_basename, s3_resource,):
     '''This will write out objectMetadata to as a file'''
 
     s3_resource.putFile_text(data=metadata.json(indent=2), path=f"{path_w_basename}.metadata.json")
-    pass
+
 
 
 def metadata_to_airtable(metadata: objectMetadata, airtable_basename, formats=['csv'],  ):

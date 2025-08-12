@@ -44,7 +44,7 @@ from .purple_air import memberGroup, getGroupData, purple_air_schedule
 
 from .mpox_counties import mpox_la_powerbi, mpox_sf_dataportal, mpox_counties_weekly_schedule
 from .sandiego_epidemiology import (
-    epidemiology_tableau_raw,
-    epidemiology_current_conditions,
-    sandiego_epidemiology_schedule
+sandiego_epidemiology_workbook_download,
+sandiego_epidemiology_hyper_extraction,
+sandiego_epidemiology_processed_data
 )
