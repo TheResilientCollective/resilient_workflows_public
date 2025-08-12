@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="dagster asset beachwatch_sdbeachinfo_status" type="PythonConfigurationType" factoryName="Python" folderName="public">
+  <configuration default="false" name="dagster devpublic" type="PythonConfigurationType" factoryName="Python" folderName="dagster">
     <module name="resilient_workflows" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -10,7 +10,7 @@
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/information/venv/bin/python" />
     <option name="SDK_NAME" value="uv (resilient_workflows_public) (2)" />
-    <option name="WORKING_DIRECTORY" value="$FileDirRelativeToProjectRoot$/workflows/public" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/workflows/information" />
     <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
@@ -27,7 +27,7 @@
       </ENTRIES>
     </EXTENSION>
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="asset materialize --select waterquality/sdbeachinfo_status -m public" />
+    <option name="PARAMETERS" value="dev -w workspace.yaml" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />

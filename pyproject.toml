@@ -57,5 +57,8 @@ workflows = [
     "lxml",
     "aqicalc",
     "geopy",
+    "openmeteo_requests",
+    "requests_cache",
+    "retry_requests",
  "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
 ]
