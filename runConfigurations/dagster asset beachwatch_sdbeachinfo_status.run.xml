@@ -9,7 +9,7 @@
       <env name="DAGSTER_HOME" value="$PROJECT_DIR$/../../dev_resilient/resilient_workflows_public/dev_resources" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/information/venv/bin/python" />
-    <option name="SDK_NAME" value="uv (resilient_workflows_public)" />
+    <option name="SDK_NAME" value="uv (resilient_workflows_public) (2)" />
     <option name="WORKING_DIRECTORY" value="$FileDirRelativeToProjectRoot$/workflows/public" />
     <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />

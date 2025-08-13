@@ -5,12 +5,20 @@
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
+      <env name="DAGSTER_HOME" value="$PROJECT_DIR$/dev_resources" />
       <env name="PYTHONUNBUFFERED" value="1" />
+<<<<<<<< HEAD:runConfigurations/dagster devpublic.run.xml
       <env name="DAGSTER_HOME" value="$PROJECT_DIR$/dev_resources" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/information/venv/bin/python" />
     <option name="SDK_NAME" value="uv (resilient_workflows)" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/workflows/information" />
+========
+    </envs>
+    <option name="SDK_HOME" value="$PROJECT_DIR$/information/venv/bin/python" />
+    <option name="SDK_NAME" value="uv (resilient_workflows_public) (2)" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/workflows/" />
+>>>>>>>> 26cec39a4070780c9a5f74c86a72e804f002ab40:runConfigurations/dagster asset list.run.xml
     <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />

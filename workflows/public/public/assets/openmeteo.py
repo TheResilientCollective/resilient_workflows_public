@@ -15,12 +15,25 @@ from dagster import ( asset,
                       )
 
 from ..resources import minio
+from ..utils import store_assets
 
 s3_output_path = 'tijuana/weather/'
 @asset(group_name="tijuana",key_prefix="weather",
        name="openmeteo_forecast", required_resource_keys={"s3", "airtable"}
+       ,metadata={
+           "source": "https://api.open-meteo.com/v1/forecast"
+       ,"description":"Recent Weather Forecast"
+#,"variableMeasured":variableMeasured
+}
   )
 def forecast(context):
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]  # -> "value"
+    source_url = meta.get("source")  # -> "data-eng"
+    variableMeasured= meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description,
+                                           source_url=source_url, variableMeasured=variableMeasured)
+
     s3_resource = context.resources.s3
     # Setup the Open-Meteo API client with cache and retry on error
     cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
@@ -35,8 +48,7 @@ def forecast(context):
         "longitude": -117.047286,
         "hourly": ["temperature_2m", "wind_speed_10m",
                    "wind_direction_10m", "precipitation",
-                   "relative_humidity_2m",
-                   'surface_pressure',
+                   "relative_humidity_2m",'surface_pressure',
                                    'cloud_cover',
                    'visibility',
                    'dewpoint_2m'
@@ -59,10 +71,10 @@ def forecast(context):
     hourly_wind_direction_10m = hourly.Variables(2).ValuesAsNumpy()
     hourly_precipitation = hourly.Variables(3).ValuesAsNumpy()
     hourly_relative_humidity_2m = hourly.Variables(4).ValuesAsNumpy()
-    hourly_surface_pressure = hourly.Variables(6).ValuesAsNumpy()
-    hourly_cloud_cover = hourly.Variables(7).ValuesAsNumpy()
-    hourly_visibility = hourly.Variables(8).ValuesAsNumpy()
-    hourly_dewpoint_2m = hourly.Variables(9).ValuesAsNumpy()
+    hourly_surface_pressure = hourly.Variables(5).ValuesAsNumpy()
+    hourly_cloud_cover = hourly.Variables(6).ValuesAsNumpy()
+    hourly_visibility = hourly.Variables(7).ValuesAsNumpy()
+    hourly_dewpoint_2m = hourly.Variables(8).ValuesAsNumpy()
 
     hourly_data = {"date": pd.date_range(
         start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
@@ -84,9 +96,10 @@ def forecast(context):
 
     hourly_dataframe = pd.DataFrame(data=hourly_data)
 
-    hourly_csv = hourly_dataframe.to_csv(index=False)
-    filename = f'{s3_output_path}raw/forecast.csv'
-    s3_resource.putFile_text(data=hourly_csv, path=filename)
+    #hourly_csv = hourly_dataframe.to_csv(index=False)
+    filename = f'{s3_output_path}raw/forecast'
+    #s3_resource.putFile_text(data=hourly_csv, path=filename)
+    store_assets.dataframe_to_s3(hourly_dataframe, filename, s3_resource, metadata=metadata)
     return hourly_dataframe
 
 # Define a yearly partition
@@ -98,6 +111,11 @@ cron_schedule = "@monthly"
 @asset(group_name="tijuana", key_prefix="weather",
        name="openmeteo_historical", required_resource_keys={"s3", "airtable"},
        partitions_def=yearly_partitions # Add partitions_def here
+       ,metadata={
+           "source": "https://api.open-meteo.com/v1/forecast"
+       ,"description":"Recent Weather Forecast"
+#,"variableMeasured":variableMeasured
+}
        )
 def weather_historical(context):
      s3_resource = context.resources.s3
@@ -118,12 +136,11 @@ def weather_historical(context):
          "longitude": 13.41,
          "start_date": start,
          "end_date": end,
-         "hourly": ["temperature_2m", "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m", "precipitation",
-                    "relative_humidity_2m",
-                    'surface_pressure',
-            'cloud_cover',
-            'visibility',
-            'dewpoint_2m'
+         "hourly": ["temperature_2m", "wind_speed_10m",
+                    "wind_direction_10m", "wind_gusts_10m",
+                    "precipitation","relative_humidity_2m",
+                    'surface_pressure','cloud_cover',
+            'visibility', 'dewpoint_2m'
                     ]
      }
      responses = openmeteo.weather_api(url, params=params)
@@ -170,9 +187,18 @@ def weather_historical(context):
 
      hourly_dataframe = pd.DataFrame(data=hourly_data)
 
-     hourly_csv = hourly_dataframe.to_csv(index=False)
-     filename = f'{s3_output_path}raw/{year}.csv'
-     s3_resource.putFile_text(data=hourly_csv, path=filename)
+     #hourly_csv = hourly_dataframe.to_csv(index=False)
+
+     meta = context.assets_def.metadata_by_key[context.asset_key]
+     description = meta["description"]  # -> "value"
+     source_url = meta.get("source")  # -> "data-eng"
+     variableMeasured = meta.get("variableMeasured")
+     name = str(context.asset_key.path[-1]) + str(year)
+     metadata = store_assets.objectMetadata(name=name, description=description,
+                                            source_url=source_url, variableMeasured=variableMeasured)
+     filename = f'{s3_output_path}raw/{year}'
+     #s3_resource.putFile_text(data=hourly_csv, path=filename)
+     store_assets.dataframe_to_s3(hourly_dataframe, filename, s3_resource, metadata=metadata)
      return hourly_dataframe
 
 
