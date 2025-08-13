@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y \
     krb5-config
 
 # Install uv
-RUN pip install uv
+RUN pip install uv=0.8.7
 
 # Set up a virtual environment and install dependencies
 WORKDIR /usr/src/app/
