@@ -64,13 +64,9 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          #context:  ./dagster/implnets
           # grr https://github.com/docker/build-push-action#git-context
           #context:  "{{defaultContext}}"
           push: true
-          build-args:
-            implnet=${{ matrix.project }}
-          #file: ./dagster/implnets/build/Dockerfile
           file: ./build/Dockerfile_workflows
           context:  .
           tags: ${{ steps.meta.outputs.tags }}
