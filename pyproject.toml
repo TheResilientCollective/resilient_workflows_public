@@ -56,7 +56,10 @@ dependencies = [
     "lxml",
     "aqicalc",
     "geopy",
-    "tableauhyperapi",
+    "openmeteo_requests",
+    "requests_cache",
+    "retry_requests",
+        "tableauhyperapi",
     "tableaudocumentapi",
     "tableau_parser",
     "pantab", # for tableau hyper file processing

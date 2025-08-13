@@ -46,5 +46,4 @@ from .mpox_counties import mpox_la_powerbi, mpox_sf_dataportal, mpox_counties_we
 from .sandiego_epidemiology import (
 sandiego_epidemiology_workbook_download,
 sandiego_epidemiology_hyper_extraction,
-sandiego_epidemiology_processed_data
 )
