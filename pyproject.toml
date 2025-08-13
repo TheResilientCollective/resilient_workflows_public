@@ -62,7 +62,7 @@ dependencies = [
         "tableauhyperapi",
     "tableaudocumentapi",
     "tableau_parser",
-    "pantab", # for tableau hyper file processing
+    #"pantab", # not good with action for tableau hyper file processing
     "openmeteo_requests",
     "requests_cache",
     "retry_requests",
