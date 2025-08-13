@@ -16,6 +16,7 @@ class TableauWorkbookConfig(Config):
     workbook_name: str = "sandiego_epidemiology"
 
 
+
 class TableauWorkbookProcessor:
     """Utility class for processing Tableau workbooks"""
 
@@ -97,6 +98,7 @@ class TableauWorkbookProcessor:
                                 clean_name = str(table.name).replace('"', '').replace('.', '_').replace(' ', '_')
                                 #table_key = f"{hyper_file_path.stem}_{clean_name}"
                                 table_key = f"{clean_name}"
+                                df = df.rename(columns=lambda x: f"{x}".replace('"',''))
                                 extracted_data[table_key] = df
 
                                 self.logger.info(f"Extracted table {table.name}: {len(df)} rows, {len(df.columns)} columns")
@@ -130,6 +132,7 @@ class TableauWorkbookProcessor:
                                 clean_name = str(table.name).replace('"', '').replace('.', '_').replace(' ', '_')
                                 #table_key = f"{hyper_file_path.stem}_{clean_name}"
                                 table_key = f"{clean_name}"
+                                df = df.rename(columns=lambda x: f"{x}".replace('"', ''))
                                 extracted_data[table_key] = df
 
                 simple_name.unlink()  # Clean up
