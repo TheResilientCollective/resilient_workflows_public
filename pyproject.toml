@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 
+# this is dagster plus the optional workflow dependencies.
 
 dependencies = [
     "dagit>=1.10.14",
@@ -21,13 +22,7 @@ dependencies = [
     "pandas-stubs==2.3.0.250703",
     "dagster-openai==0.27.3",
     "pyarrow>=20",
-    "tableauhyperapi==0.0.22502",
-    "geopandas==1.1.1",
-]
-
-
-[project.optional-dependencies]
-workflows = [
+    # below were optional workflows, but this is only a workflow, so saves the extras
     "ipython-genutils ==0.2.0",
     "minio ==7.1.13",
     "docker >=6.1.0",
@@ -39,7 +34,6 @@ workflows = [
     "pandas>=2.2.0",
     # orjson was used by game.ipnb - Comments are allowed in pyproject.toml
     "geopandas",
-    "matplotlib",
     # fiona  takes a long time to build in the docker container. do not use unless we need it.
     #fiona = ""
     "kml2geojson",
@@ -60,13 +54,15 @@ workflows = [
     "lxml",
     "aqicalc",
     "geopy",
-    "tableauhyperapi",
+    "openmeteo_requests",
+    "requests_cache",
+    "retry_requests",
+        "tableauhyperapi",
     "tableaudocumentapi",
     "tableau_parser",
     "pantab", # for tableau hyper file processing
  "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
 ]
-
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
