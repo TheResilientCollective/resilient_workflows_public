@@ -38,14 +38,14 @@ def _store_dataframe_to_s3(
     try:
         import geopandas as gpd
         # Try to convert to GeoDataFrame if geometry columns exist
-        geo_columns = [col for col in df.columns if
-                       'geo' in col.lower() or 'lat' in col.lower() or 'lon' in col.lower()]
+        # geo_columns = [col for col in df.columns if
+        #                'geom' in col.lower() or ('lat' in col.lower() and 'lon' in col.lower())]
 
-        if geo_columns:
-            gdf = gpd.GeoDataFrame(df)
-        else:
-            gdf = gpd.GeoDataFrame(df)
-
+        # if geo_columns:
+        #     gdf = gpd.GeoDataFrame(df)
+        # else:
+        #     gdf = gpd.GeoDataFrame(df)
+        gdf = gpd.GeoDataFrame(df)
         store_assets.geodataframe_to_s3(gdf, s3_path, s3_resource, metadata=metadata)
         logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
 
