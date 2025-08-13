@@ -15,7 +15,7 @@ dependencies = [
     "dagster-aws >=0.27.3",
     "dagstermill >=0.27.3",
     "dagster_slack >=0.27.3",
-    "zeep[workflows]>=4.3.1",
+    "zeep>=4.3.1",
     "suds>=1.2.0",
     "icecream>=2.1.4",
     "simplepbi>=1.00",
@@ -57,7 +57,7 @@ dependencies = [
     "openmeteo_requests",
     "requests_cache",
     "retry_requests",
-        "tableauhyperapi",
+        "tableauhyperapi>=0.0.22502",
     "tableaudocumentapi",
     "tableau_parser",
     #"pantab", # not good with action for tableau hyper file processing
