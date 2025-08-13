@@ -1,10 +1,3 @@
-"""
-San Diego County Epidemiology Tableau Data Assets
-
-This module extracts data from San Diego County epidemiology Tableau workbooks
-and processes them for environmental health surveillance.
-"""
-
 import tempfile
 from pathlib import Path
 import pandas as pd
@@ -19,6 +12,49 @@ from ..utils import store_assets
 from workflows.public.public.utils.tableau_workbook import TableauWorkbookConfig, TableauWorkbookProcessor
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
 config= TableauWorkbookConfig()
+
+# New helper function to encapsulate dataframe storage logic
+def _store_dataframe_to_s3(
+    df: pd.DataFrame,
+    s3_resource,
+    workbook_name: str,
+    dataset_identifier: str, # Use a more generic name for the last part of the path/metadata
+    logger,
+    base_s3_output_prefix: str, # e.g., "health/sandiego_epidemiology/output"
+    source_url: str
+):
+    """
+    Helper function to store a DataFrame to S3, handling GeoDataFrame conversion and metadata.
+    """
+    s3_path = f"{base_s3_output_prefix}/{workbook_name}/{dataset_identifier}"
+
+    # Create metadata
+    metadata = store_assets.objectMetadata(
+        name=f"sandiego_epidemiology_{workbook_name}_{dataset_identifier.replace('/', '_')}", # Replace '/' for metadata name
+        description=f"San Diego epidemiology data from {workbook_name} {dataset_identifier}",
+        source_url=source_url
+    )
+
+    try:
+        import geopandas as gpd
+        # Try to convert to GeoDataFrame if geometry columns exist
+        geo_columns = [col for col in df.columns if
+                       'geo' in col.lower() or 'lat' in col.lower() or 'lon' in col.lower()]
+
+        if geo_columns:
+            gdf = gpd.GeoDataFrame(df)
+        else:
+            gdf = gpd.GeoDataFrame(df)
+
+        store_assets.geodataframe_to_s3(gdf, s3_path, s3_resource, metadata=metadata)
+        logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+
+    except Exception as geo_error:
+        logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
+        store_assets.dataframe_to_s3(df, s3_path, s3_resource, metadata=metadata)
+        logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+
+
 @asset( group_name="health",
     key_prefix="sandiego",
     name="sandiego_epidemiology_workbook_download",
@@ -80,23 +116,14 @@ def sandiego_epidemiology_hyper_extraction(
     s3_resource= context.resources.s3
     workbook_name = sandiego_epidemiology_workbook_download["workbook_name"]
     s3_key = sandiego_epidemiology_workbook_download["s3_key"]
+    # The 'config' object is available globally due to its initialization outside the asset functions.
 
     with tempfile.TemporaryDirectory() as temp_dir:
         # Download workbook from S3
         workbook_path = Path(temp_dir) / "workbook.twb"
 
-        # try:
-        #     with open(workbook_path, 'wb') as f:
-        #         s3_resource.getClient().download_fileobj(s3_resource.S3_BUCKET, s3_key, f)
-        # except Exception as e:
-        #     logger.error(f"Error downloading workbook: {e}")
-        #     raise e
-
-        # Extract workbook
-        extract_dir = Path(temp_dir) / "extracted"
-        # with open(workbook_path, 'rb') as f:
-        #     workbook_content = f.read()
         workbook_content = s3_resource.getFile(s3_key)
+        extract_dir = Path(temp_dir) / "extracted" # Define extract_dir
         extraction_info = processor.extract_workbook(workbook_content, extract_dir)
 
         # Store each Hyper file in S3
@@ -131,49 +158,23 @@ def sandiego_epidemiology_hyper_extraction(
                         df['source'] = 'sandiego_epidemiology_tableau'
                         df['workbook_name'] = workbook_name
                         df['hyper_file'] = hyper_file_path.name
-                        # Store using utility functions
-                        s3_path = f"health/sandiego_epidemiology/output/{workbook_name}/{table_name}"
 
-                        # Create metadata
-                        metadata = store_assets.objectMetadata(
-                            name=f"sandiego_epidemiology_{workbook_name}_{table_name}",
-                            description=f"San Diego epidemiology data from {workbook_name} {table_name}",
-                            source_url="https://public.tableau.com/workbooks/DraftRespDash.twb"
+                        _store_dataframe_to_s3(
+                            df=df,
+                            s3_resource=s3_resource,
+                            workbook_name=workbook_name,
+                            dataset_identifier=table_name,
+                            logger=logger,
+                            base_s3_output_prefix="health/sandiego_epidemiology/output",
+                            source_url=config.url
                         )
-
-                        # Store as geodataframe (will handle non-geo data gracefully)
-                        try:
-                            import geopandas as gpd
-                            # Try to convert to GeoDataFrame if geometry columns exist
-                            geo_columns = [col for col in df.columns if
-                                           'geo' in col.lower() or 'lat' in col.lower() or 'lon' in col.lower()]
-
-                            if geo_columns:
-                                # Convert to GeoDataFrame if possible
-                                gdf = gpd.GeoDataFrame(df)
-                            else:
-                                gdf = gpd.GeoDataFrame(df)
-
-                            store_assets.geodataframe_to_s3(gdf, s3_path, s3_resource, metadata=metadata)
-
-                        except Exception as geo_error:
-                            logger.warning(f"Could not create GeoDataFrame for {table_name}: {geo_error}")
-                            store_assets.dataframe_to_s3(df, s3_path, s3_resource, metadata=metadata)
-                            # Fallback to regular DataFrame storage
-                            # csv_content = df.to_csv(index=False)
-                            # s3_resource.getClient().put_object(
-                            #     Bucket=s3_resource.S3_BUCKET,
-                            #     Key=f"{s3_path}.csv",
-                            #     Body=csv_content.encode('utf-8'),
-                            #     ContentType='text/csv'
-                            # )
 
                         all_dataframes[table_name] = {
                             "rows": len(df),
                             "columns": len(df.columns),
-                            "s3_path": s3_path
+                            "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/{table_name}" # Update path based on helper
                         }
-                        if "Time_Series" in hyper_file_path.name:
+                        if "Time_Series" in table_name:
                             df = df.dropna(subset=['Disease', 'Metric'])
 
                             # Call reformatDf to process and prepare data by disease
@@ -181,43 +182,23 @@ def sandiego_epidemiology_hyper_extraction(
 
                             for disease, processed_df_for_disease in processed_dfs_by_disease.items():
                                 if not processed_df_for_disease.empty:
-                                    # Define S3 path for the processed disease data
-                                    s3_path_disease = f"health/sandiego_epidemiology/output/{workbook_name}/processed_by_disease/{disease.replace(' ', '_').replace('/', '_')}"
-
-                                    # Create metadata for the disease-specific file
-                                    metadata_disease = store_assets.objectMetadata(
-                                        name=f"sandiego_epidemiology_{workbook_name}_{disease}_processed",
-                                        description=f"San Diego epidemiology data for {disease} from {workbook_name}",
-                                        source_url="https://public.tableau.com/workbooks/DraftRespDash.twb"
+                                    disease_safe_name = disease.replace(' ', '_').replace('/', '_')
+                                    _store_dataframe_to_s3(
+                                        df=processed_df_for_disease,
+                                        s3_resource=s3_resource,
+                                        workbook_name=workbook_name,
+                                        dataset_identifier=f"processed_by_disease/{disease_safe_name}",
+                                        logger=logger,
+                                        base_s3_output_prefix="health/sandiego_epidemiology/output",
+                                        source_url=config.url
                                     )
 
-                                    # Store the processed DataFrame to S3
-                                    try:
-                                        import geopandas as gpd
-                                        # Try to convert to GeoDataFrame if geometry columns exist
-                                        geo_columns = [col for col in processed_df_for_disease.columns if
-                                                       'geo' in col.lower() or 'lat' in col.lower() or 'lon' in col.lower()]
-
-                                        if geo_columns:
-                                            gdf = gpd.GeoDataFrame(processed_df_for_disease)
-                                        else:
-                                            gdf = gpd.GeoDataFrame(processed_df_for_disease)
-
-                                        store_assets.geodataframe_to_s3(gdf, s3_path_disease, s3_resource, metadata=metadata_disease)
-
-                                    except Exception as geo_error:
-                                        logger.debug(f"Could not create GeoDataFrame for {table_name}: {geo_error}")
-                                        store_assets.dataframe_to_s3(processed_df_for_disease, s3_path_disease, s3_resource, metadata=metadata_disease)
-                                        # Continue to the next disease or table even if one fails
-                                        continue
-
-
-                                    logger.info(f"Processed and stored data for disease {disease} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path_disease}")
+                                    logger.info(f"Processed and stored data for disease {disease} to S3: s3://{s3_resource.S3_BUCKET}/health/sandiego_epidemiology/output/{workbook_name}/processed_by_disease/{disease_safe_name}")
 
                                     all_dataframes[f"{table_name}_{disease}"] = { # Adjust key to reflect disease
                                         "rows": len(processed_df_for_disease),
                                         "columns": len(processed_df_for_disease.columns),
-                                        "s3_path": s3_path_disease
+                                        "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/processed_by_disease/{disease_safe_name}"
                                     }
                                     processed_count += 1
                                     logger.info(f"Processed {table_name}: {len(df)} rows, {len(df.columns)} columns") # Original logging
@@ -230,7 +211,6 @@ def sandiego_epidemiology_hyper_extraction(
                 })
 
                 logger.info(f"Stored Hyper file: {hyper_file_path.name}")
-
 
 
     # Store processing summary
