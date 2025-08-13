@@ -5,6 +5,7 @@ from dagster import asset, get_dagster_logger
 from typing import Dict, Any
 import json
 import numpy as np
+import dagster as dg
 
 from ..resources import minio
 from ..utils import store_assets
@@ -12,7 +13,7 @@ from ..utils import store_assets
 from workflows.public.public.utils.tableau_workbook import TableauWorkbookConfig, TableauWorkbookProcessor
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
 config= TableauWorkbookConfig()
-
+TimeSeriesTablePrefix="Time_Series"
 # New helper function to encapsulate dataframe storage logic
 def _store_dataframe_to_s3(
     df: pd.DataFrame,
@@ -158,6 +159,7 @@ def sandiego_epidemiology_hyper_extraction(
                         df['source'] = 'sandiego_epidemiology_tableau'
                         df['workbook_name'] = workbook_name
                         df['hyper_file'] = hyper_file_path.name
+                        table_name = fixTableNames(table_name)
 
                         _store_dataframe_to_s3(
                             df=df,
@@ -174,7 +176,7 @@ def sandiego_epidemiology_hyper_extraction(
                             "columns": len(df.columns),
                             "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/{table_name}" # Update path based on helper
                         }
-                        if "Time_Series" in table_name:
+                        if TimeSeriesTablePrefix in table_name:
                             df = df.dropna(subset=['Disease', 'Metric'])
 
                             # Call reformatDf to process and prepare data by disease
@@ -225,6 +227,23 @@ def sandiego_epidemiology_hyper_extraction(
     logger.info(f"Processing complete: {processed_count} datasets processed")
 
     return summary
+
+
+def fixTableNames(name):
+    if TimeSeriesTablePrefix in name:
+       return TimeSeriesTablePrefix
+        # Find the first underscore after "Time_Series"
+    else:
+        parts = name.split('_')
+
+        if len(parts) >= 2 and parts[0] == "Time" and parts[1] == "Series":
+            return f"{parts[0]}_{parts[1]}"
+        elif len(parts) > 1:
+            return parts[0]
+        else:
+            return name
+
+
 
 def reformatDf(df):
     """
@@ -305,3 +324,17 @@ def reformatDf(df):
         processed_dfs_by_disease[disease] = group_df_to_store
 
     return processed_dfs_by_disease
+
+@dg.asset_check(asset=sandiego_epidemiology_hyper_extraction)
+def timeseries_has_no_duplicates(context, sandiego_epidemiology_hyper_extraction: Dict[str, Any],):
+    workbook_name = sandiego_epidemiology_hyper_extraction["workbook_name"]
+    processed_datasets = sandiego_epidemiology_hyper_extraction["processed_datasets"]
+
+    orders_df = pd.read_csv(processed_datasets[TimeSeriesTablePrefix])
+    num_null_order_ids = orders_df["order_id"].isna().sum()
+
+    # Return the result of the check
+    return dg.AssetCheckResult(
+        # Define passing criteria
+        passed=bool(num_null_order_ids == 0),
+    )
