@@ -347,13 +347,16 @@ def sde_timeseries_checks(context,sandiego_epidemiology_hyper_extraction)-> Iter
     s3_path= f'{processed_datasets[TimeSeriesTablePrefix]["s3_path"]}.csv'
     ts_content = s3_resource.getFile(s3_path)
     timeseries_dataframe = pd.read_csv(StringIO(ts_content.decode('utf-8')))
-    num_null_rows = timeseries_dataframe[['FY','CDCWk', 'WkNum', 'WkStart', 'Disease', 'Metric']].isna().any(axis=1).sum()
+    fields_checked = ['FY','CDCWk', 'WkNum', 'WkStart', 'Disease', 'Metric']
+    num_null_rows = timeseries_dataframe[fields_checked].isna().any(axis=1).sum()
 
 
     # Return the result of the check
     yield dg.AssetCheckResult(
         check_name="sde_timeseries_has_no_nulls",
         passed=bool(num_null_rows == 0),
+        metadata={"null_row_count": int(num_null_rows),
+                  'fields_checked':fields_checked},
         asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
     )
     issues = check_missing_weeks(timeseries_dataframe,  date_column='WkStrtActual')
@@ -363,6 +366,7 @@ def sde_timeseries_checks(context,sandiego_epidemiology_hyper_extraction)-> Iter
         check_name="sde_timeseries_has_allweeks",
         passed=bool(issues['missing_weeks_count'] == 0),
         metadata={"missing_weeks_count":issues['missing_weeks_count'],
+                  "missing_weeks": str(issues['missing_weeks']),
                   "issues":str(issues)},
         asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
     )
