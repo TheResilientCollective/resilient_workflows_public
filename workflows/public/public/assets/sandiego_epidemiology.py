@@ -2,15 +2,18 @@ import tempfile
 from pathlib import Path
 import pandas as pd
 from dagster import asset, get_dagster_logger
-from typing import Dict, Any
+from typing import Dict, Any, Iterable
 import json
 import numpy as np
 import dagster as dg
+from six import StringIO
 
 from ..resources import minio
 from ..utils import store_assets
 
 from workflows.public.public.utils.tableau_workbook import TableauWorkbookConfig, TableauWorkbookProcessor
+from ..utils.date import check_missing_weeks
+
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
 config= TableauWorkbookConfig()
 TimeSeriesTablePrefix="Time_Series"
@@ -325,16 +328,47 @@ def reformatDf(df):
 
     return processed_dfs_by_disease
 
-@dg.asset_check(asset=sandiego_epidemiology_hyper_extraction)
-def timeseries_has_no_duplicates(context, sandiego_epidemiology_hyper_extraction: Dict[str, Any],):
+@dg.multi_asset_check(
+    # Map checks to targeted assets
+    #ins=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
+ins={
+            "sandiego_epidemiology_hyper_extraction": dg.AssetIn(key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']))
+        },
+    specs=[
+        dg.AssetCheckSpec(name="sde_timeseries_has_no_nulls", asset=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction'])),
+        dg.AssetCheckSpec(name="sde_timeseries_has_allweeks", asset=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction'])),
+    ],
+    required_resource_keys={"s3"}
+)
+def sde_timeseries_checks(context,sandiego_epidemiology_hyper_extraction)-> Iterable[dg.AssetCheckResult]:
+    s3_resource = context.resources.s3
     workbook_name = sandiego_epidemiology_hyper_extraction["workbook_name"]
     processed_datasets = sandiego_epidemiology_hyper_extraction["processed_datasets"]
+    s3_path= f'{processed_datasets[TimeSeriesTablePrefix]["s3_path"]}.csv'
+    ts_content = s3_resource.getFile(s3_path)
+    timeseries_dataframe = pd.read_csv(StringIO(ts_content.decode('utf-8')))
+    num_null_rows = timeseries_dataframe[['FY','CDCWk', 'WkNum', 'WkStart', 'Disease', 'Metric']].isna().any(axis=1).sum()
 
-    orders_df = pd.read_csv(processed_datasets[TimeSeriesTablePrefix])
-    num_null_order_ids = orders_df["order_id"].isna().sum()
 
     # Return the result of the check
-    return dg.AssetCheckResult(
-        # Define passing criteria
-        passed=bool(num_null_order_ids == 0),
+    yield dg.AssetCheckResult(
+        check_name="sde_timeseries_has_no_nulls",
+        passed=bool(num_null_rows == 0),
+        asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
     )
+    issues = check_missing_weeks(timeseries_dataframe,  date_column='WkStrtActual')
+
+    # check weeks
+    yield dg.AssetCheckResult(
+        check_name="sde_timeseries_has_allweeks",
+        passed=bool(issues['missing_weeks_count'] == 0),
+        metadata={"missing_weeks_count":issues['missing_weeks_count'],
+                  "issues":str(issues)},
+        asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
+    )
+
+# @dg.definitions
+# def asset_checks():
+#     return dg.Definitions(
+#         asset_checks=[sde_timeseries_checks()],
+#     )

@@ -57,7 +57,7 @@ dependencies = [
     "openmeteo_requests",
     "requests_cache",
     "retry_requests",
-        "tableauhyperapi>=0.0.22502",
+        "tableauhyperapi",   # this only had x86_64 linux build. so github action is only amd64
     "tableaudocumentapi",
     "tableau_parser",
     #"pantab", # not good with action for tableau hyper file processing
