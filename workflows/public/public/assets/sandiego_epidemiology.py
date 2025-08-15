@@ -272,14 +272,20 @@ def reformatDf(df):
 
     # Prepare for pivoting: ensure 'epiweek_start' is derived from 'WkStart'
     df_processed = df.copy()
+    df_processed['FY_original'] = df_processed['FY']
     if 'WkStrtActual' in df_processed.columns:
-        df_processed['epiweek_start'] = df_processed['WkStrtActual']
+        df_processed['epiweek_start'] = df_processed['WkStrtActual'].apply(lambda x:  pd.Timestamp( str(x)) )
+        # WkStrtActual is actually a tableauhyper
+        df_processed['FY']=df_processed['epiweek_start'].dt.year
+        df_processed['epiweek_start']= df_processed['epiweek_start'].dt.strftime('%Y-%m-%d')
+
     else:
         print("Error: 'WkStrtActual' column not found in DataFrame, cannot derive 'epiweek_start'.")
         return {}
 
     # Replace 'Hospitalizations' with 'weekly_admissions' for easier column naming
     df_processed['Metric'] = df_processed['Metric'].replace('Hospitalizations', 'weekly_admissions')
+
 
     # Filter out rows where 'Metric' is not one of the target types
     target_metrics = ['Cases', 'weekly_admissions', 'Deaths']
