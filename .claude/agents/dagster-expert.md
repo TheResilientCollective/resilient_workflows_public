@@ -74,12 +74,15 @@ class MinioResource(ConfigurableResource):
 - CSV data with schema validation
 - JSON documents with nested structures
 - Binary data and large file handling
+- utilize workflows/public/public/utils/store_assets.py to publish data to minio
+- utilize workflows/public/public/utils/minio.py to connect to minio and retrieve data assets
 
 ### Data Organization
 - Bucket-per-environment strategies
 - Path conventions for partitioned data
 - Metadata storage and data catalogs
 - Version control for data assets
+- an asset will have a standardized path of /{domain}/raw/{source}/ for raw data and /{domain}/output/{asset_name}/ for processed data
 
 ## Pandas Best Practices
 

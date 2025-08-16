@@ -15,7 +15,7 @@ dependencies = [
     "dagster-aws >=0.27.3",
     "dagstermill >=0.27.3",
     "dagster_slack >=0.27.3",
-    "zeep[workflows]>=4.3.1",
+    "zeep>=4.3.1",
     "suds>=1.2.0",
     "icecream>=2.1.4",
     "simplepbi>=1.00",
@@ -57,5 +57,13 @@ dependencies = [
     "openmeteo_requests",
     "requests_cache",
     "retry_requests",
+        "tableauhyperapi",   # this only had x86_64 linux build. so github action is only amd64
+    "tableaudocumentapi",
+    "tableau_parser",
+    #"pantab", # not good with action for tableau hyper file processing
  "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+]
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
 ]

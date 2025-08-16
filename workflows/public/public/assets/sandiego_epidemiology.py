@@ -1,0 +1,384 @@
+import tempfile
+from pathlib import Path
+import pandas as pd
+from dagster import asset, get_dagster_logger
+from typing import Dict, Any, Iterable
+import json
+import numpy as np
+import dagster as dg
+from six import StringIO
+
+from ..resources import minio
+from ..utils import store_assets
+
+from workflows.public.public.utils.tableau_workbook import TableauWorkbookConfig, TableauWorkbookProcessor
+from ..utils.date import check_missing_weeks
+
+s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
+config= TableauWorkbookConfig()
+TimeSeriesTablePrefix="Time_Series"
+# New helper function to encapsulate dataframe storage logic
+def _store_dataframe_to_s3(
+    df: pd.DataFrame,
+    s3_resource,
+    workbook_name: str,
+    dataset_identifier: str, # Use a more generic name for the last part of the path/metadata
+    logger,
+    base_s3_output_prefix: str, # e.g., "health/sandiego_epidemiology/output"
+    source_url: str
+):
+    """
+    Helper function to store a DataFrame to S3, handling GeoDataFrame conversion and metadata.
+    """
+    s3_path = f"{base_s3_output_prefix}/{workbook_name}/{dataset_identifier}"
+
+    # Create metadata
+    metadata = store_assets.objectMetadata(
+        name=f"sandiego_epidemiology_{workbook_name}_{dataset_identifier.replace('/', '_')}", # Replace '/' for metadata name
+        description=f"San Diego epidemiology data from {workbook_name} {dataset_identifier}",
+        source_url=source_url
+    )
+
+    try:
+        import geopandas as gpd
+        # Try to convert to GeoDataFrame if geometry columns exist
+        # geo_columns = [col for col in df.columns if
+        #                'geom' in col.lower() or ('lat' in col.lower() and 'lon' in col.lower())]
+
+        # if geo_columns:
+        #     gdf = gpd.GeoDataFrame(df)
+        # else:
+        #     gdf = gpd.GeoDataFrame(df)
+        gdf = gpd.GeoDataFrame(df)
+        store_assets.geodataframe_to_s3(gdf, s3_path, s3_resource, metadata=metadata)
+        logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+
+    except Exception as geo_error:
+        logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
+        store_assets.dataframe_to_s3(df, s3_path, s3_resource, metadata=metadata)
+        logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+
+
+@asset( group_name="health",
+    key_prefix="sandiego",
+    name="sandiego_epidemiology_workbook_download",
+    required_resource_keys={"s3"},
+    description="Download San Diego epidemiology Tableau workbook and store in S3"
+)
+def sandiego_epidemiology_workbook_download(
+    context,
+    config: TableauWorkbookConfig,
+
+) -> Dict[str, Any]:
+    """Download Tableau workbook from URL and store in S3"""
+    name = 'sandiego_epidemiology_workbook_download'
+    description = '''
+       San Diego Epidemiology Data from Tableau website
+       '''
+    source_url = config.url
+    metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+    processor = TableauWorkbookProcessor(logger)
+
+    # Download workbook
+    workbook_content = processor.download_workbook(config.url)
+    workbook_length = len(workbook_content)
+    # Store in S3
+    s3_key = f"{s3_output_path}raw/workbook.twb"
+    store_assets.raw_to_s3(workbook_content, s3_key, s3_resource
+                          ,contenttype='application/octet-stream',
+                          metadata=metadata
+                          )
+
+    logger.info(f"Stored workbook in S3: s3://{s3_resource.S3_BUCKET}/{s3_key} ({workbook_length} bytes)")
+
+    return {
+        "s3_key": s3_key,
+        "file_size": workbook_length,
+        "url": config.url,
+        "workbook_name": config.workbook_name
+    }
+
+
+@asset( group_name="health",
+    key_prefix="sandiego",
+    name="sandiego_epidemiology_hyper_extraction",
+    deps=[sandiego_epidemiology_workbook_download],
+    required_resource_keys={"s3"},
+    description="Extract Hyper files from Tableau workbook and store in S3"
+)
+def sandiego_epidemiology_hyper_extraction(
+    context,
+    sandiego_epidemiology_workbook_download: Dict[str, Any],
+
+) -> Dict[str, Any]:
+    """Extract Hyper files from workbook and store in S3"""
+
+    logger = get_dagster_logger()
+    processor = TableauWorkbookProcessor(logger)
+    s3_resource= context.resources.s3
+    workbook_name = sandiego_epidemiology_workbook_download["workbook_name"]
+    s3_key = sandiego_epidemiology_workbook_download["s3_key"]
+    # The 'config' object is available globally due to its initialization outside the asset functions.
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Download workbook from S3
+        workbook_path = Path(temp_dir) / "workbook.twb"
+
+        workbook_content = s3_resource.getFile(s3_key)
+        extract_dir = Path(temp_dir) / "extracted" # Define extract_dir
+        extraction_info = processor.extract_workbook(workbook_content, extract_dir)
+
+        # Store each Hyper file in S3
+        hyper_files_stored = []
+
+        all_dataframes = {} # Initialize all_dataframes here
+        processed_count = 0 # Initialize processed_count here
+
+        for hyper_file_rel_path in extraction_info["hyper_files"]:
+            hyper_file_path = extract_dir / hyper_file_rel_path
+
+            if hyper_file_path.exists():
+                # Store Hyper file in S3
+                hyper_s3_key = f"health/sandiego_epidemiology/raw/{workbook_name}/hyper/{hyper_file_path.name}"
+
+                with open(hyper_file_path, 'rb') as f:
+                    name = f'sandiego_epidemiology_workbook_data {hyper_file_path.name}'
+                    description = f'''
+                         San Diego Epidemiology Data files from Tableau website  {workbook_name} {hyper_file_path.name}
+                         '''
+                    source_url = config.url
+                    metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
+                    store_assets.raw_to_s3(f.read(), hyper_s3_key, s3_resource, contenttype='application/octet-stream', metadata=metadata)
+                    """Convert Hyper files to processed DataFrames and store using utility functions"""
+
+                extracted_data_from_hyper = processor.extract_hyper_data(hyper_file_path) # Renamed to avoid conflict
+
+                for table_name, df in extracted_data_from_hyper.items():
+                    if not df.empty:
+                        # Add metadata columns
+                        df['extraction_date'] = pd.Timestamp.now().isoformat()
+                        df['source'] = 'sandiego_epidemiology_tableau'
+                        df['workbook_name'] = workbook_name
+                        df['hyper_file'] = hyper_file_path.name
+                        table_name = fixTableNames(table_name)
+
+                        _store_dataframe_to_s3(
+                            df=df,
+                            s3_resource=s3_resource,
+                            workbook_name=workbook_name,
+                            dataset_identifier=table_name,
+                            logger=logger,
+                            base_s3_output_prefix="health/sandiego_epidemiology/output",
+                            source_url=config.url
+                        )
+
+                        all_dataframes[table_name] = {
+                            "rows": len(df),
+                            "columns": len(df.columns),
+                            "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/{table_name}" # Update path based on helper
+                        }
+                        if TimeSeriesTablePrefix in table_name:
+                            df = df.dropna(subset=['Disease', 'Metric'])
+
+                            # Call reformatDf to process and prepare data by disease
+                            processed_dfs_by_disease = reformatDf(df)
+
+                            for disease, processed_df_for_disease in processed_dfs_by_disease.items():
+                                if not processed_df_for_disease.empty:
+                                    disease_safe_name = disease.replace(' ', '_').replace('/', '_')
+                                    _store_dataframe_to_s3(
+                                        df=processed_df_for_disease,
+                                        s3_resource=s3_resource,
+                                        workbook_name=workbook_name,
+                                        dataset_identifier=f"processed_by_disease/{disease_safe_name}",
+                                        logger=logger,
+                                        base_s3_output_prefix="health/sandiego_epidemiology/output",
+                                        source_url=config.url
+                                    )
+
+                                    logger.info(f"Processed and stored data for disease {disease} to S3: s3://{s3_resource.S3_BUCKET}/health/sandiego_epidemiology/output/{workbook_name}/processed_by_disease/{disease_safe_name}")
+
+                                    all_dataframes[f"{table_name}_{disease}"] = { # Adjust key to reflect disease
+                                        "rows": len(processed_df_for_disease),
+                                        "columns": len(processed_df_for_disease.columns),
+                                        "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/processed_by_disease/{disease_safe_name}"
+                                    }
+                                    processed_count += 1
+                                    logger.info(f"Processed {table_name}: {len(df)} rows, {len(df.columns)} columns") # Original logging
+                                    logger.info(f"Processed data for {disease} - {len(processed_df_for_disease)} rows, {len(processed_df_for_disease.columns)} columns") # New logging for disease-specific
+
+                hyper_files_stored.append({
+                    "filename": hyper_file_path.name,
+                    "s3_key": hyper_s3_key,
+                    "size": hyper_file_path.stat().st_size
+                })
+
+                logger.info(f"Stored Hyper file: {hyper_file_path.name}")
+
+
+    # Store processing summary
+    summary = {
+        "workbook_name": workbook_name,
+        "processed_datasets": all_dataframes,
+        "total_datasets": processed_count,
+        "processing_timestamp": pd.Timestamp.now().isoformat()
+    }
+
+
+    logger.info(f"Processing complete: {processed_count} datasets processed")
+
+    return summary
+
+
+def fixTableNames(name):
+    if TimeSeriesTablePrefix in name:
+       return TimeSeriesTablePrefix
+        # Find the first underscore after "Time_Series"
+    else:
+        parts = name.split('_')
+
+        if len(parts) >= 2 and parts[0] == "Time" and parts[1] == "Series":
+            return f"{parts[0]}_{parts[1]}"
+        elif len(parts) > 1:
+            return parts[0]
+        else:
+            return name
+
+
+
+def reformatDf(df):
+    """
+    Reformats the input DataFrame, pivots metrics into columns, renames columns,
+    and returns a dictionary of disease-specific DataFrames.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame from Hyper extraction,
+                           expected to contain 'FY', 'CDCWk', 'WkStart',
+                           'Disease', 'Metric', 'Count' columns.
+
+    Returns:
+        dict: A dictionary where keys are disease names (str) and values are
+              the processed pandas DataFrames for that disease.
+              Returns an empty dictionary if essential columns are missing or no relevant data.
+    """
+    # Ensure necessary columns exist
+    required_columns = ['FY', 'CDCWk', 'WkStrtActual', 'Disease', 'Metric', 'Count']
+    if not all(col in df.columns for col in required_columns):
+        # Using get_dagster_logger() in an asset or context would be better, but print for now
+        print(f"Input DataFrame is missing some required columns. Expected: {required_columns}")
+        return {}
+
+    # Prepare for pivoting: ensure 'epiweek_start' is derived from 'WkStart'
+    df_processed = df.copy()
+    df_processed['FY_original'] = df_processed['FY']
+    if 'WkStrtActual' in df_processed.columns:
+        df_processed['epiweek_start'] = df_processed['WkStrtActual'].apply(lambda x:  pd.Timestamp( str(x)) )
+        # WkStrtActual is actually a tableauhyper
+        df_processed['FY']=df_processed['epiweek_start'].dt.year
+        df_processed['epiweek_start']= df_processed['epiweek_start'].dt.strftime('%Y-%m-%d')
+
+    else:
+        print("Error: 'WkStrtActual' column not found in DataFrame, cannot derive 'epiweek_start'.")
+        return {}
+
+    # Replace 'Hospitalizations' with 'weekly_admissions' for easier column naming
+    df_processed['Metric'] = df_processed['Metric'].replace('Hospitalizations', 'weekly_admissions')
+
+
+    # Filter out rows where 'Metric' is not one of the target types
+    target_metrics = ['Cases', 'weekly_admissions', 'Deaths']
+    df_filtered = df_processed[df_processed['Metric'].isin(target_metrics)]
+
+    if df_filtered.empty:
+        print("No relevant metrics (Cases, Hospitalizations, Deaths) found in the DataFrame after filtering.")
+        return {}
+
+    # Pivot the DataFrame
+    pivoted_df = df_filtered.pivot_table(
+        index=['Disease','epiweek_start','FY', 'CDCWk'  ],
+        columns='Metric',
+        values='Count',
+        aggfunc='sum'
+    ).reset_index()
+
+    # Rename columns
+    pivoted_df = pivoted_df.rename(columns={
+        'FY': 'disease_year',
+        'CDCWk': 'disease_week',
+        'Cases': 'cases',
+        'weekly_admissions': 'weekly_admissions',
+        'Deaths': 'deaths'
+    })
+
+    # Ensure all target columns for metrics exist, fill NaN if a metric was not present for a given row
+    for col in ['cases', 'weekly_admissions', 'deaths']:
+        if col not in pivoted_df.columns:
+            pivoted_df[col] = np.nan
+
+    # Select and reorder the final columns, keeping 'Disease' for splitting
+    final_output_cols = ['disease_year', 'disease_week', 'epiweek_start', 'cases', 'weekly_admissions', 'deaths', 'Disease']
+    processed_df = pivoted_df[final_output_cols].copy()
+
+    # Convert numeric columns to appropriate types, filling NaNs with 0
+    for col in ['cases', 'weekly_admissions', 'deaths']:
+        processed_df[col] = pd.to_numeric(processed_df[col], errors='coerce').fillna(0).astype(int)
+
+    # Group by 'Disease' and prepare the dictionary of DataFrames
+    processed_dfs_by_disease = {}
+    for disease, group_df in processed_df.groupby('Disease'):
+        # Drop the 'Disease' column from the individual DataFrames
+        group_df_to_store = group_df.drop(columns=['Disease']).copy()
+        processed_dfs_by_disease[disease] = group_df_to_store
+
+    return processed_dfs_by_disease
+
+@dg.multi_asset_check(
+    # Map checks to targeted assets
+    #ins=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
+ins={
+            "sandiego_epidemiology_hyper_extraction": dg.AssetIn(key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']))
+        },
+    specs=[
+        dg.AssetCheckSpec(name="sde_timeseries_has_no_nulls", asset=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction'])),
+        dg.AssetCheckSpec(name="sde_timeseries_has_allweeks", asset=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction'])),
+    ],
+    required_resource_keys={"s3"}
+)
+def sde_timeseries_checks(context,sandiego_epidemiology_hyper_extraction)-> Iterable[dg.AssetCheckResult]:
+    s3_resource = context.resources.s3
+    workbook_name = sandiego_epidemiology_hyper_extraction["workbook_name"]
+    processed_datasets = sandiego_epidemiology_hyper_extraction["processed_datasets"]
+    s3_path= f'{processed_datasets[TimeSeriesTablePrefix]["s3_path"]}.csv'
+    ts_content = s3_resource.getFile(s3_path)
+    timeseries_dataframe = pd.read_csv(StringIO(ts_content.decode('utf-8')))
+    fields_checked = ['FY','CDCWk', 'WkNum', 'WkStart', 'Disease', 'Metric']
+    num_null_rows = timeseries_dataframe[fields_checked].isna().any(axis=1).sum()
+
+
+    # Return the result of the check
+    yield dg.AssetCheckResult(
+        check_name="sde_timeseries_has_no_nulls",
+        passed=bool(num_null_rows == 0),
+        metadata={"null_row_count": int(num_null_rows),
+                  'fields_checked':fields_checked},
+        asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
+    )
+    issues = check_missing_weeks(timeseries_dataframe,  date_column='WkStrtActual')
+
+    # check weeks
+    yield dg.AssetCheckResult(
+        check_name="sde_timeseries_has_allweeks",
+        passed=bool(issues['missing_weeks_count'] == 0),
+        metadata={"missing_weeks_count":issues['missing_weeks_count'],
+                  "missing_weeks": str(issues['missing_weeks']),
+                  "issues":str(issues)},
+        asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
+    )
+
+# @dg.definitions
+# def asset_checks():
+#     return dg.Definitions(
+#         asset_checks=[sde_timeseries_checks()],
+#     )

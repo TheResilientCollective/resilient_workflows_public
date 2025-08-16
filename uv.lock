@@ -30,13 +30,13 @@ name = "aiohttp"
 version = "3.12.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohappyeyeballs", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "aiosignal", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "attrs", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "frozenlist", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "multidict", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "propcache", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
-    { name = "yarl", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
+    { name = "aiohappyeyeballs", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "aiosignal", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "attrs", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "frozenlist", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "multidict", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "propcache", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
+    { name = "yarl", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9b/e7/d92a237d8802ca88483906c388f7c201bbe96cd80a165ffd0ac2f6a8d59f/aiohttp-3.12.15.tar.gz", hash = "sha256:4fc61385e9c98d72fcdf47e6dd81833f47b2f77c114c29cd64a361be57a763a2", size = 7823716, upload-time = "2025-07-29T05:52:32.215Z" }
 wheels = [
@@ -81,7 +81,7 @@ name = "aiosignal"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "frozenlist", marker = "python_full_version < '3.13' or platform_machine != 'x86_64' or sys_platform != 'darwin'" },
+    { name = "frozenlist", marker = "(python_full_version < '3.14' and platform_machine != 'x86_64') or (python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.14' and sys_platform != 'darwin')" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7", size = 25007, upload-time = "2025-07-03T22:54:43.528Z" }
@@ -2385,6 +2385,24 @@ wheels = [
 ]
 
 [[package]]
+name = "pantab"
+version = "5.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyarrow" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/08/7508545a9b2b4a6da2cdafbf9a896be2688c55beaa39d4b3cd97af38e4fc/pantab-5.2.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:4f79ea4a790482078e86fdade2c2b3e0588469d4bc0465a2ca317b6794610289", size = 72767062, upload-time = "2025-05-15T20:06:23.645Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/25/e2dc792f0b0494fee21cb9f6062b183f0922fcf705ed6a86b46c2395456c/pantab-5.2.2-cp312-cp312-macosx_11_0_x86_64.whl", hash = "sha256:5226c8906147162000ab9323de9d5d309fab580b476971650a4896178048944f", size = 73842844, upload-time = "2025-05-15T20:06:29.556Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/f0/eb02895fbd560378d86667150764602a15f5edb54e797678327103aaf23a/pantab-5.2.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1752754d77f7be8a4640a38955c26fe67e38388a7c877b378b0d3b6d24d1289f", size = 77422805, upload-time = "2025-05-15T20:06:34.477Z" },
+    { url = "https://files.pythonhosted.org/packages/13/d4/44d7566d0632dfc3680feb889b05e6968890bea5f1cc278bbb5c6262dfa8/pantab-5.2.2-cp312-cp312-win_amd64.whl", hash = "sha256:92d9fcb2f747a2fe23dd54b855c6a9185493bf0d15b4956b8619b7021391bfac", size = 60359130, upload-time = "2025-05-15T20:06:39.086Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/34/1ee1a6352eb020e70e99f76c57929c2b3a6950ff1697b7888c178b452d72/pantab-5.2.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:3862ecd9a86cd2c4cf1e1e2b8eeb74b30eaa7667907f3a24dba18756f0e845c7", size = 72767445, upload-time = "2025-05-15T20:06:43.875Z" },
+    { url = "https://files.pythonhosted.org/packages/98/8c/7242a1edf8c5944bc65c8daed0df7e34072a1110e2661a35a26475fc968c/pantab-5.2.2-cp313-cp313-macosx_11_0_x86_64.whl", hash = "sha256:9b584d31fcd3c82b65314346910fe449ce4389dbc5e5f16571eae05aea094881", size = 73842766, upload-time = "2025-05-15T20:06:48.43Z" },
+    { url = "https://files.pythonhosted.org/packages/69/c3/a2f47139d041cacbeebc1b88d15c839d0ecefa8f2c6a13fe5edd0a989816/pantab-5.2.2-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5544f358d0a5fd43ebd323cd567f4956433a91a2cf2f41a77b1e5137fe14fe2f", size = 77422869, upload-time = "2025-05-15T20:06:53.006Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/c9/5c2c945717e0afd71be10d256d5c94c0effe63db7d9ad50167b3f4417592/pantab-5.2.2-cp313-cp313-win_amd64.whl", hash = "sha256:b34d28ec1c95f841c94d3d6012ac4435167a2c4dc461f9cf51a159125a52054b", size = 60358990, upload-time = "2025-05-15T20:06:57.51Z" },
+]
+
+[[package]]
 name = "papermill"
 version = "2.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3157,37 +3175,26 @@ name = "resilient-workflows-public"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aqicalc" },
+    { name = "awswrangler" },
+    { name = "beautifulsoup4" },
     { name = "dagit" },
     { name = "dagster" },
     { name = "dagster-aws" },
     { name = "dagster-docker" },
+    { name = "dagster-duckdb" },
+    { name = "dagster-duckdb-pandas" },
+    { name = "dagster-embedded-elt" },
     { name = "dagster-openai" },
     { name = "dagster-postgres" },
     { name = "dagster-slack" },
     { name = "dagster-webserver" },
     { name = "dagstermill" },
-    { name = "icecream" },
-    { name = "pandas-stubs" },
-    { name = "pyarrow" },
-    { name = "simplepbi" },
-    { name = "suds" },
-    { name = "zeep" },
-]
-
-[package.optional-dependencies]
-workflows = [
-    { name = "aqicalc" },
-    { name = "awswrangler" },
-    { name = "beautifulsoup4" },
-    { name = "dagster-duckdb" },
-    { name = "dagster-duckdb-pandas" },
-    { name = "dagster-embedded-elt" },
-    { name = "dagster-openai" },
-    { name = "dagstermill" },
     { name = "docker" },
     { name = "foursquare-data-sdk" },
     { name = "geopandas" },
     { name = "geopy" },
+    { name = "icecream" },
     { name = "ipython-genutils" },
     { name = "kml2geojson" },
     { name = "lxml" },
@@ -3195,7 +3202,10 @@ workflows = [
     { name = "notebook" },
     { name = "openmeteo-requests" },
     { name = "pandas" },
+    { name = "pandas-stubs" },
+    { name = "pantab" },
     { name = "pyairtable" },
+    { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-schemaorg" },
     { name = "pydash" },
@@ -3203,54 +3213,63 @@ workflows = [
     { name = "requests-cache" },
     { name = "retry-requests" },
     { name = "scikit-learn" },
+    { name = "simplepbi" },
+    { name = "suds" },
+    { name = "tableau-parser" },
+    { name = "tableaudocumentapi" },
+    { name = "tableauhyperapi" },
+    { name = "zeep" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "aqicalc", marker = "extra == 'workflows'" },
-    { name = "awswrangler", marker = "extra == 'workflows'" },
-    { name = "beautifulsoup4", marker = "extra == 'workflows'" },
+    { name = "aqicalc" },
+    { name = "awswrangler" },
+    { name = "beautifulsoup4" },
     { name = "dagit", specifier = ">=1.10.14" },
     { name = "dagster", specifier = ">=1.10.14" },
     { name = "dagster-aws", specifier = ">=0.27.3" },
     { name = "dagster-docker", specifier = ">=0.27.3" },
-    { name = "dagster-duckdb", marker = "extra == 'workflows'" },
-    { name = "dagster-duckdb-pandas", marker = "extra == 'workflows'" },
-    { name = "dagster-embedded-elt", marker = "extra == 'workflows'" },
+    { name = "dagster-duckdb" },
+    { name = "dagster-duckdb-pandas" },
+    { name = "dagster-embedded-elt" },
+    { name = "dagster-openai" },
     { name = "dagster-openai", specifier = "==0.27.3" },
-    { name = "dagster-openai", marker = "extra == 'workflows'" },
     { name = "dagster-postgres", specifier = ">=0.27.3" },
     { name = "dagster-slack", specifier = ">=0.27.3" },
     { name = "dagster-webserver", specifier = ">=1.10.14" },
+    { name = "dagstermill", specifier = ">=0.23.10" },
     { name = "dagstermill", specifier = ">=0.27.3" },
-    { name = "dagstermill", marker = "extra == 'workflows'", specifier = ">=0.23.10" },
-    { name = "docker", marker = "extra == 'workflows'", specifier = ">=6.1.0" },
-    { name = "foursquare-data-sdk", marker = "extra == 'workflows'" },
-    { name = "geopandas", marker = "extra == 'workflows'" },
-    { name = "geopy", marker = "extra == 'workflows'" },
+    { name = "docker", specifier = ">=6.1.0" },
+    { name = "foursquare-data-sdk" },
+    { name = "geopandas" },
+    { name = "geopy" },
     { name = "icecream", specifier = ">=2.1.4" },
-    { name = "ipython-genutils", marker = "extra == 'workflows'", specifier = "==0.2.0" },
-    { name = "kml2geojson", marker = "extra == 'workflows'" },
-    { name = "lxml", marker = "extra == 'workflows'" },
-    { name = "minio", marker = "extra == 'workflows'", specifier = "==7.1.13" },
-    { name = "notebook", marker = "extra == 'workflows'" },
-    { name = "openmeteo-requests", marker = "extra == 'workflows'" },
-    { name = "pandas", marker = "extra == 'workflows'", specifier = ">=2.2.0" },
+    { name = "ipython-genutils", specifier = "==0.2.0" },
+    { name = "kml2geojson" },
+    { name = "lxml" },
+    { name = "minio", specifier = "==7.1.13" },
+    { name = "notebook" },
+    { name = "openmeteo-requests" },
+    { name = "pandas", specifier = ">=2.2.0" },
     { name = "pandas-stubs", specifier = "==2.3.0.250703" },
-    { name = "pyairtable", marker = "extra == 'workflows'", specifier = ">3" },
+    { name = "pantab" },
+    { name = "pyairtable", specifier = ">3" },
     { name = "pyarrow", specifier = ">=20" },
-    { name = "pydantic", marker = "extra == 'workflows'", specifier = ">=2,<3.0.0" },
-    { name = "pydantic-schemaorg", marker = "extra == 'workflows'", git = "https://github.com/TheResilientCollective/pydantic_schemaorg.git?rev=pydantic_v2" },
-    { name = "pydash", marker = "extra == 'workflows'" },
-    { name = "pyyaml", marker = "extra == 'workflows'" },
-    { name = "requests-cache", marker = "extra == 'workflows'" },
-    { name = "retry-requests", marker = "extra == 'workflows'" },
-    { name = "scikit-learn", marker = "extra == 'workflows'" },
+    { name = "pydantic", specifier = ">=2,<3.0.0" },
+    { name = "pydantic-schemaorg", git = "https://github.com/TheResilientCollective/pydantic_schemaorg.git?rev=pydantic_v2" },
+    { name = "pydash" },
+    { name = "pyyaml" },
+    { name = "requests-cache" },
+    { name = "retry-requests" },
+    { name = "scikit-learn" },
     { name = "simplepbi", specifier = ">=1.0" },
     { name = "suds", specifier = ">=1.2.0" },
+    { name = "tableau-parser" },
+    { name = "tableaudocumentapi" },
+    { name = "tableauhyperapi" },
     { name = "zeep", extras = ["workflows"], specifier = ">=4.3.1" },
 ]
-provides-extras = ["workflows"]
 
 [[package]]
 name = "retry-requests"
@@ -3767,6 +3786,41 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/3e/a1/c3783be8de318678c822d6edf9855729c528ba06ac9004398c225ecf2dbd/suds-1.2.0.tar.gz", hash = "sha256:83b162c3d2355374e11d8b9acf15eeaa158b416b4625821844f9f628d679deaf", size = 271331, upload-time = "2024-08-24T20:07:28.95Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c4/43/658bd1825a5f58c1182269eaa6165084d8d95e031cd7e34a2a1bcf773579/suds-1.2.0-py3-none-any.whl", hash = "sha256:2cf8ed43ed8a0df350027c741f5295d6be8443d4e820cb36f2c17b033e331d5b", size = 145151, upload-time = "2024-08-24T20:07:27.206Z" },
+]
+
+[[package]]
+name = "tableau-parser"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c5/3c/58fd2460ac2fa6c4aae2876cded8dc800a08e54f4b2acbb82e8ca5604c3f/tableau_parser-0.1.0.tar.gz", hash = "sha256:53e5d1539b338debf2c2a6545f39f5e867a28099ef2dc5289a00c6d7ab4b6956", size = 7715, upload-time = "2025-06-16T07:48:13.732Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/23/f608ef7b5429f27c8ae5801ca4fd196bb8b4082602183334bf81dd9d62a4/tableau_parser-0.1.0-py3-none-any.whl", hash = "sha256:8a3e544920e1afae7cd89b6ec86bdcf26b9961cc913bc005a9bf493ec4b4ff48", size = 7497, upload-time = "2025-06-16T07:48:11.226Z" },
+]
+
+[[package]]
+name = "tableaudocumentapi"
+version = "0.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lxml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c5/82/9162d0d6c250d5cfefc1434e08c072fca4455e7e47e6807ae351611305f5/tableaudocumentapi-0.11.tar.gz", hash = "sha256:83a5755017fe3f6d45719911dcf1e8526766ad0c04be375dd552a1bcd9af3b2b", size = 18613, upload-time = "2022-11-07T16:12:02.723Z" }
+
+[[package]]
+name = "tableauhyperapi"
+version = "0.0.22502"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/06/87/6a5e6b961051577d6b9b5f366c9fab74b3a14c5160da7e21d2268a81f479/tableauhyperapi-0.0.22502-py3-none-macosx_10_11_x86_64.whl", hash = "sha256:b9b82e09ce2add4a066eef173c2695d7b58485e75d144e1654433a0fd96bea3c", size = 75228177, upload-time = "2025-06-19T15:45:11.069Z" },
+    { url = "https://files.pythonhosted.org/packages/19/38/9bf92b8c5caaaac7b0d4ed4d0b5e09d50d45b93a35cb79bb16aada488430/tableauhyperapi-0.0.22502-py3-none-macosx_13_0_arm64.whl", hash = "sha256:e164c78867bc726ee67d3d6c67f798375ddd8e631120219e0a0826762d5d951a", size = 68468286, upload-time = "2025-06-19T15:44:55.205Z" },
+    { url = "https://files.pythonhosted.org/packages/92/c0/54c4ffd025421c9005e60911a6caac224159d41e4d62a7c2ca36101e07a9/tableauhyperapi-0.0.22502-py3-none-manylinux2014_x86_64.whl", hash = "sha256:976f2d80e37cc54a3aa6907a1b1aae7513ea14a53eb0a866320240e8a7bdb68a", size = 78614170, upload-time = "2025-06-19T15:45:20.503Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/3c/0027e22fac01b048522f181d47c8663a15e345490653af01c2061db74289/tableauhyperapi-0.0.22502-py3-none-win_amd64.whl", hash = "sha256:0b832ded8f9401079f30c1903d523454154db2d4e1ff5a0b707664a3c946b4ff", size = 61683109, upload-time = "2025-06-19T15:45:02.667Z" },
 ]
 
 [[package]]

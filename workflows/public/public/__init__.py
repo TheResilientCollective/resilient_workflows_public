@@ -19,7 +19,10 @@ slack_on_run_failure = make_slack_on_run_failure_sensor(
 )
 
 all_assets = load_assets_from_modules([assets])
-asset_checks=[assets.sd_complaints_freshness_check, assets.current_freshness_check]
+asset_checks=[assets.sd_complaints_freshness_check
+    , assets.current_freshness_check
+    , assets.sde_timeseries_checks
+              ]
 all_schedules = [assets.beach_waterquality_schedule,
               #   assets.complaints_daily_schedule, # now a sensor
                  assets.apcd_current_schedule, assets.apcd_all_schedule,
@@ -28,7 +31,8 @@ all_schedules = [assets.beach_waterquality_schedule,
                     assets.purple_air_schedule,
                  assets.spills_historic_schedule,
                  assets.cdc_nnds.cdc_nndss_raw_schedule,
-                 assets.mpox_counties_weekly_schedule
+                 assets.mpox_counties_weekly_schedule,
+              #   assets.sandiego_epidemiology_schedule
                  ]
 all_sensors=[slack_on_run_failure,
              assets.complaints_data_sensor,
