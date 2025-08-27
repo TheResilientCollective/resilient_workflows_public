@@ -22,6 +22,8 @@ import geopandas as gpd
 import datetime
 from ..utils.constants import ICONS
 from bs4 import BeautifulSoup
+import hashlib
+import json
 
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
 
@@ -271,16 +273,84 @@ def get_sdbeachinfo_status(context) -> gpd.GeoDataFrame:
     #store_assets.dataframe_to_s3(closures_name_df, filename, s3_resource, formats=['json'])
     return closures_gdf
 
+def get_cache_s3_path(cache_key):
+    """Get the S3 path for a translation cache entry"""
+    return f'{s3_output_path}/cache/translations/{cache_key}.json'
 
-def translate(message,  openai_client, language_code='es', model='llama3',):
+def init_translation_cache():
+    """Initialize the translation cache - no setup needed for S3 JSON storage"""
+    get_dagster_logger().info("Translation cache initialized for S3 JSON storage")
+    pass
+
+def get_translation_cache_key(message, language_code, model):
+    """Generate a cache key for the translation"""
+    content = f"{message}|{language_code}|{model}"
+    return hashlib.md5(content.encode('utf-8')).hexdigest()
+
+def get_cached_translation(message, language_code, model, s3_resource):
+    """Retrieve cached translation if it exists from S3"""
+    if not message or message.strip() == '':
+        return None
+
+    cache_key = get_translation_cache_key(message, language_code, model)
+    cache_path = get_cache_s3_path(cache_key)
+
+    try:
+        # Use Minio client directly with correct syntax
+        minio_client = s3_resource.getClient()
+        cache_data = minio_client.get_object(s3_resource.S3_BUCKET, cache_path)
+        cache_content = cache_data.read().decode('utf-8')
+        cache_json = json.loads(cache_content)
+        
+        get_dagster_logger().debug(f"Cache hit for translation: {message[:50]}...")
+        return cache_json['translated_text']
+
+    except Exception as e:
+        get_dagster_logger().debug(f"Cache miss for translation: {message[:50]}... - {e}")
+        return None
+
+def cache_translation(message, translation, language_code, model, s3_resource):
+    """Store translation in S3 cache"""
+    if not message or message.strip() == '':
+        return
+
+    cache_key = get_translation_cache_key(message, language_code, model)
+    cache_path = get_cache_s3_path(cache_key)
+
+    cache_data = {
+        'input_hash': cache_key,
+        'original_text': message,
+        'translated_text': translation,
+        'language_code': language_code,
+        'model': model,
+        'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+
+    try:
+        cache_json = json.dumps(cache_data, indent=2)
+        s3_resource.putFile_text(data=cache_json, path=cache_path)
+        get_dagster_logger().debug(f"Cached translation for: {message[:50]}...")
+
+    except Exception as e:
+        get_dagster_logger().warning(f"Error caching translation: {e}")
+
+def translate(message, openai_client, s3_resource, language_code='es', model='llama3'):
     if message is None or message == '':
         return ''
+
+
+
+    # Check cache first
+    cached_result = get_cached_translation(message, language_code, model, s3_resource)
+    if cached_result is not None:
+        return cached_result
+
     get_dagster_logger().debug(f" get beach closure translation: {message}")
     instructions = f'''
 Translate the following text into Spanish using the regional expressions common in the Tijuana area. Please:
-   * Use “aguas negras” in place of “sewage.”
-   * Use “aguas pluviales” for “runoff water.”
-   * Adapt terms like “dashboard” to more colloquial equivalents, for example “tablero.”
+   * Use "aguas negras" in place of "sewage."
+   * Use "aguas pluviales" for "runoff water."
+   * Adapt terms like "dashboard" to more colloquial equivalents, for example "tablero."
    * Ensure the translation resonates naturally with the local public in Tijuana.
 Maintain the html elements" 
     '''
@@ -301,6 +371,10 @@ Maintain the html elements"
     #get_dagster_logger().info(f" get beach closure response: {resp}")
     translation = resp.choices[0].message.content
     get_dagster_logger().debug(f" get beach closure translation: {translation}")
+
+    # Cache the result
+    cache_translation(message, translation, language_code, model, s3_resource)
+
     return f'{translation}'
 @asset(group_name="tijuana", key_prefix="waterquality",
        name="sdbeachinfo_status_translation", required_resource_keys={"s3", "airtable","openai"},
@@ -329,14 +403,17 @@ def beachwatch_status_translation(context) -> gpd.GeoDataFrame:
     s3_resource = context.resources.s3
     openai_resource = context.resources.openai
     closure_gdf = context.repository_def.load_asset_value(AssetKey([f"waterquality", "sdbeachinfo_status"]))
+    # Initialize cache on first use
+    init_translation_cache()
+
     with openai_resource.get_client(context) as client:
         closure_translated = closure_gdf
         #closure_translated = closure_gdf.head(10)
-        closure_translated['Description_es']= closure_translated['Description'].apply(lambda x : translate(x, client, language_code='es', model='llama3'))
+        closure_translated['Description_es']= closure_translated['Description'].apply(lambda x : translate(x, client, s3_resource, language_code='es', model='llama3'))
         #closure_translated['Closure_es']= closure_translated['Closure'].apply(lambda x : translate(x, client, language_code='es', model='llama3'))
         #closure_translated['Advisory_es']= closure_translated['Advisory'].apply(lambda x : translate(x, client, language_code='es', model='llama3'))
         closure_translated['StatusNote_es'] = closure_translated['StatusNote'].apply(
-            lambda x: translate(x, client, language_code='es', model='llama3'))
+            lambda x: translate(x, client, s3_resource, language_code='es', model='llama3'))
 
     filename = f'{s3_output_path}/output/current/sdbeachinfo_status_translated'
     store_assets.geodataframe_to_s3(closure_translated, filename, s3_resource, formats=['json', 'geojson'], metadata=metadata )
