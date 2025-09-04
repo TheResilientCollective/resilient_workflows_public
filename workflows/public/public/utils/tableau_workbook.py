@@ -12,7 +12,11 @@ from tableauhyperapi import HyperProcess, Telemetry, Connection, CreateMode
 
 
 class TableauWorkbookConfig(Config):
-    url: str = "https://public.tableau.com/workbooks/DraftRespDash.twb"
+    # urls from the website
+    # the website at present "https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/DraftRespDash_750/RespDash_750"
+    # the download url from the download button: "Request URL: https://public.tableau.com/workbooks/DraftRespDash_750.twb"
+   # url: str = "https://public.tableau.com/workbooks/DraftRespDash.twb"
+    url: str = "https://public.tableau.com/workbooks/DraftRespDash_750.twb"
     workbook_name: str = "sandiego_epidemiology"
 
 
