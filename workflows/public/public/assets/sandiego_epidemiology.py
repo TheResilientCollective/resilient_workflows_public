@@ -15,6 +15,8 @@ from workflows.public.public.utils.tableau_workbook import TableauWorkbookConfig
 from ..utils.date import check_missing_weeks
 
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
+# configure notebook url in utils/tableau_workbook
+
 config= TableauWorkbookConfig()
 TimeSeriesTablePrefix="Time_Series"
 # New helper function to encapsulate dataframe storage logic
