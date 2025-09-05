@@ -189,7 +189,7 @@ def sandiego_epidemiology_hyper_extraction(
 
                             for disease, processed_df_for_disease in processed_dfs_by_disease.items():
                                 if not processed_df_for_disease.empty:
-                                    disease_safe_name = disease.replace(' ', '_').replace('/', '_')
+                                    disease_safe_name = disease.replace(' ', '_').replace('/', '_').upper()
                                     _store_dataframe_to_s3(
                                         df=processed_df_for_disease,
                                         s3_resource=s3_resource,
