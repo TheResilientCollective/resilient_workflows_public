@@ -1,17 +1,19 @@
 import tempfile
 from pathlib import Path
 import pandas as pd
-from dagster import asset, get_dagster_logger
+from dagster import asset, get_dagster_logger, define_asset_job, AssetKey, sensor, RunRequest, SensorEvaluationContext
 from typing import Dict, Any, Iterable
 import json
 import numpy as np
 import dagster as dg
 from six import StringIO
+import requests
+import datetime
 
 from ..resources import minio
 from ..utils import store_assets
 
-from workflows.public.public.utils.tableau_workbook import TableauWorkbookConfig, TableauWorkbookProcessor
+from workflows.public.public.utils.tableau_workbook import TableauWorkbookConfig, TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
 from ..utils.date import check_missing_weeks
 
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
@@ -378,6 +380,64 @@ def sde_timeseries_checks(context,sandiego_epidemiology_hyper_extraction)-> Iter
                   "issues":str(issues)},
         asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
     )
+
+sandiego_epidemiology_job = define_asset_job(
+    "sandiego_epidemiology", 
+    selection=[
+        AssetKey(["sandiego", "sandiego_epidemiology_workbook_download"]),
+        AssetKey(["sandiego", "sandiego_epidemiology_hyper_extraction"]),
+    ]
+)
+
+@sensor(
+    job=sandiego_epidemiology_job,
+    minimum_interval_seconds=3600
+)
+def sandiego_epidemiology_sensor(context: SensorEvaluationContext):
+    """
+    Sensor that monitors the Tableau workbook API for lastPublishDate changes
+    and triggers the sandiego_epidemiology_job when detected
+    """
+    logger = get_dagster_logger()
+    
+    try:
+        workbook_config = TableauWorkbookConfig()
+        api_url = workbook_config.wb_api_url
+        
+        logger.info(f"Checking Tableau API: {api_url}")
+        
+        response = requests.get(api_url)
+        response.raise_for_status()
+        api_data = response.json()
+        
+        converted_data = convert_tableau_timestamps_to_datetime(api_data)
+        
+        if 'lastPublishDate' in converted_data:
+            last_publish_date = converted_data['lastPublishDate']
+            logger.info(f"Converted lastPublishDate: {last_publish_date}")
+            
+            previous_date = context.cursor or None
+            
+            if previous_date != str(last_publish_date):
+                logger.info(f"lastPublishDate changed from {previous_date} to {last_publish_date}")
+                
+                for field_name, field_value in converted_data.items():
+                    if isinstance(field_value, datetime.datetime):
+                        logger.info(f"Converted datetime field '{field_name}': {field_value}")
+                
+                yield RunRequest(
+                    run_key=f"sandiego_epidemiology_{last_publish_date.strftime('%Y%m%d_%H%M%S')}",
+                    run_config={}
+                )
+                
+                context.update_cursor(str(last_publish_date))
+            else:
+                logger.info(f"No change in lastPublishDate: {last_publish_date}")
+        else:
+            logger.warning("lastPublishDate field not found in API response")
+            
+    except Exception as e:
+        logger.error(f"Error checking Tableau API: {e}")
 
 # @dg.definitions
 # def asset_checks():

@@ -1,4 +1,5 @@
 import os
+import datetime
 import shutil
 import tempfile
 import zipfile
@@ -18,6 +19,7 @@ class TableauWorkbookConfig(Config):
    # url: str = "https://public.tableau.com/workbooks/DraftRespDash.twb"
     url: str = "https://public.tableau.com/workbooks/DraftRespDash_750.twb"
     workbook_name: str = "sandiego_epidemiology"
+    wb_api_url: str = "https://public.tableau.com/profile/api/single_workbook/DraftRespDash_750"
 
 
 
@@ -146,3 +148,37 @@ class TableauWorkbookProcessor:
                 self.logger.error(f"Fallback extraction also failed: {fallback_error}")
 
         return extracted_data
+
+
+def convert_tableau_timestamps_to_datetime(data):
+    """
+    Convert Tableau API timestamp fields to datetime objects.
+    Tableau timestamps are in milliseconds since epoch.
+
+    Args:
+        data (dict): Dictionary from Tableau API response
+
+    Returns:
+        dict: Dictionary with timestamp fields converted to datetime objects
+    """
+    # Fields that are known to be timestamps
+    timestamp_fields = [
+        'firstPublishDate',
+        'lastPublishDate',
+        'createdAt',
+        'lastUpdateDate'
+    ]
+
+    converted_data = data.copy()
+
+    for field in timestamp_fields:
+        if field in converted_data and converted_data[field] is not None:
+            try:
+                # Convert from milliseconds to seconds
+                timestamp_seconds = converted_data[field] / 1000
+                converted_data[field] = datetime.datetime.fromtimestamp(timestamp_seconds)
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Could not convert {field}: {e}")
+                # Keep original value if conversion fails
+
+    return converted_data
