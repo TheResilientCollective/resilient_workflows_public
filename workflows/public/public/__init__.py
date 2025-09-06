@@ -38,6 +38,7 @@ all_sensors=[slack_on_run_failure,
              assets.complaints_data_sensor,
              assets.beachinfo_updated_sensor,
              assets.spills_latest_sensor,
+             assets.sandiego_epidemiology_sensor
              ]
 all_jobs=[
     #assets.complaints_daily_job
