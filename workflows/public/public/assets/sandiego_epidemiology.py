@@ -21,6 +21,8 @@ s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
 
 config= TableauWorkbookConfig()
 TimeSeriesTablePrefix="Time_Series"
+
+
 # New helper function to encapsulate dataframe storage logic
 def _store_dataframe_to_s3(
     df: pd.DataFrame,
@@ -29,12 +31,14 @@ def _store_dataframe_to_s3(
     dataset_identifier: str, # Use a more generic name for the last part of the path/metadata
     logger,
     base_s3_output_prefix: str, # e.g., "health/sandiego_epidemiology/output"
-    source_url: str
+    source_url: str,
+    date_updated: datetime.datetime = None
 ):
     """
     Helper function to store a DataFrame to S3, handling GeoDataFrame conversion and metadata.
     """
-    s3_path = f"{base_s3_output_prefix}/{workbook_name}/{dataset_identifier}"
+    date_path = dates3Path(date_updated)
+    s3_path = f"{base_s3_output_prefix}/{workbook_name}/{date_path}/{dataset_identifier}"
 
     # Create metadata
     metadata = store_assets.objectMetadata(
@@ -61,6 +65,11 @@ def _store_dataframe_to_s3(
         logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
         store_assets.dataframe_to_s3(df, s3_path, s3_resource, metadata=metadata)
         logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+
+def dates3Path(date=None):
+    if date is None:
+        date = datetime.datetime.now()
+    return date.strftime('%Y%m%d_%H')
 
 
 @asset( group_name="health",
@@ -89,7 +98,8 @@ def sandiego_epidemiology_workbook_download(
     workbook_content = processor.download_workbook(config.url)
     workbook_length = len(workbook_content)
     # Store in S3
-    s3_key = f"{s3_output_path}raw/workbook.twb"
+    date_path = dates3Path()
+    s3_key = f"{s3_output_path}raw/{date_path}/workbook.twb"
     store_assets.raw_to_s3(workbook_content, s3_key, s3_resource
                           ,contenttype='application/octet-stream',
                           metadata=metadata
@@ -124,6 +134,7 @@ def sandiego_epidemiology_hyper_extraction(
     s3_resource= context.resources.s3
     workbook_name = sandiego_epidemiology_workbook_download["workbook_name"]
     s3_key = sandiego_epidemiology_workbook_download["s3_key"]
+    date_path = dates3Path()
     # The 'config' object is available globally due to its initialization outside the asset functions.
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -145,7 +156,7 @@ def sandiego_epidemiology_hyper_extraction(
 
             if hyper_file_path.exists():
                 # Store Hyper file in S3
-                hyper_s3_key = f"health/sandiego_epidemiology/raw/{workbook_name}/hyper/{hyper_file_path.name}"
+                hyper_s3_key = f"health/sandiego_epidemiology/raw/{workbook_name}/{date_path}/hyper/{hyper_file_path.name}"
 
                 with open(hyper_file_path, 'rb') as f:
                     name = f'sandiego_epidemiology_workbook_data {hyper_file_path.name}'
@@ -181,7 +192,7 @@ def sandiego_epidemiology_hyper_extraction(
                         all_dataframes[table_name] = {
                             "rows": len(df),
                             "columns": len(df.columns),
-                            "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/{table_name}" # Update path based on helper
+                            "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/{date_path}/{table_name}" # Update path based on helper
                         }
                         if TimeSeriesTablePrefix in table_name:
                             df = df.dropna(subset=['Disease', 'Metric'])
@@ -200,6 +211,7 @@ def sandiego_epidemiology_hyper_extraction(
                                         logger=logger,
                                         base_s3_output_prefix="health/sandiego_epidemiology/output",
                                         source_url=config.url
+
                                     )
 
                                     logger.info(f"Processed and stored data for disease {disease} to S3: s3://{s3_resource.S3_BUCKET}/health/sandiego_epidemiology/output/{workbook_name}/processed_by_disease/{disease_safe_name}")
@@ -382,7 +394,7 @@ def sde_timeseries_checks(context,sandiego_epidemiology_hyper_extraction)-> Iter
     )
 
 sandiego_epidemiology_job = define_asset_job(
-    "sandiego_epidemiology", 
+    "sandiego_epidemiology",
     selection=[
         AssetKey(["sandiego", "sandiego_epidemiology_workbook_download"]),
         AssetKey(["sandiego", "sandiego_epidemiology_hyper_extraction"]),
@@ -399,43 +411,43 @@ def sandiego_epidemiology_sensor(context: SensorEvaluationContext):
     and triggers the sandiego_epidemiology_job when detected
     """
     logger = get_dagster_logger()
-    
+
     try:
         workbook_config = TableauWorkbookConfig()
         api_url = workbook_config.wb_api_url
-        
+
         logger.info(f"Checking Tableau API: {api_url}")
-        
+
         response = requests.get(api_url)
         response.raise_for_status()
         api_data = response.json()
-        
+
         converted_data = convert_tableau_timestamps_to_datetime(api_data)
-        
+
         if 'lastPublishDate' in converted_data:
             last_publish_date = converted_data['lastPublishDate']
             logger.info(f"Converted lastPublishDate: {last_publish_date}")
-            
+
             previous_date = context.cursor or None
-            
+
             if previous_date != str(last_publish_date):
                 logger.info(f"lastPublishDate changed from {previous_date} to {last_publish_date}")
-                
+
                 for field_name, field_value in converted_data.items():
                     if isinstance(field_value, datetime.datetime):
                         logger.info(f"Converted datetime field '{field_name}': {field_value}")
-                
+
                 yield RunRequest(
                     run_key=f"sandiego_epidemiology_{last_publish_date.strftime('%Y%m%d_%H%M%S')}",
                     run_config={}
                 )
-                
+
                 context.update_cursor(str(last_publish_date))
             else:
                 logger.info(f"No change in lastPublishDate: {last_publish_date}")
         else:
             logger.warning("lastPublishDate field not found in API response")
-            
+
     except Exception as e:
         logger.error(f"Error checking Tableau API: {e}")
 
