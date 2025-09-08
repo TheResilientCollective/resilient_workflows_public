@@ -1,4 +1,5 @@
 import tempfile
+import os
 from pathlib import Path
 import pandas as pd
 from dagster import asset, get_dagster_logger, define_asset_job, AssetKey, sensor, RunRequest, SensorEvaluationContext
@@ -18,6 +19,7 @@ from ..utils.date import check_missing_weeks
 
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
 # configure notebook url in utils/tableau_workbook
+SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
 
 config= TableauWorkbookConfig()
 TimeSeriesTablePrefix="Time_Series"
@@ -403,7 +405,8 @@ sandiego_epidemiology_job = define_asset_job(
 
 @sensor(
     job=sandiego_epidemiology_job,
-    minimum_interval_seconds=3600
+    minimum_interval_seconds=3600,
+    required_resource_keys={"slack"}
 )
 def sandiego_epidemiology_sensor(context: SensorEvaluationContext):
     """
@@ -411,7 +414,7 @@ def sandiego_epidemiology_sensor(context: SensorEvaluationContext):
     and triggers the sandiego_epidemiology_job when detected
     """
     logger = get_dagster_logger()
-
+    slack = context.resources.slack
     try:
         workbook_config = TableauWorkbookConfig()
         api_url = workbook_config.wb_api_url
@@ -431,12 +434,16 @@ def sandiego_epidemiology_sensor(context: SensorEvaluationContext):
             previous_date = context.cursor or None
 
             if previous_date != str(last_publish_date):
-                logger.info(f"lastPublishDate changed from {previous_date} to {last_publish_date}")
+                logger.info(f"sandiego_epidemiology lastPublishDate changed from {previous_date} to {last_publish_date}")
 
                 for field_name, field_value in converted_data.items():
                     if isinstance(field_value, datetime.datetime):
                         logger.info(f"Converted datetime field '{field_name}': {field_value}")
-
+                try:
+                    slack.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                        text=f'sandiego_epidemiology updated to {last_publish_date}')
+                except Exception as e:
+                    get_dagster_logger().error('Slack post error for sandiego_epidemiology updated')
                 yield RunRequest(
                     run_key=f"sandiego_epidemiology_{last_publish_date.strftime('%Y%m%d_%H%M%S')}",
                     run_config={}
