@@ -1,3 +1,6 @@
+from typing import Iterator, Generator
+
+import minio.datatypes
 from dagster import asset, get_dagster_logger, define_asset_job, ConfigurableResource
 from minio import Minio
 import io
@@ -52,13 +55,13 @@ class S3Resource(ResourceWithS3Configuration):
 # use_ssl
 # aws_access_key_id
 # aws_secret_access_key
-    def listPath(self, path='orgs', recusrsive=True):
+    def listPath(self, path='orgs', recusrsive=True) -> Generator[minio.datatypes.Object]:
         result = self.getClient().list_objects(
-            Bucket=self.S3_BUCKET,
-            Prefix=path,
+            self.S3_BUCKET,
+            path,
 #            Recusrsive=recusrsive
         )
-        return result["Contents"]
+        return result
     def getFile(self, path='test'):
         try:
             result =   self.getClient().get_object(

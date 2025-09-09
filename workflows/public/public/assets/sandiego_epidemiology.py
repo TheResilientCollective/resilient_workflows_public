@@ -250,6 +250,7 @@ def sandiego_epidemiology_hyper_extraction(
     return summary
 
 
+
 def fixTableNames(name):
     if TimeSeriesTablePrefix in name:
        return TimeSeriesTablePrefix

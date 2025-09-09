@@ -34,5 +34,9 @@ class AirtableResource( ResourceWithAirtableConfiguration):
             arecord = { 'fields': fields }
             records.append(arecord)
         #get_dagster_logger().info(records)
-        ids=self.getTable(tableid).batch_upsert(records,keyfields, typecast=True)
-        return ids
+        try:
+            ids=self.getTable(tableid).batch_upsert(records,keyfields, typecast=True)
+            return ids
+        except Exception as e:
+            get_dagster_logger().error(f"airtable failed upsert {e} ")
+            return []
