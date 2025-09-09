@@ -5,6 +5,7 @@ from dagster_openai import OpenAIResource
 from . import assets
 from .resources.minio import S3Resource
 from .resources.airtable import AirtableResource
+from .resources.resilientsims import ResilientSimsResource,ResourceWithResilientSimsConfiguration
 
 def slack_message_fn(context: RunFailureSensorContext) -> str:
     return (
@@ -62,6 +63,12 @@ openai=OpenAIResource(
    api_key=EnvVar("OPENAI_API_KEY"),
    base_url=EnvVar("OPENAI_BASE_URL")
 )
+resilentsims_config=ResilientSimsResource(
+    RESILIENTSIMS_SERVER_URL=os.environ.get("RESILIENTSIMS_SERVER_URL", "https://sims.resilientservice.mooo.com"),
+    RESILIENTSIMS_API_PATH=os.environ.get("RESILIENTSIMS_API_PATH", "/api/v1"),
+    RESILIENTSIMS_USERNAME=EnvVar("RESILIENTSIMS_USERNAME"),
+    RESILIENTSIMS_PASSWORD=EnvVar("RESILIENTSIMS_PASSWORD"),
+)
 # SLACK docker env has prefix
 resources ={
     "local": {
@@ -69,12 +76,14 @@ resources ={
         "airtable": airtable,
         "openai":openai,
         "slack": SlackResource(token=EnvVar("SLACK_TOKEN")),
+       "resilientsims": resilentsims_config
     },
     "production": {
         "s3":minio,
         "airtable": airtable,
         "openai": openai,
         "slack":SlackResource(token=EnvVar("SLACK_TOKEN")),
+       "resilientsims":resilentsims_config
     },
 }
 deployment_name = os.environ.get("DAGSTER_DEPLOYMENT", "local")

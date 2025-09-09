@@ -49,6 +49,7 @@ sandiego_epidemiology_hyper_extraction,sde_timeseries_checks,
 sandiego_epidemiology_job, sandiego_epidemiology_sensor
 )
 from .sandiego_epidemiology_forecasts import (
+run_epidemic_simulation,
 process_epidemiology_forecasts,
 epidemiology_forecasts_job,
 epidemiology_forecasts_sensor
