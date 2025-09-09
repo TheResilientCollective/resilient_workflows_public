@@ -32,13 +32,14 @@ all_schedules = [assets.beach_waterquality_schedule,
                  assets.spills_historic_schedule,
                  assets.cdc_nnds.cdc_nndss_raw_schedule,
                  assets.mpox_counties_weekly_schedule,
-              #   assets.sandiego_epidemiology_schedule
+                # assets.sandiego_epidemiology_schedule # now a sensor
                  ]
 all_sensors=[slack_on_run_failure,
              assets.complaints_data_sensor,
              assets.beachinfo_updated_sensor,
              assets.spills_latest_sensor,
-             assets.sandiego_epidemiology_sensor
+             assets.sandiego_epidemiology_sensor,
+             assets.epidemiology_forecasts_sensor,
              ]
 all_jobs=[
     #assets.complaints_daily_job
@@ -71,6 +72,7 @@ resources ={
     },
     "production": {
         "s3":minio,
+        "airtable": airtable,
         "openai": openai,
         "slack":SlackResource(token=EnvVar("SLACK_TOKEN")),
     },
