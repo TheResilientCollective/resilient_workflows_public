@@ -55,7 +55,7 @@ class S3Resource(ResourceWithS3Configuration):
 # use_ssl
 # aws_access_key_id
 # aws_secret_access_key
-    def listPath(self, path='orgs', recusrsive=True) -> Generator[minio.datatypes.Object]:
+    def listPath(self, path='orgs', recusrsive=True) -> Iterator[minio.datatypes.Object]:
         result = self.getClient().list_objects(
             self.S3_BUCKET,
             path,
