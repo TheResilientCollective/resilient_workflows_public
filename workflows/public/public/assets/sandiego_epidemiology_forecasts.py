@@ -67,11 +67,12 @@ def parse_run_id(run_path: str) -> tuple[datetime, str]:
 def run_epidemic_simulation(context):
   sims = context.resources.resilientsims
   slack = context.resources.slack
+  simulator_key = 1
 
   # Complete workflow
   result = sims.run_simulator_workflow(
-      simulator_pk="123",
-      config_data={"param1": "value1"},
+      simulator_pk=simulator_key,
+      #config_data={"param1": "value1"},
       slack_resource=slack
   )
   return result
