@@ -1,5 +1,7 @@
 import io
 import os
+
+import dagster
 import pandas as pd
 from pathlib import Path
 from typing import Dict, Any, List
@@ -14,8 +16,9 @@ from dagster import (
     get_dagster_logger,
     define_asset_job,
     AssetKey,
-    AutomationCondition, RunConfig, Config
+    AutomationCondition, RunConfig, Config, EnvVar
 )
+from duckdb.experimental.spark import DataFrame
 from icecream import ic
 
 from ..resources import minio
@@ -25,21 +28,115 @@ from ..utils import store_assets
 S3_FORECAST_BASE_PATH = "seasonal_forecast/api_run/"
 S3_OUTPUT_PATH = "health/sandiego_epidemiology_forecasts/output"
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
+
 # File to Airtable table mapping - update these UUIDs with actual Airtable table IDs
+#AIRTABLE_EPI_DISEASE_TABLE_ID=tblgC8jeTS4c6LPTO
+#AIRTABLE_EPI_REPORTS_TABLE_ID=
+#AIRTABLE_EPI_INFECTIONS_TABLE_ID=
+#AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID=
+#AIRTABLE_EPI_HOSPITAL_TABLE_ID=
+
+
+COLUMN_RENAME_MAPPING={
+    "date":"Date",
+    "epiweek_start":"Date", # _reports
+    "Observations":"Reported hospital admissions", #hosp report
+    "cases":"New cases", # reports
+    "type":"Type",
+    "variable":"Variable",
+    "median":"Median",
+   "median":"Estimated mean hospital admissions", # hosp reports
+    "mean":"Mean",
+    "sd":"Sd",
+    "lower_90":"Lower 90",
+    "lower_50":"Lower 50",
+    "lower_20":"Lower 20",
+    "upper_20":"Upper 20",
+    "upper_50":"Upper 50",
+    "upper_90":"Upper 90"
+
+}
+
+# COLUMN_RENAME_MAPPING_ACTIVE={
+#     "date":"Date",
+#     "epiweek_start":"Date", # _reports
+#     "cases":"Active Cases", # reports
+# }
+# COLUMN_SUBSET_ACTIVE={
+#     "Disease":"Disease",
+#     "date":"Date",
+#     "epiweek_start":"Date", # _reports
+#     "cases":"Active Cases", # reports
+# }
+
+COLUMN_RENAME_MAPPING_NEW={
+    "epiweek_start":"Date", # _reports
+    "cases":"New cases", # reports
+    "Type":"Type",
+    "Lower90":"Lower 90",
+    "Lower50":"Lower 50",
+    "Lower20":"Lower 20",
+    "Upper20":"Upper 20",
+    "Upper50":"Upper 50",
+    "Upper90":"Upper 90"
+
+}
+
+COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS={
+    "date":"Date",
+    "Observations":"Reported hospital admissions", #hosp report
+    "type":"Type",
+   "median":"Estimated mean hospital admissions", # hosp reports
+    "lower_90":"Lower 90",
+    "lower_50":"Lower 50",
+    "lower_20":"Lower 20",
+    "upper_20":"Upper 20",
+    "upper_50":"Upper 50",
+    "upper_90":"Upper 90"
+
+}
+
+COLUMN_RENAME_MAPPING_RT_ESTIMATES={
+    "date":"Date",
+    "variable": "Variable",
+    "type": "Type",
+    "median":"Median",
+    "mean":"Mean",
+    "sd":"Sd",
+    "lower_90":"Lower 90",
+    "lower_50":"Lower 50",
+    "lower_20":"Lower 20",
+    "upper_20":"Upper 20",
+    "upper_50":"Upper 50",
+    "upper_90":"Upper 90"
+
+}
+# COVID_reports --- pasted to --->  "New cases" in AirTable
+# COVID_Rt     --- pasted to --->  "Rt estimates" in AirTable
+# COVIDhosp   --- pasted to ---> "Hospital admissions" in AirTable
+# COVIDhost_Rt  --- pasted to ---> This was not being used in the portal or AirTable
 FILE_TO_TABLE_MAPPING = {
     # Example mappings - replace with actual file names and table UUIDs
-   # "COVID_reports.csv": {"table": "tblvSecYusufGrkDY","keyfields":["Disease", "Date", "Type"] }, # new cases
-    "COVID_Rt.csv": {"table": "tbl5nRdKkSJveFOiv",  "keyfields":["Disease", "date", "type"] },     # Infections Epi , Rt Estimates
-    "COVIDhosp_reports.csv":{"table":  "tblvSecYusufGrkDY", "keyfields":["Disease", "date", "type"]}, # hosptial Admissions
-    "RSV_Rt.csv": {"table": "tbl5nRdKkSJveFOiv", "keyfields": ["Disease", "date", "type"]},
-    "RSVhosp_reports.csv": {"table": "tblvSecYusufGrkDY", "keyfields": ["Disease", "date", "type"]},
-    "Influenza_Rt.csv": {"table": "tbl5nRdKkSJveFOiv", "keyfields": ["Disease", "date", "type"]},
-    "Influenzahosp_reports.csv": {"table": "tblvSecYusufGrkDY", "keyfields": ["Disease", "date", "type"]},
+    "COVID_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID") ,"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
+    "COVID_Rt.csv": {"table" :os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease", "Date", "Type",] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
+    "COVIDhosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease", "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
+    #
+    "FLU_reports.csv": {"table": os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
+    "FLU_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
+    "FLU_hosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease",  "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
+    #
+    "RSV_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
+    "RSV_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
+    "RSVhosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease",  "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
+
     # hosptial Admissions
    # "COVIDhosp_Rt.csv": "tblMNO345PQR678", # not sure
     # Add more mappings as needed
 }
-
+TABLES_TO_CLEAR=[os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),
+    os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),
+    os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID")
+]
 
 def parse_run_id(run_path: str) -> tuple[datetime, str]:
     """
@@ -80,6 +177,7 @@ def run_epidemic_simulation(context):
 class forecastsS3AssetConfig(Config):
     forecast_run_path: str
 
+
 @asset(
     group_name="health",
     key_prefix="sandiego",
@@ -95,7 +193,7 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
     s3_resource = context.resources.s3
     airtable_resource = context.resources.airtable
     slack_resource = context.resources.slack
-
+    AIRTABLE_EPI_DISEASE_TABLE_ID = os.environ.get("AIRTABLE_EPI_DISEASE_TABLE_ID")
     results = {
         "processed_files": [],
         "failed_files": [],
@@ -119,12 +217,24 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
             "run_datetime": run_datetime.isoformat() if run_datetime else None,
             "run_id": run_id
         }
+        try:
+            filtered_records = airtable_resource.getTable(AIRTABLE_EPI_DISEASE_TABLE_ID).all(
 
+                sort=["Name"],
+                fields=["Name", "Id"]
+                )
+        except Exception as e:
+            logger.error(f"Error listing files in {for_airtable_path}: {e}")
+            raise "Cannot find Diseases Table"
         # List CSV files in ForAirTable directory
         try:
             files = s3_resource.listPath(for_airtable_path)
             csv_files = [f for f in files if f.object_name.endswith('.csv')]
             logger.info(f"Found {len(csv_files)} CSV files: {csv_files}")
+            if len(csv_files) >0:
+                for t in TABLES_TO_CLEAR:
+                    airtable_resource.emptyTable(t)
+                    dagster.get_dagster_logger().info(f"Cleared table {t}")
         except Exception as e:
             logger.error(f"Error listing files in {for_airtable_path}: {e}")
             return results
@@ -139,6 +249,12 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
 
             table_id = FILE_TO_TABLE_MAPPING[object_name]["table"]
             keyfields= FILE_TO_TABLE_MAPPING[object_name]["keyfields"]
+            mappings=FILE_TO_TABLE_MAPPING[object_name]["mapping"]
+            linked_field_mappings=[{
+                "field_in_record": "Disease",
+                "filtered_records" : filtered_records,
+                 "name_to_match_in_table":"Name"
+            }]
             file_path = f"{for_airtable_path}{object_name}"
 
             try:
@@ -153,21 +269,34 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
                         "error": "Empty dataframe"
                     })
                     continue
+                df= df.rename(columns=mappings)
 
                 logger.info(f"Processing {csv_file.object_name}  for {object_name} with {len(df)} rows for table {table_id}")
-
-                # Upsert to Airtable
-                upsert_result = airtable_resource.upsert2Table(
+                #try:
+                at_result=airtable_resource.batch_create2Table(
                     tableid=table_id,
                     df=df,
-                    keyfields=keyfields  # You may want to specify key fields for proper upserts
+
+                    linked_field_mappings=linked_field_mappings,
                 )
+                # # Upsert to Airtable
+                # at_result = airtable_resource.upsert2Table(
+                #     tableid=table_id,
+                #     df=df,
+                #     keyfields=keyfields, # You may want to specify key fields for proper upserts
+                # linked_field_mappings=linked_field_mappings,
+                #     empty_first=False
+                #
+                # )
+                # except Exception as e:
+                #     logger.error(f"Error processing {csv_file.object_name}: {e}")
+                #     at_result="error"
 
                 results["processed_files"].append({
                     "file": csv_file.object_name,
                     "table_id": table_id,
                     "rows_processed": len(df),
-                    "airtable_result": str(upsert_result)
+                    "airtable_result": str(at_result)
                 })
 
                 # Store processed data to S3 for backup/audit
@@ -175,6 +304,7 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
 
             except Exception as e:
                 logger.error(f"Error processing {csv_file.object_name}: {e}")
+                slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL, text=f"Error processing {csv_file.object_name}: {e}")
                 results["failed_files"].append({
                     "file": csv_file.object_name,
                     "error": str(e)
@@ -192,7 +322,7 @@ Run: {run_id}
         """
 
         try:
-            slack_resource.send_message(slack_message)
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL, text=slack_message)
         except Exception as e:
             logger.warning(f"Failed to send Slack notification: {e}")
 
