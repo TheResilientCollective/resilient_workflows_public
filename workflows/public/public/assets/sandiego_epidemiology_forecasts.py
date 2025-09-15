@@ -25,8 +25,10 @@ from ..resources import minio
 from ..utils import store_assets
 
 # S3 paths
-S3_FORECAST_BASE_PATH = "seasonal_forecast/api_run/"
-S3_OUTPUT_PATH = "health/sandiego_epidemiology_forecasts/output"
+FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
+
+FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "health/sandiego_epidemiology_forecasts/output")
+FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
 
 # File to Airtable table mapping - update these UUIDs with actual Airtable table IDs
@@ -228,7 +230,7 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
             raise "Cannot find Diseases Table"
         # List CSV files in ForAirTable directory
         try:
-            files = s3_resource.listPath(for_airtable_path)
+            files = s3_resource.listPath(for_airtable_path, bucket=FORECAST_BUCKET)
             csv_files = [f for f in files if f.object_name.endswith('.csv')]
             logger.info(f"Found {len(csv_files)} CSV files: {csv_files}")
             if len(csv_files) >0:
@@ -259,7 +261,7 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
 
             try:
                 # Read CSV from S3
-                csv_content = s3_resource.getFile(csv_file.object_name)
+                csv_content = s3_resource.getFile(csv_file.object_name, bucket=FORECAST_BUCKET)
                 df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
                 if df.empty:
@@ -357,7 +359,7 @@ def epidemiology_forecasts_sensor(context: SensorEvaluationContext):
 
     try:
         # List directories in the forecast base path
-        run_directories = s3_resource.listPath(S3_FORECAST_BASE_PATH)
+        run_directories = s3_resource.listPath(FORECAST_API_RUN_PATH, bucket=FORECAST_BUCKET)
         #run_directories = list(run_directories)
         #ic(run_directories)
         if not run_directories:
@@ -392,7 +394,7 @@ def epidemiology_forecasts_sensor(context: SensorEvaluationContext):
         # Check if ForAirTable directory exists in this run
         for_airtable_path = f"{run_path}ForAirTable/"
         try:
-            files_in_for_airtable = s3_resource.listPath(for_airtable_path)
+            files_in_for_airtable = s3_resource.listPath(for_airtable_path,bucket=FORECAST_BUCKET)
             csv_files = [f for f in files_in_for_airtable if f.object_name.endswith('.csv')]
 
             if not csv_files:
@@ -426,7 +428,15 @@ Starting processing...
         yield RunRequest(
             run_key=f"forecast_run_{run_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             tags={"forecast_run_path": run_path},
-            run_config=RunConfig({"forecast_run_path": run_path})
+            run_config=RunConfig(
+                ops={
+                    "sandiego__sandiego_epidemiology_airtable": {
+                        "config": {
+                            "forecast_run_path": run_path
+                        }
+                    }
+                }
+            )
         )
 
     except Exception as e:
