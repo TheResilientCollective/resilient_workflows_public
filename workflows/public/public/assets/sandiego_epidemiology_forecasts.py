@@ -123,9 +123,9 @@ FILE_TO_TABLE_MAPPING = {
     "COVID_Rt.csv": {"table" :os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease", "Date", "Type",] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
     "COVIDhosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease", "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
     #
-    "FLU_reports.csv": {"table": os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
-    "FLU_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
-    "FLU_hosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease",  "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
+    "Influenza_reports.csv": {"table": os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
+    "Influenza_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
+    "Influenza_hosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease",  "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
     #
     "RSV_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
     "RSV_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
