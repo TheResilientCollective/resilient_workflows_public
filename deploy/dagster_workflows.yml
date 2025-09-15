@@ -22,7 +22,7 @@ services:
         hostname: dagster-code-${PROJECT}-public
         image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
         environment: &env
-            - DEBUG_CONTAINER=${DEBUG_CONTAINER:-false}
+          - DEBUG_CONTAINER=${DEBUG_CONTAINER:-false}
             - PROJECT=${PROJECT}
             - RESILIENT_DOCKER_WORKSPACE_CONFIG=${RESILIENT_DOCKER_WORKSPACE_CONFIG}
             - S3_SECRET_KEY=${S3_SECRET_KEY}
@@ -36,11 +36,15 @@ services:
             - AIRTABLE_ACCESS_TOKEN=${AIRTABLE_ACCESS_TOKEN}
             - AIRTABLE_BASE_ID=${AIRTABLE_BASE_ID}
             - AIRTABLE_MPOX_TABLE_ID=${AIRTABLE_MPOX_TABLE_ID}
+            - AIRTABLE_EPI_DISEASE_TABLE_ID=${AIRTABLE_EPI_DISEASE_TABLE_ID}
+            - AIRTABLE_EPI_NEW_CASES_TABLE_ID=${AIRTABLE_EPI_NEW_CASES_TABLE_ID}
+            - AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID=${AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID}
+            - AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID=${AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID}
             - RESILIENT_DEFAULT_SCHEDULE=${RESILIENT_DEFAULT_SCHEDULE:-@weekly}
             - RESILIENT_DEFAULT_SCHEDULE_TIMEZONE=${RESILIENT_DEFAULT_SCHEDULE_TIMEZONE:-America/Los_Angeles}
             - RESILIENT_WORKSPACE_CONFIG_PATH=${RESILIENT_WORKSPACE_CONFIG_PATH}
             - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-# these SLACK_ are evn variables used by the Dagster slack library
+            # these SLACK_ are evn variables used by the Dagster slack library
             - SLACK_CHANNEL=${SLACK_CHANNEL:-"#test"}
             - SLACK_TOKEN=${SLACK_TOKEN}
             - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -50,6 +54,11 @@ services:
             - PURPLE_AIR_API_KEY_WRITE=${PURPLE_AIR_API_KEY_WRITE}
             - AIRNOW_API_KEY=${AIRNOW_API_KEY}
             - HOST=${HOST}
+            - RESILIENTSIMS_SERVER_URL=${RESILIENTSIMS_SERVER_URL:-https://sims.resilientservice.mooo.com}
+            - RESILIENTSIMS_API_PATH=${RESILIENTSIMS_API_PATH:-/api/v1}
+            - RESILIENTSIMS_USERNAME=${RESILIENTSIMS_USERNAME}
+            - RESILIENTSIMS_PASSWORD=${RESILIENTSIMS_PASSWORD}
+            - RESILIENTSIMS_BUCKET=${RESILIENTSIMS_BUCKET:-resilientseasonal}
         command:
             - "dagster"
             - "code-server"

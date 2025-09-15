@@ -22,8 +22,12 @@ class ResourceWithResilientSimsConfiguration(ConfigurableResource):
     RESILIENTSIMS_PASSWORD: str = Field(
         description="Password for ResilientSIMS API authentication"
     )
-
-
+    RESILIENTSIMS_SIMULATOR_ID: int = Field(
+        description="identifier of the simulator to run. List simulators api/v1/simulators/"
+    )
+    RESILIENTSIMS_BUCKET: str = Field(
+        description="S3 bucket for output"
+    )
 class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
     """Resource for interacting with ResilientSIMS API"""
 
@@ -266,7 +270,7 @@ Duration: {time.time() - start_time:.0f} seconds
 
                     return status_info
 
-                elif task_status in ['FAILED', 'REVOKED', 'RETRY']:
+                elif task_status in ['FAILED', 'REVOKED', 'RETRY', 'FAILURE']:
                     error_msg = f"Simulator {simulator_pk} run {run_id} failed with status: {task_status}"
                     logger.error(error_msg)
 
@@ -287,7 +291,7 @@ Duration: {time.time() - start_time:.0f} seconds
 
                     raise RuntimeError(error_msg)
 
-                elif task_status in ['PENDING', 'STARTED', 'RUNNING']:
+                elif task_status in ['PENDING', 'STARTED', 'RUNNING', 'PROGRESS']:
                     # Check if we've exceeded maximum wait time
                     if time.time() - start_time > max_wait_time:
                         error_msg = f"Simulator {simulator_pk} run {run_id} exceeded maximum wait time of {max_wait_time} seconds"
@@ -313,7 +317,7 @@ Duration: {time.time() - start_time:.0f} seconds
         config_data: Optional[Dict[str, Any]] = None,
         run_data: Optional[Dict[str, Any]] = None,
         slack_resource=None,
-        monitor: bool = True
+        monitor: bool = True,
     ) -> Dict[str, Any]:
         """
         Complete workflow: verify simulator, optionally create config, run, and monitor

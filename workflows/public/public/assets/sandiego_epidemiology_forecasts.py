@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime
 import re
+import yaml
+import json
+
+from dagster_aws.s3 import s3_resource
+from jinja2 import Environment, PackageLoader, select_autoescape
 
 from dagster import (
     asset,
@@ -21,6 +26,7 @@ from dagster import (
 from duckdb.experimental.spark import DataFrame
 from icecream import ic
 
+from . import sandiego_epidemiology_hyper_extraction
 from ..resources import minio
 from ..utils import store_assets
 
@@ -117,24 +123,24 @@ COLUMN_RENAME_MAPPING_RT_ESTIMATES={
 # COVID_Rt     --- pasted to --->  "Rt estimates" in AirTable
 # COVIDhosp   --- pasted to ---> "Hospital admissions" in AirTable
 # COVIDhost_Rt  --- pasted to ---> This was not being used in the portal or AirTable
-FILE_TO_TABLE_MAPPING = {
-    # Example mappings - replace with actual file names and table UUIDs
-    "COVID_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID") ,"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
-    "COVID_Rt.csv": {"table" :os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease", "Date", "Type",] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
-    "COVIDhosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease", "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
-    #
-    "Influenza_reports.csv": {"table": os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
-    "Influenza_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
-    "Influenza_hosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease",  "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
-    #
-    "RSV_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
-    "RSV_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
-    "RSVhosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease",  "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
-
-    # hosptial Admissions
-   # "COVIDhosp_Rt.csv": "tblMNO345PQR678", # not sure
-    # Add more mappings as needed
-}
+# FILE_TO_TABLE_MAPPING = {
+#     # Example mappings - replace with actual file names and table UUIDs
+#     "COVID_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID") ,"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
+#     "COVID_Rt.csv": {"table" :os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease", "Date", "Type",] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
+#     "COVIDhosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease", "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
+#     #
+#     "Influenza_reports.csv": {"table": os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
+#     "Influenza_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
+#     "Influenza_hosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease",  "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
+#     #
+#     "RSV_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),"keyfields":["Disease", "Date", "Type"],"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
+#     "RSV_Rt.csv": {"table": os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),  "keyfields":["Disease",  "Date", "Type"] , "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
+#     "RSVhosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"), "keyfields":["Disease",  "Date", "Type"], "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
+#
+#     # hosptial Admissions
+#    # "COVIDhosp_Rt.csv": "tblMNO345PQR678", # not sure
+#     # Add more mappings as needed
+# }
 GENERIC_FILE_TO_TABLE_MAPPING = {
     # Example mappings - replace with actual file names and table UUIDs
     "_case_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID") ,"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
@@ -169,16 +175,45 @@ def parse_run_id(run_path: str) -> tuple[datetime, str]:
 @asset(group_name="health",
     key_prefix="sandiego",
     name="sandiego_epidemiology_forecast",
-       required_resource_keys={"resilientsims", "slack"})
+       required_resource_keys={"resilientsims", "slack", "s3"},
+       deps=[sandiego_epidemiology_hyper_extraction]
+       )
 def run_epidemic_simulation(context):
   sims = context.resources.resilientsims
+  s3_resource=context.resources.s3
   slack = context.resources.slack
-  simulator_key = 1
+  hyper_metadata = context.repository_def.load_asset_value(AssetKey([f"sandiego", "sandiego_epidemiology_hyper_extraction"]))
+  date_path = hyper_metadata["date_path"]
+  if date_path is None:
+      raise Exception("No date+_path found in sandiego_epidemiology_hyper_extraction run. Rerun AssetKey([sandiego, sandiego_epidemiology_hyper_extraction]")
+  jinja = Environment(
+      loader=PackageLoader("public"),
+      autoescape=select_autoescape()
+  )
+  logger = get_dagster_logger()
+
+  template_config = jinja.get_template("forecast_config.yaml")
+  config_config_str=template_config.render(DATE="variables",
+                              LONG_DATE="here",
+                                           RUNID=date_path,
+                              sims=sims,
+                              PUBLIC_BUCKET=os.environ.get("PUBLIC_BUCKET"),)
+  config_config_yaml=yaml.safe_load(config_config_str)
+
+  config_info = sims.create_configuration(sims.RESILIENTSIMS_SIMULATOR_ID, config_config_yaml)
+  logger.info(f"Created configuration: {config_info.get('id')}")
+
+  template_run = jinja.get_template("forecast_run.yaml")
+  config_run_str = template_run.render(s3=s3_resource, sims=sims,
+                               CONFIG_ID=config_info.get('id'),
+        )
+  config_run_yaml = yaml.safe_load(config_run_str)
 
   # Complete workflow
   result = sims.run_simulator_workflow(
-      simulator_pk=simulator_key,
-      #config_data={"param1": "value1"},
+      simulator_pk=sims.RESILIENTSIMS_SIMULATOR_ID,
+      #config_data=config_yaml,
+      run_data=config_run_yaml,
       slack_resource=slack
   )
   return result
