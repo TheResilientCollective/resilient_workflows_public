@@ -24,13 +24,12 @@ dependencies = [
     "dagster-embedded-elt",
     "dagster-duckdb",
     "dagster-duckdb-pandas",
-     "dagstermill >=0.27.10",
+    "dagstermill >=0.27.10",
     "pyarrow>=20",
     # below were optional workflows, but this is only a workflow, so saves the extras
     "ipython-genutils ==0.2.0",
     "minio ==7.1.13",
     "docker >=6.1.0",
-
     "beautifulsoup4",
     "notebook",
     "pydash",
@@ -51,7 +50,6 @@ dependencies = [
     "scikit-learn",
     # arcgis
     "awswrangler",
-
     "lxml",
     "aqicalc",
     "geopy",
@@ -63,6 +61,7 @@ dependencies = [
     "tableau_parser",
     #"pantab", # not good with action for tableau hyper file processing
     "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+    "jinja2>=3.1.6",
 ]
 [dependency-groups]
 dev = [

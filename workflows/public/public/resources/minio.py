@@ -48,6 +48,12 @@ class S3Resource(ResourceWithS3Configuration):
     def getClient(self):
         return     Minio(PythonMinioAddress(self.S3_ADDRESS, self.S3_PORT), self.S3_ACCESS_KEY, self.S3_SECRET_KEY)
 
+    def baseUrl(self):
+        url = PythonMinioAddress(self.S3_ADDRESS, self.S3_PORT)
+        if self.S3_USE_SSL:
+            return f"https://{url}"
+        else:
+            return f"http://{url}"
 ## https://docs.dagster.io/_apidocs/libraries/dagster-aws#s3
 #   fields from dagster_aws.s3.S3Resource
 # region_name

@@ -241,7 +241,8 @@ def sandiego_epidemiology_hyper_extraction(
         "workbook_name": workbook_name,
         "processed_datasets": all_dataframes,
         "total_datasets": processed_count,
-        "processing_timestamp": pd.Timestamp.now().isoformat()
+        "processing_timestamp": pd.Timestamp.now().isoformat(),
+        "date_path":date_path
     }
 
 
