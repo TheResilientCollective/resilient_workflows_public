@@ -135,6 +135,13 @@ FILE_TO_TABLE_MAPPING = {
    # "COVIDhosp_Rt.csv": "tblMNO345PQR678", # not sure
     # Add more mappings as needed
 }
+GENERIC_FILE_TO_TABLE_MAPPING = {
+    # Example mappings - replace with actual file names and table UUIDs
+    "_case_reports.csv": {"table":  os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID") ,"mapping":COLUMN_RENAME_MAPPING_NEW }, # new cases
+    "_case_Rt.csv": {"table" :os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),   "mapping":COLUMN_RENAME_MAPPING_RT_ESTIMATES},     # Infections Epi , Rt Estimates
+    "_hosp_reports.csv":{"table":  os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID"),  "mapping":COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS}, # hosptial Admissions
+
+}
 TABLES_TO_CLEAR=[os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),
     os.environ.get("AIRTABLE_EPI_RT_ESTIMATES_TABLE_ID"),
     os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID")
@@ -245,13 +252,19 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
         for csv_file in csv_files:
             object_name = Path(csv_file.object_name).name
 
-            if object_name not in FILE_TO_TABLE_MAPPING:
+            # Find matching mapping based on filename ending
+            matched_mapping = None
+            for file_ending, mapping_info in GENERIC_FILE_TO_TABLE_MAPPING.items():
+                if object_name.endswith(file_ending):
+                    matched_mapping = mapping_info
+                    break
+
+            if matched_mapping is None:
                 logger.info(f"Skipping {object_name} - no Airtable mapping defined")
                 continue
 
-            table_id = FILE_TO_TABLE_MAPPING[object_name]["table"]
-            keyfields= FILE_TO_TABLE_MAPPING[object_name]["keyfields"]
-            mappings=FILE_TO_TABLE_MAPPING[object_name]["mapping"]
+            table_id = matched_mapping["table"]
+            mappings = matched_mapping["mapping"]
             linked_field_mappings=[{
                 "field_in_record": "Disease",
                 "filtered_records" : filtered_records,
