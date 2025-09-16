@@ -30,7 +30,7 @@ class ResourceWithS3Configuration(ConfigurableResource):
     S3_PORT: str =  Field(
          description="S3_PORT.")
     S3_USE_SSL: bool=  Field(
-         default=False)
+         default=True)
     S3_ACCESS_KEY: str = Field(
         description="S3_ACCESS_KEY")
     S3_SECRET_KEY: str = Field(

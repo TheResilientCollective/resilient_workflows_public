@@ -59,6 +59,7 @@ services:
             - RESILIENTSIMS_USERNAME=${RESILIENTSIMS_USERNAME}
             - RESILIENTSIMS_PASSWORD=${RESILIENTSIMS_PASSWORD}
             - RESILIENTSIMS_BUCKET=${RESILIENTSIMS_BUCKET:-resilientseasonal}
+            - RESILIENTSIMS_SIMULATOR_ID=${RESILIENTSIMS_SIMULATOR_ID}
         command:
             - "dagster"
             - "code-server"

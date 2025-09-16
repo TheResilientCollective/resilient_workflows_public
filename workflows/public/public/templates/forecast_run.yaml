@@ -7,4 +7,5 @@ cloud_credentials:
   s3:
     access_key_id:  {{ s3.S3_ACCESS_KEY }}
     secret_access_key:  {{ s3.S3_SECRET_KEY }}
-    endpoint_url:  {{ s3.baseUrl() }}
+   # endpoint_url:  https://oss.resilientservice.mooo.com:443/
+    endpoint_url:   {{ s3.baseUrl() }}
