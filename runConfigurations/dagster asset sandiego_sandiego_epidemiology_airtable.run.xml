@@ -27,7 +27,7 @@
       </ENTRIES>
     </EXTENSION>
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="asset materialize --select sandiego/sandiego_epidemiology_airtable -m public --config-json {\&quot;ops\&quot;:{\&quot;sandiego__sandiego_epidemiology_airtable\&quot;:{\&quot;config\&quot;:{\&quot;forecast_run_path\&quot;:\&quot;seasonal_forecast/api_run/2025-09-07T00-07-25_run15/\&quot;}}}}" />
+    <option name="PARAMETERS" value="asset materialize --select sandiego/sandiego_epidemiology_airtable -m public --config-json {\&quot;ops\&quot;:{\&quot;sandiego__sandiego_epidemiology_airtable\&quot;:{\&quot;config\&quot;:{\&quot;forecast_run_path\&quot;:\&quot;api_run/2025-09-15T23-52-57_run34/\&quot;}}}}" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />

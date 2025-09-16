@@ -11,7 +11,7 @@ import yaml
 import json
 
 from dagster_aws.s3 import s3_resource
-from jinja2 import Environment, PackageLoader, select_autoescape
+from jinja2 import Environment, PackageLoader,FileSystemLoader, select_autoescape
 
 from dagster import (
     asset,
@@ -176,7 +176,8 @@ def parse_run_id(run_path: str) -> tuple[datetime, str]:
     key_prefix="sandiego",
     name="sandiego_epidemiology_forecast",
        required_resource_keys={"resilientsims", "slack", "s3"},
-       deps=[sandiego_epidemiology_hyper_extraction]
+       deps=[AssetKey([f"sandiego", "sandiego_epidemiology_hyper_extraction"])],
+       automation_condition=AutomationCondition.eager()
        )
 def run_epidemic_simulation(context):
   sims = context.resources.resilientsims
@@ -186,20 +187,23 @@ def run_epidemic_simulation(context):
   date_path = hyper_metadata["date_path"]
   if date_path is None:
       raise Exception("No date+_path found in sandiego_epidemiology_hyper_extraction run. Rerun AssetKey([sandiego, sandiego_epidemiology_hyper_extraction]")
+  templateLoader = FileSystemLoader(searchpath=["templates", "public/templates" ])
   jinja = Environment(
-      loader=PackageLoader("public"),
+      loader=templateLoader,
       autoescape=select_autoescape()
   )
   logger = get_dagster_logger()
-
-  template_config = jinja.get_template("forecast_config.yaml")
-  config_config_str=template_config.render(DATE="variables",
-                              LONG_DATE="here",
-                                           RUNID=date_path,
-                              sims=sims,
-                              PUBLIC_BUCKET=os.environ.get("PUBLIC_BUCKET"),)
-  config_config_yaml=yaml.safe_load(config_config_str)
-
+  try:
+      template_config = jinja.get_template("forecast_config.yaml")
+      config_config_str=template_config.render(DATE="variables",
+                                  LONG_DATE="here",
+                                               RUNID=date_path,
+                                  sims=sims,
+                                  PUBLIC_BUCKET=os.environ.get("PUBLIC_BUCKET"),)
+      config_config_yaml=yaml.safe_load(config_config_str)
+  except Exception as e:
+      logger.error(f"Error rendering forecast_config.yaml: {e}")
+      raise e
   config_info = sims.create_configuration(sims.RESILIENTSIMS_SIMULATOR_ID, config_config_yaml)
   logger.info(f"Created configuration: {config_info.get('id')}")
 
@@ -275,28 +279,40 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
             files = s3_resource.listPath(for_airtable_path, bucket=FORECAST_BUCKET)
             csv_files = [f for f in files if f.object_name.endswith('.csv')]
             logger.info(f"Found {len(csv_files)} CSV files: {csv_files}")
-            if len(csv_files) >0:
+
+            # Create list of files that match GENERIC_FILE_TO_TABLE_MAPPING
+            matching_files = []
+            for csv_file in csv_files:
+                object_name = Path(csv_file.object_name).name
+
+                # Find matching mapping based on filename ending
+                matched_mapping = None
+                for file_ending, mapping_info in GENERIC_FILE_TO_TABLE_MAPPING.items():
+                    if object_name.endswith(file_ending):
+                        matched_mapping = mapping_info
+                        break
+
+                if matched_mapping is not None:
+                    matching_files.append((csv_file, matched_mapping))
+
+            logger.info(f"Found {len(matching_files)} files matching GENERIC_FILE_TO_TABLE_MAPPING")
+
+            # Only clear tables if there are files that will be uploaded
+            if len(matching_files) > 0:
                 for t in TABLES_TO_CLEAR:
                     airtable_resource.emptyTable(t)
                     dagster.get_dagster_logger().info(f"Cleared table {t}")
+            else:
+                logger.info("No matching files found - skipping table clearing and processing")
+                return results
+
         except Exception as e:
             logger.error(f"Error listing files in {for_airtable_path}: {e}")
             return results
 
         # Process each CSV file that has a mapping
-        for csv_file in csv_files:
+        for csv_file, matched_mapping in matching_files:
             object_name = Path(csv_file.object_name).name
-
-            # Find matching mapping based on filename ending
-            matched_mapping = None
-            for file_ending, mapping_info in GENERIC_FILE_TO_TABLE_MAPPING.items():
-                if object_name.endswith(file_ending):
-                    matched_mapping = mapping_info
-                    break
-
-            if matched_mapping is None:
-                logger.info(f"Skipping {object_name} - no Airtable mapping defined")
-                continue
 
             table_id = matched_mapping["table"]
             mappings = matched_mapping["mapping"]
