@@ -202,7 +202,8 @@ def run_epidemic_simulation(context):
                                   PUBLIC_BUCKET=os.environ.get("PUBLIC_BUCKET"),)
       config_config_yaml=yaml.safe_load(config_config_str)
   except Exception as e:
-      logger.error(f"Error rendering forecast_config.yaml: {e}")
+      logger.error(f"Error rendering forecast_config.yaml: {e} ")
+      logger.error(f"config file: {config_config_yaml} ")
       raise e
   config_info = sims.create_configuration(sims.RESILIENTSIMS_SIMULATOR_ID, config_config_yaml)
   logger.info(f"Created configuration: {config_info.get('id')}")

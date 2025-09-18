@@ -363,3 +363,5 @@ cython_debug/
 /data/apcd_sd/
 
 /data/
+/workflows/.env.prod
+/workflows/.env.simslocalhost
