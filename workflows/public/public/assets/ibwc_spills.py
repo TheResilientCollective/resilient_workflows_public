@@ -163,7 +163,7 @@ def spills_reports(context):
         df['Start Time'] = pd.to_datetime(df['Start Date'], )
 
         df['End Time'] = pd.to_datetime(df['End Date'], errors='coerce')
-        df['End Time'].fillna(datetime.now(), inplace=True)
+        df['End Time']=df['End Time'].fillna(datetime.now())
         df['Status'] = df.apply(spillStatus, axis=1)
         # date range attempt
         # df= df.dropna(subset=['Start Date', 'End date'])
@@ -237,7 +237,12 @@ def spills_all(context):
 
     s3_resource = context.resources.s3
     spills_gdf = context.repository_def.load_asset_value(AssetKey(["ibwc","spills"]))
+    spills_gdf["Reported Cause"]=spills_gdf["Notes"]
+    spills_gdf["Volume (Gallons)"] = spills_gdf["Approximate Discharge Volume Value"]
+
     spills_reports_gdf = context.repository_def.load_asset_value(AssetKey(["ibwc","spills_reports"]))
+    spills_reports_gdf["Event Type"]=spills_reports_gdf["Type (A or B)"]
+
     if spills_gdf is not None and spills_reports_gdf is not None:
         combined_gdf = pd.concat([spills_reports_gdf, spills_gdf], ignore_index=True)
     elif spills_gdf is None:
@@ -246,6 +251,7 @@ def spills_all(context):
         combined_gdf = spills_gdf
     else:
         raise ValueError("No spills data found")
+    combined_gdf=combined_gdf.drop(columns=["Type (A or B)","Notes","Date Range(90 Days)","Approximate Discharge Volume Value"])
     filename = f'{s3_output_path}output/spills_all'
     store_assets.geodataframe_to_s3(combined_gdf, filename, s3_resource, metadata=metadata )
 
