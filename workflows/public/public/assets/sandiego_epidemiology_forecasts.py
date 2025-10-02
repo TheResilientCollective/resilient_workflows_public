@@ -35,7 +35,7 @@ FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 
 FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "health/sandiego_epidemiology_forecasts/output")
 FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
-SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
+SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 
 # File to Airtable table mapping - update these UUIDs with actual Airtable table IDs
 #AIRTABLE_EPI_DISEASE_TABLE_ID=tblgC8jeTS4c6LPTO
@@ -53,7 +53,7 @@ COLUMN_RENAME_MAPPING={
     "type":"Type",
     "variable":"Variable",
     "median":"Median",
-   "median":"Estimated mean hospital admissions", # hosp reports
+  # "median":"Estimated mean hospital admissions", # hosp reports
     "mean":"Mean",
     "sd":"Sd",
     "lower_90":"Lower 90",
@@ -516,26 +516,45 @@ Starting processing...
     group_name="health",
     key_prefix="sandiego",
     name="resilientllm__sd_summary",
-    required_resource_keys={"resilientllm"},
-    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])]
+    required_resource_keys={"resilientllm", "slack"},
+    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
+automation_condition=AutomationCondition.eager()
 )
 def summary_resilientllm_asset(context):
     """
     Calls the ResilientLLM API Summary.
     """
+    slack_resource = context.resources.slack
     llm = context.resources.resilientllm
-    return llm.execute(llm.summary_id)
+    summary=llm.execute(llm.summary_id)
+    try:
+        slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                     text=f"summary updated: {summary.message.data.content}")
+    except:
+        pass
+    return
 
 @asset(
     group_name="health",
     key_prefix="sandiego",
     name="resilientllm_sd_update",
-    required_resource_keys={"resilientllm"},
-    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])]
+    required_resource_keys={"resilientllm", "slack"},
+    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
+automation_condition=AutomationCondition.eager()
 )
 def update_resilientllm_asset(context):
     """
     Calls the ResilientLLM API Forecast Update.
     """
+    slack_resource = context.resources.slack
     llm = context.resources.resilientllm
-    return llm.execute(llm.update_id)
+    update =  llm.execute(llm.update_id)
+    update_report = json.loads(update.message.data.content)
+    try:
+        slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                     text=f"summary updated: {update_report.fields.Update}")
+    except:
+        pass
+    return update
+
+

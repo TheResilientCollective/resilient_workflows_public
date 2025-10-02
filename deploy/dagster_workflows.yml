@@ -61,6 +61,7 @@ services:
             - RESILIENTSIMS_BUCKET=${RESILIENTSIMS_BUCKET:-resilientseasonal}
             - RESILIENTSIMS_SIMULATOR_ID=${RESILIENTSIMS_SIMULATOR_ID}
             - RESILIENTLLM_API_TOKEN=${RESILIENTLLM_API_TOKEN}
+            - SLACK_SIMS_CHANNEL=${SLACK_SIMS_CHANNEL}
 
         command:
             - "dagster"
