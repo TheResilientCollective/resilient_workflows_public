@@ -552,7 +552,7 @@ def summary_resilientllm_asset(context):
     key_prefix="sandiego",
     name="resilientllm_sd_update",
     required_resource_keys={"resilientllm", "slack"},
-    deps=[AssetKey([f"sandiego", "resilientllm__sd_summary"])],
+    deps=[AssetKey([f"sandiego", "resilientllm_sd_summary"])],
 automation_condition=AutomationCondition.eager()
 )
 def update_resilientllm_asset(context):
