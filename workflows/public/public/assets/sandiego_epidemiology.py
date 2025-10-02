@@ -19,7 +19,7 @@ from ..utils.date import check_missing_weeks
 
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
 # configure notebook url in utils/tableau_workbook
-SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
+SLACK_CHANNEL =  os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 
 config= TableauWorkbookConfig()
 TimeSeriesTablePrefix="Time_Series"

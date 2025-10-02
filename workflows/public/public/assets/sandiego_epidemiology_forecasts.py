@@ -526,35 +526,57 @@ def summary_resilientllm_asset(context):
     """
     slack_resource = context.resources.slack
     llm = context.resources.resilientllm
-    summary=llm.execute(llm.summary_id)
+
     try:
-        slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                     text=f"summary updated: {summary.message.data.content}")
-    except:
-        pass
-    return
+        summary=llm.execute(llm.summary_id)
+        content = summary['message']['data']['content']
+
+        try:
+            dagster.get_dagster_logger().info(f"llm summery: {summary}")
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                         text=f"summary updated: {content}")
+        except:
+            pass
+        return content
+    except Exception as e:
+            try:
+                slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                             text=f"Error in resilientllm__sd_summary: {e}")
+            except:
+                pass
+            dagster.get_dagster_logger().error(f"Error in resilientllm__sd_summary: {e}")
+            raise
 
 @asset(
     group_name="health",
     key_prefix="sandiego",
     name="resilientllm_sd_update",
     required_resource_keys={"resilientllm", "slack"},
-    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
+    deps=[AssetKey([f"sandiego", "resilientllm__sd_summary"])],
 automation_condition=AutomationCondition.eager()
 )
 def update_resilientllm_asset(context):
     """
     Calls the ResilientLLM API Forecast Update.
     """
-    slack_resource = context.resources.slack
-    llm = context.resources.resilientllm
-    update =  llm.execute(llm.update_id)
-    update_report = json.loads(update.message.data.content)
     try:
-        slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                     text=f"summary updated: {update_report.fields.Update}")
-    except:
-        pass
-    return update
+        slack_resource = context.resources.slack
+        llm = context.resources.resilientllm
+        update =  llm.execute(llm.update_id)
+        content = update['message']['data']['content']
+        try:
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                         text=f"summary updated: {content}")
+        except:
+            pass
+        return content
+    except Exception as e:
+        try:
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                         text=f"Error in update_resilientllm_asset: {e}")
+        except:
+            pass
+        dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
+        raise
 
 
