@@ -515,7 +515,7 @@ Starting processing...
 @asset(
     group_name="health",
     key_prefix="sandiego",
-    name="resilientllm__sd_summary",
+    name="resilientllm_sd_summary",
     required_resource_keys={"resilientllm", "slack"},
     deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
 automation_condition=AutomationCondition.eager()
