@@ -6,6 +6,7 @@ from . import assets
 from .resources.minio import S3Resource
 from .resources.airtable import AirtableResource
 from .resources.resilientsims import ResilientSimsResource,ResourceWithResilientSimsConfiguration
+from .resources.resilientllm import ResilientLLMResource
 
 def slack_message_fn(context: RunFailureSensorContext) -> str:
     return (
@@ -71,6 +72,9 @@ resilentsims_config=ResilientSimsResource(
     RESILIENTSIMS_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET","resilientseasonal"),
     RESILIENTSIMS_SIMULATOR_ID=EnvVar.int("RESILIENTSIMS_SIMULATOR_ID"),
 )
+resilientllm_config = ResilientLLMResource(
+    token=EnvVar("RESILIENTLLM_API_TOKEN"),
+)
 # SLACK docker env has prefix
 resources ={
     "local": {
@@ -78,14 +82,16 @@ resources ={
         "airtable": airtable,
         "openai":openai,
         "slack": SlackResource(token=EnvVar("SLACK_TOKEN")),
-       "resilientsims": resilentsims_config
+       "resilientsims": resilentsims_config,
+        "resilientllm": resilientllm_config,
     },
     "production": {
         "s3":minio,
         "airtable": airtable,
         "openai": openai,
         "slack":SlackResource(token=EnvVar("SLACK_TOKEN")),
-       "resilientsims":resilentsims_config
+       "resilientsims":resilentsims_config,
+       "resilientllm": resilientllm_config,
     },
 }
 deployment_name = os.environ.get("DAGSTER_DEPLOYMENT", "local")

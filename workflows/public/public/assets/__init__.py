@@ -52,5 +52,6 @@ from .sandiego_epidemiology_forecasts import (
 run_epidemic_simulation,
 process_epidemiology_forecasts,
 epidemiology_forecasts_job,
-epidemiology_forecasts_sensor
+epidemiology_forecasts_sensor,
+update_resilientllm_asset, summary_resilientllm_asset
 )

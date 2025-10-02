@@ -511,3 +511,31 @@ Starting processing...
                                                 text=f"❌ Error in epidemiology forecasts sensor: {e}")
         except:
             pass
+
+@asset(
+    group_name="health",
+    key_prefix="sandiego",
+    name="resilientllm__sd_summary",
+    required_resource_keys={"resilientllm"},
+    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])]
+)
+def summary_resilientllm_asset(context):
+    """
+    Calls the ResilientLLM API Summary.
+    """
+    llm = context.resources.resilientllm
+    return llm.execute(llm.summary_id)
+
+@asset(
+    group_name="health",
+    key_prefix="sandiego",
+    name="resilientllm_sd_update",
+    required_resource_keys={"resilientllm"},
+    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])]
+)
+def update_resilientllm_asset(context):
+    """
+    Calls the ResilientLLM API Forecast Update.
+    """
+    llm = context.resources.resilientllm
+    return llm.execute(llm.update_id)
