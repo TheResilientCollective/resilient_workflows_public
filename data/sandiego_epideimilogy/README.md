@@ -40,3 +40,16 @@ https://public.tableau.com/profile/api/single_workbook/DraftRespDash_750
   "authorDisplayName":"Epidemiology & Immunization Services Branch",
   "externalLink":"","numberOfFavorites":0,"attributions":[]}
 ```
+
+### other data
+* [site with test posititity no data download](https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/CombinedHighlights/HospDeathPoswk)
+* [syndromic no data download](https://www.sandiegocounty.gov/content/sdc/hhsa/programs/phs/community_epidemiology/dc/2019-nCoV/status/COVID19_Emergency_Department_Syndromic_Data.html)
+* [SDC Communicable Disease Dashboard](https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/shared/N2ZPKMSGQ)
+mpox
+* [mpox dashboard](https://www.sandiegocounty.gov/content/sdc/hhsa/programs/phs/community_epidemiology/dc/human-monkeypox/localcases.html)
+* * [mpox vaccination](https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/MPXVaxDemographics/CovTypeTestMasking)
+* [MPX](https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/MPX/Dashboard3)
+
+wastewater:
+* [dashboard](https://searchcovid.info/dashboards/wastewater-surveillance/)
+* https://github.com/andersen-lab/SARS-CoV-2_WasteWater_San-Diego

@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional, List
 from pydantic import Field
 from dagster import get_dagster_logger, ConfigurableResource
 
-SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
+SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 class ResourceWithResilientSimsConfiguration(ConfigurableResource):
     """Base configuration for ResilientSIMS API"""
     RESILIENTSIMS_SERVER_URL: str = Field(

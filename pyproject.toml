@@ -36,6 +36,8 @@ dependencies = [
     "pydash",
     "pyyaml",
     "pandas>=2.2.0",
+    "pandera[pandas]",
+    "pandera[geopandas]",
     # orjson was used by game.ipnb - Comments are allowed in pyproject.toml
     "geopandas",
     "matplotlib",
@@ -72,3 +74,6 @@ dev = [
     "pytest>=8.4.1",
     "dagster-dg-cli>=1.11.10"
 ]
+
+[tool.dg]
+directory_type = "project"
