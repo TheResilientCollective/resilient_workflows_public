@@ -36,6 +36,7 @@ FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "health/sandiego_epidemiology_forecasts/output")
 FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
+s3_output_path='pathogens/sandiego/sandiego_epidemiology/llm/'
 
 # File to Airtable table mapping - update these UUIDs with actual Airtable table IDs
 #AIRTABLE_EPI_DISEASE_TABLE_ID=tblgC8jeTS4c6LPTO
@@ -516,7 +517,7 @@ Starting processing...
     group_name="health",
     key_prefix="sandiego",
     name="resilientllm_sd_summary",
-    required_resource_keys={"resilientllm", "slack"},
+    required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
     deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
 automation_condition=AutomationCondition.eager()
 )
@@ -526,17 +527,42 @@ def summary_resilientllm_asset(context):
     """
     slack_resource = context.resources.slack
     llm = context.resources.resilientllm
+    name = 'sandiego_epidemiology_sd_summary'
+    description = '''
+          San Diego Epidemiology Summary from ResilientLLM
+          '''
+    metadata = store_assets.objectMetadata(name=name, description=description)
+    s3_resource = context.resources.s3
 
     try:
         summary=llm.execute(llm.summary_id)
         content = summary['message']['data']['content']
-
+        airtable_resource = context.resources.airtable
         try:
-            dagster.get_dagster_logger().info(f"llm summery: {summary}")
+            recordId = "recowLGi7NgFdWX7B"
+            tableId = "Widgets"
+            widgets_table = airtable_resource.getTable(tableId)
+            data = {
+                'Text': content
+            }
+            updated_record = widgets_table.update(recordId, data)
+            dagster.get_dagster_logger().info(f"llm summary: {summary}")
+            dagster.get_dagster_logger().info(f"llm summary record updated: {str(updated_record)}")
+        except Exception as e:
+            dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
+            raise e
+        try:
+
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                         text=f"summary updated: {content}")
+                                                         text=f"# summary updated: \n {content}")
         except:
             pass
+        date_path = datetime.today().strftime('%Y-%m-%d')
+        s3_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
+        store_assets.raw_to_s3(content, s3_key, s3_resource
+                               , contenttype='text/markdown',
+                               metadata=metadata
+                               )
         return content
     except Exception as e:
             try:
@@ -551,7 +577,7 @@ def summary_resilientllm_asset(context):
     group_name="health",
     key_prefix="sandiego",
     name="resilientllm_sd_update",
-    required_resource_keys={"resilientllm", "slack"},
+    required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
     deps=[AssetKey([f"sandiego", "resilientllm_sd_summary"])],
 automation_condition=AutomationCondition.eager()
 )
@@ -562,21 +588,62 @@ def update_resilientllm_asset(context):
     try:
         slack_resource = context.resources.slack
         llm = context.resources.resilientllm
+        llm = context.resources.resilientllm
+        name = 'sandiego_epidemiology_sd_update'
+        description = '''
+                  San Diego Epidemiology Update from ResilientLLM
+                  '''
+        metadata = store_assets.objectMetadata(name=name, description=description)
+        s3_resource = context.resources.s3
+
+        airtable_resource = context.resources.airtable
         update =  llm.execute(llm.update_id)
         content = update['message']['data']['content']
         try:
+            RsvPortalRecordId = "rec4NITTQNAONirhd"
+            update_table=airtable_resource.getTable('Updates')
+            data = [
+                    {
+                        "fields":{
+                        "Portal": [RsvPortalRecordId],
+                        "Update": content,
+                        "Status": "Published",
+                        "Date": datetime.today().strftime('%Y%m%d'),
+                        "Portal slug":"CoSD-ILI-Report"
+
+                    }
+                   }
+                 ]
+
+           # key_fields=['Date', 'Portal']
+            key_fields = ['Date', 'Portal slug']
+            #record = update_table.create(data)
+            record = update_table.batch_upsert(data, key_fields)
+        except Exception as e:
+            dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
+            raise e
+
+        try:
+
+
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                         text=f"summary updated: {content}")
+                                                         text=f"# summary updated: \n {content}")
         except:
             pass
+        date_path = datetime.today().strftime('%Y%m%d')
+        s3_key = f"{s3_output_path}output/llm/{date_path}/update.md"
+        store_assets.raw_to_s3(content, s3_key, s3_resource
+                               , contenttype='text/markdown',
+                               metadata=metadata
+                               )
         return content
     except Exception as e:
         try:
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                         text=f"Error in update_resilientllm_asset: {e}")
+                                                         markdown_text=f"Error in update_resilientllm_asset: {e}")
         except:
             pass
         dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
-        raise
+        raise e
 
 
