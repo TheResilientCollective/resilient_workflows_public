@@ -36,7 +36,7 @@ FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "pathogens/sandiego/sandiego_epidemiology/output")
 FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
-s3_output_path='pathogens/sandiego/sandiego_epidemiology/llm/'
+s3_output_path='pathogens/sandiego/sandiego_epidemiology/'
 
 # File to Airtable table mapping - update these UUIDs with actual Airtable table IDs
 #AIRTABLE_EPI_DISEASE_TABLE_ID=tblgC8jeTS4c6LPTO
@@ -560,7 +560,7 @@ def summary_resilientllm_asset(context):
         try:
 
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                         text=f"# summary updated: \n {content}")
+                                                         markdown_text=f"# LLM Summary for San Diego : \n {content}")
         except:
             pass
 
@@ -630,7 +630,7 @@ def update_resilientllm_asset(context):
 
 
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                         text=f"# summary updated: \n {content}")
+                                                         markdown_text=f"# LLM Update for San Diego : \n {content}")
         except:
             pass
 
