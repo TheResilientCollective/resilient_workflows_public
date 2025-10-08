@@ -33,7 +33,7 @@ from ..utils import store_assets
 # S3 paths
 FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 
-FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "health/sandiego_epidemiology_forecasts/output")
+FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "pathogens/sandiego/sandiego_epidemiology/output")
 FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 s3_output_path='pathogens/sandiego/sandiego_epidemiology/llm/'

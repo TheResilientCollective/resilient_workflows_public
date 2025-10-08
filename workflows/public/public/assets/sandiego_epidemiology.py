@@ -158,7 +158,7 @@ def sandiego_epidemiology_hyper_extraction(
 
             if hyper_file_path.exists():
                 # Store Hyper file in S3
-                hyper_s3_key = f"health/sandiego_epidemiology/raw/{workbook_name}/{date_path}/hyper/{hyper_file_path.name}"
+                hyper_s3_key = f"{s3_output_path}raw/{workbook_name}/{date_path}/hyper/{hyper_file_path.name}"
 
                 with open(hyper_file_path, 'rb') as f:
                     name = f'sandiego_epidemiology_workbook_data {hyper_file_path.name}'
@@ -187,14 +187,14 @@ def sandiego_epidemiology_hyper_extraction(
                             workbook_name=workbook_name,
                             dataset_identifier=table_name,
                             logger=logger,
-                            base_s3_output_prefix="health/sandiego_epidemiology/output",
+                            base_s3_output_prefix=f"{s3_output_path}output",
                             source_url=config.url
                         )
 
                         all_dataframes[table_name] = {
                             "rows": len(df),
                             "columns": len(df.columns),
-                            "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/{date_path}/{table_name}" # Update path based on helper
+                            "s3_path": f"{s3_output_path}output/{workbook_name}/{date_path}/{table_name}" # Update path based on helper
                         }
                         if TimeSeriesTablePrefix in table_name:
                             df = df.dropna(subset=['Disease', 'Metric'])
@@ -211,17 +211,17 @@ def sandiego_epidemiology_hyper_extraction(
                                         workbook_name=workbook_name,
                                         dataset_identifier=f"processed_by_disease/{disease_safe_name}",
                                         logger=logger,
-                                        base_s3_output_prefix="health/sandiego_epidemiology/output",
+                                        base_s3_output_prefix=f"{s3_output_path}output",
                                         source_url=config.url
 
                                     )
 
-                                    logger.info(f"Processed and stored data for disease {disease} to S3: s3://{s3_resource.S3_BUCKET}/health/sandiego_epidemiology/output/{workbook_name}/processed_by_disease/{disease_safe_name}")
+                                    logger.info(f"Processed and stored data for disease {disease} to S3: s3://{s3_resource.S3_BUCKET}{s3_output_path}output/{workbook_name}/processed_by_disease/{disease_safe_name}")
 
                                     all_dataframes[f"{table_name}_{disease}"] = { # Adjust key to reflect disease
                                         "rows": len(processed_df_for_disease),
                                         "columns": len(processed_df_for_disease.columns),
-                                        "s3_path": f"health/sandiego_epidemiology/output/{workbook_name}/processed_by_disease/{disease_safe_name}"
+                                        "s3_path": f"{s3_output_path}output/{workbook_name}/processed_by_disease/{disease_safe_name}"
                                     }
                                     processed_count += 1
                                     logger.info(f"Processed {table_name}: {len(df)} rows, {len(df.columns)} columns") # Original logging
