@@ -86,7 +86,7 @@ class S3Resource(ResourceWithS3Configuration):
             raise Exception(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
 
 # note metadata is S3 metadata not JSONLD metadata
-    def putFile_text(self, data, metadata={}, path='test', bucket=None):
+    def putFile_text(self, data, metadata={}, path='test',content_type='text/plain', bucket=None):
         if bucket is None:
             bucket = self.S3_BUCKET
         try:
@@ -94,7 +94,7 @@ class S3Resource(ResourceWithS3Configuration):
                 bucket, path,
                 data=io.BytesIO(data.encode('utf-8')),
                 length=len(data),
-                content_type="text/plain", metadata=metadata
+                content_type=content_type, metadata=metadata
             )
             get_dagster_logger().info(
                 "created {0} object; etag: {1}, version-id: {2}".format(

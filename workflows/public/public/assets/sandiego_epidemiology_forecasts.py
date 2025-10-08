@@ -551,18 +551,19 @@ def summary_resilientllm_asset(context):
         except Exception as e:
             dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
             raise e
+        date_path = datetime.today().strftime('%Y%m%d')
+        s3_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
+        store_assets.text_to_s3(content, s3_key, s3_resource
+                               , contenttype='text/markdown',
+                               metadata=metadata
+                               )
         try:
 
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
                                                          text=f"# summary updated: \n {content}")
         except:
             pass
-        date_path = datetime.today().strftime('%Y-%m-%d')
-        s3_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
-        store_assets.raw_to_s3(content, s3_key, s3_resource
-                               , contenttype='text/markdown',
-                               metadata=metadata
-                               )
+
         return content
     except Exception as e:
             try:
@@ -602,27 +603,29 @@ def update_resilientllm_asset(context):
         try:
             RsvPortalRecordId = "rec4NITTQNAONirhd"
             update_table=airtable_resource.getTable('Updates')
-            data = [
-                    {
-                        "fields":{
+            data = {
                         "Portal": [RsvPortalRecordId],
                         "Update": content,
                         "Status": "Published",
-                        "Date": datetime.today().strftime('%Y%m%d'),
-                        "Portal slug":"CoSD-ILI-Report"
-
+                        "Date": datetime.today().strftime('%Y-%m-%d'),
+                        #"Portal slug":"CoSD-ILI-Report"
                     }
-                   }
-                 ]
-
+            record = update_table.create(data)
+            # attempt to upsert if this gets run more than once a day
+           # records = [{ "fields":data}]
            # key_fields=['Date', 'Portal']
-            key_fields = ['Date', 'Portal slug']
-            #record = update_table.create(data)
-            record = update_table.batch_upsert(data, key_fields)
+           # key_fields = ['Date', 'Portal slug']
+            #record = update_table.batch_upsert(records, key_fields)
+
         except Exception as e:
             dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
             raise e
-
+        date_path = datetime.today().strftime('%Y%m%d')
+        s3_key = f"{s3_output_path}output/llm/{date_path}/update.md"
+        store_assets.text_to_s3(content, s3_key, s3_resource
+                               , contenttype='text/markdown',
+                               metadata=metadata
+                               )
         try:
 
 
@@ -630,12 +633,7 @@ def update_resilientllm_asset(context):
                                                          text=f"# summary updated: \n {content}")
         except:
             pass
-        date_path = datetime.today().strftime('%Y%m%d')
-        s3_key = f"{s3_output_path}output/llm/{date_path}/update.md"
-        store_assets.raw_to_s3(content, s3_key, s3_resource
-                               , contenttype='text/markdown',
-                               metadata=metadata
-                               )
+
         return content
     except Exception as e:
         try:
