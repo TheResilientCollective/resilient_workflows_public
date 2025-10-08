@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime
 import re
+
+import requests
 import yaml
 import json
 
@@ -23,8 +25,9 @@ from dagster import (
     AssetKey,
     AutomationCondition, RunConfig, Config, EnvVar
 )
-from duckdb.experimental.spark import DataFrame
+
 from icecream import ic
+
 
 from . import sandiego_epidemiology_hyper_extraction
 from ..resources import minio
@@ -35,6 +38,8 @@ FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 
 FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "pathogens/sandiego/sandiego_epidemiology/output")
 FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
+FORECAST_NETILFY_PREVIEW_HOOK=os.environ.get("FORECAST_NETILFY_DEPLOY_TRIGGER")
+FORECAST_NETILFY_PRODUCTION_HOOK=os.environ.get("FORECAST_NETILFY_PRODUCTION_TRIGGER")
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 s3_output_path='pathogens/sandiego/sandiego_epidemiology/'
 
@@ -633,7 +638,7 @@ def update_resilientllm_asset(context):
                                                          markdown_text=f"# LLM Update for San Diego : \n {content}")
         except:
             pass
-
+        triggerDeploy()
         return content
     except Exception as e:
         try:
@@ -645,3 +650,22 @@ def update_resilientllm_asset(context):
         raise e
 
 
+def triggerDeploy():
+    if FORECAST_NETILFY_PREVIEW_HOOK is None:
+        return False
+    response = requests.post(f"{FORECAST_NETILFY_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster")
+    if response.status_code == 200:
+        return True
+    else:
+        return False
+
+#
+
+"""
+{
+  "preview_hook": "Example text",
+  "deploy_hook": "Example text",
+  "preview_url": "Example text",
+  "deploy_url": "Example text"
+}
+"""
