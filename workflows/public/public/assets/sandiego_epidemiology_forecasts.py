@@ -215,7 +215,8 @@ def run_epidemic_simulation(context):
                                   LONG_DATE="here",
                                                RUNID=date_path,
                                   sims=sims,
-                                  PUBLIC_BUCKET=os.environ.get("PUBLIC_BUCKET"),)
+                                  PUBLIC_BUCKET=os.environ.get("PUBLIC_BUCKET"),
+                                  RESILIENTSIMS_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET"))
       config_config_yaml=yaml.safe_load(config_config_str)
   except Exception as e:
       logger.error(f"Error rendering forecast_config.yaml: {e} ")
