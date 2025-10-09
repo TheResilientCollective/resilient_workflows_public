@@ -22,7 +22,7 @@ services:
         hostname: dagster-code-${PROJECT}-public
         image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
         environment: &env
-          - DEBUG_CONTAINER=${DEBUG_CONTAINER:-false}
+            - DEBUG_CONTAINER=${DEBUG_CONTAINER:-false}
             - PROJECT=${PROJECT}
             - RESILIENT_DOCKER_WORKSPACE_CONFIG=${RESILIENT_DOCKER_WORKSPACE_CONFIG}
             - S3_SECRET_KEY=${S3_SECRET_KEY}

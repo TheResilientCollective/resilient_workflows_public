@@ -19,15 +19,15 @@ content:
   "ReportDelays/report-delays-COVID.RDS":
     type: "cloud_storage"
     provider: "s3"
-    bucket: "{{  sims.RESILIENTSIMS_BUCKET }}"
+    bucket: "{{  RESILIENTSIMS_BUCKET }}"
     key: "report_delays/report-delays-COVID.RDS"
   "ReportDelays/report-delays-Influenza.RDS":
     type: "cloud_storage"
     provider: "s3"
-    bucket: "{{  sims.RESILIENTSIMS_BUCKET }}"
+    bucket: "{{  RESILIENTSIMS_BUCKET }}"
     key: "report_delays/report-delays-Influenza.RDS"
   "ReportDelays/report-delays-RSV.RDS":
     type: "cloud_storage"
     provider: "s3"
-    bucket: "{{  sims.RESILIENTSIMS_BUCKET }}"
+    bucket: "{{  RESILIENTSIMS_BUCKET }}"
     key: "report_delays/report-delays-RSV.RDS"
