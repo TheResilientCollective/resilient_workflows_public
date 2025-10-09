@@ -554,8 +554,8 @@ def summary_resilientllm_asset(context):
         content = summary['message']['data']['content']
         airtable_resource = context.resources.airtable
         try:
-            recordId = FORECAST_AIRTABLE_WIDGETS_TABLE_ID
-            tableId = FORECAST_AIRTABLE_WIDGETS_RECORDID
+            recordId = FORECAST_AIRTABLE_WIDGETS_RECORDID
+            tableId = FORECAST_AIRTABLE_WIDGETS_TABLE_ID
             widgets_table = airtable_resource.getTable(tableId)
             data = {
                 'Text': content
