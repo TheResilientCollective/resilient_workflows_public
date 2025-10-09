@@ -5,17 +5,17 @@ content:
     type: "cloud_storage"
     provider: "s3"
     bucket: "{{ PUBLIC_BUCKET }}"
-    key: "health/sandiego_epidemiology/output/sandiego_epidemiology/{{ RUNID }}/processed_by_disease/COVID.csv"
+    key: "pathogens/sandiego/sandiego_epidemiology/output/sandiego_epidemiology/{{ RUNID }}/processed_by_disease/COVID.csv"
   "CurrentData/FLU.csv":
     type: "cloud_storage"
     provider: "s3"
     bucket: "{{ PUBLIC_BUCKET }}"
-    key: "health/sandiego_epidemiology/output/sandiego_epidemiology/{{ RUNID }}/processed_by_disease/FLU.csv"
+    key: "pathogens/sandiego/sandiego_epidemiology/output/sandiego_epidemiology/{{ RUNID }}/processed_by_disease/FLU.csv"
   "CurrentData/RSV.csv":
     type: "cloud_storage"
     provider: "s3"
     bucket: "{{ PUBLIC_BUCKET }}"
-    key: "health/sandiego_epidemiology/output/sandiego_epidemiology/{{ RUNID }}/processed_by_disease/RSV.csv"
+    key: "pathogens/sandiego/sandiego_epidemiology/output/sandiego_epidemiology/{{ RUNID }}/processed_by_disease/RSV.csv"
   "ReportDelays/report-delays-COVID.RDS":
     type: "cloud_storage"
     provider: "s3"

@@ -25,6 +25,7 @@ from dagster import (
     AssetKey,
     AutomationCondition, RunConfig, Config, EnvVar
 )
+from pyairtable.formulas import AND, GTE, Field, match, EQ
 
 from icecream import ic
 
@@ -40,6 +41,15 @@ FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "pathog
 FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
 FORECAST_NETILFY_PREVIEW_HOOK=os.environ.get("FORECAST_NETILFY_DEPLOY_TRIGGER")
 FORECAST_NETILFY_PRODUCTION_HOOK=os.environ.get("FORECAST_NETILFY_PRODUCTION_TRIGGER")
+FORECAST_NETLIFY_PREVIEW_URL=os.environ.get("FORECAST_NETLIFY_PREVIEW_URL")
+FORECAST_NETLIFY_PRODUCTION_URL=os.environ.get("FORECAST_NETLIFY_PRODUCTION_URL")
+TRIGGER_PREVIEW_HOOK=os.environ.get("TRIGGER_PREVIEW_HOOK")
+FORECAST_AIRTABLE_RSV_PORTAL_RECORDID=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDID","rec4NITTQNAONirhd")
+FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME","CoSD-ILI-Report")
+FORECAST_AIRTABLE_RSV_UPDATES_TABLE_ID=os.environ.get("FORECAST_AIRTABLE_UPDATES_TABLE_ID","Updates") # Updates
+FORECAST_AIRTABLE_WIDGETS_TABLE_ID=os.environ.get("FORECAST_AIRTABLE_WIDGETS_TABLE_ID","Widgets") # Widgets
+FORECAST_AIRTABLE_WIDGETS_RECORDID=os.environ.get("FORECAST_AIRTABLE_WIDGETS_RECORDID","recowLGi7NgFdWX7B") # "recowLGi7NgFdWX7B"
+
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 s3_output_path='pathogens/sandiego/sandiego_epidemiology/'
 
@@ -544,8 +554,8 @@ def summary_resilientllm_asset(context):
         content = summary['message']['data']['content']
         airtable_resource = context.resources.airtable
         try:
-            recordId = "recowLGi7NgFdWX7B"
-            tableId = "Widgets"
+            recordId = FORECAST_AIRTABLE_WIDGETS_TABLE_ID
+            tableId = FORECAST_AIRTABLE_WIDGETS_RECORDID
             widgets_table = airtable_resource.getTable(tableId)
             data = {
                 'Text': content
@@ -605,17 +615,32 @@ def update_resilientllm_asset(context):
         airtable_resource = context.resources.airtable
         update =  llm.execute(llm.update_id)
         content = update['message']['data']['content']
+
         try:
-            RsvPortalRecordId = "rec4NITTQNAONirhd"
-            update_table=airtable_resource.getTable('Updates')
-            data = {
-                        "Portal": [RsvPortalRecordId],
-                        "Update": content,
-                        "Status": "Published",
-                        "Date": datetime.today().strftime('%Y-%m-%d'),
-                        #"Portal slug":"CoSD-ILI-Report"
-                    }
-            record = update_table.create(data)
+            RsvPortalRecordId = FORECAST_AIRTABLE_RSV_PORTAL_RECORDID
+            RsvPortalRecordName = FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME
+            update_table=airtable_resource.getTable(FORECAST_AIRTABLE_RSV_UPDATES_TABLE_ID)
+            date = datetime.today().strftime('%Y-%m-%d')
+            #  formula = "AND(FIND('rec4NITTQNAONirhd', ARRAYJOIN({Portal})) > 0, IS_SAME({Date}, '2025-10-08', 'day'))"
+            #formula = "AND(SEARCH('"+ RsvPortalRecordId + "', ARRAYJOIN({Portal} )) , IS_SAME({Date}, '"+ date +"', 'day'))"
+            #formula = " IS_SAME({Date}, '"+ date +"', 'day')"
+            #formula = "FIND('" + "rec4NITTQNAONirhd" + "', ARRAYJOIN({Portal} )) >0"
+            #formula = "FIND('" + RsvPortalRecordName+ "', {Portal slug} )"
+            formula="AND(FIND('" + RsvPortalRecordName+ "', {Portal slug} ) >0 , IS_SAME({Date}, '"+ date +"', 'day'))"
+            existing_record=update_table.first(formula=formula)
+            if  existing_record is not None:
+               # existing_record["fields"]['Status']=content
+                fields={"Update":content}
+                update_table.update(existing_record['id'], fields)
+            else:
+                data = {
+                            "Portal": [RsvPortalRecordId],
+                            "Update": content,
+                            "Status": "Published",
+                            "Date": date,
+                            #"Portal slug":"CoSD-ILI-Report"
+                        }
+                record = update_table.create(data)
             # attempt to upsert if this gets run more than once a day
            # records = [{ "fields":data}]
            # key_fields=['Date', 'Portal']
@@ -655,6 +680,20 @@ def triggerDeploy():
         return False
     response = requests.post(f"{FORECAST_NETILFY_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster")
     if response.status_code == 200:
+        if TRIGGER_PREVIEW_HOOK is not None:
+            data =  {
+                "asset_name": "sd_epidemiology_forecast",
+                "metadata": "optional-metadata",
+                "preview_hook": FORECAST_NETILFY_PREVIEW_HOOK,
+                "deploy_hook": FORECAST_NETILFY_PRODUCTION_HOOK,
+                "preview_url": FORECAST_NETLIFY_PREVIEW_URL,
+                "deploy_url": FORECAST_NETLIFY_PRODUCTION_URL
+                }
+            response = requests.post(f"{TRIGGER_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster", data=data)
+            if response.status_code == 200:
+                dagster.get_dagster_logger().info(f'Slack workflow triggered successfully {TRIGGER_PREVIEW_HOOK}')
+            else:
+                dagster.get_dagster_logger().error(f'Failed to trigger Slack workflow {TRIGGER_PREVIEW_HOOK}')
         return True
     else:
         return False
