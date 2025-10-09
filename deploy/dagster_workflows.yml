@@ -54,6 +54,7 @@ services:
             - PURPLE_AIR_API_KEY_WRITE=${PURPLE_AIR_API_KEY_WRITE}
             - AIRNOW_API_KEY=${AIRNOW_API_KEY}
             - HOST=${HOST}
+            - PUBLIC_BUCKET=${PUBLIC_BUCKET}
             - RESILIENTSIMS_SERVER_URL=${RESILIENTSIMS_SERVER_URL:-https://sims.resilientservice.mooo.com}
             - RESILIENTSIMS_API_PATH=${RESILIENTSIMS_API_PATH:-/api/v1}
             - RESILIENTSIMS_USERNAME=${RESILIENTSIMS_USERNAME}
