@@ -21,18 +21,30 @@ source .venv/bin/activate
 ```
 
 ### Configuration
-Set environment variables for API access:
+Environment variables are pre-configured in `workflows/.env` for development. Load them using:
+```bash
+export $(grep -v '^#' workflows/.env | xargs)
+```
+
+The workflows/.env file contains all necessary API keys and configuration:
+- **API Keys**: AIRNOW_API_KEY, PURPLE_AIR_API_KEY_READ/WRITE, OPENAI_API_KEY
+- **S3/MinIO**: S3_BUCKET, S3_ADDRESS, S3_ACCESS_KEY, S3_SECRET_KEY
+- **Airtable**: AIRTABLE_ACCESS_TOKEN, AIRTABLE_BASE_ID, various table IDs
+- **Slack**: SLACK_TOKEN, SLACK_CHANNEL, SLACK_SIMS_CHANNEL
+- **ResilientSims**: RESILIENTSIMS_* configuration variables
+- **Forecast/Netlify**: Various webhook and portal URLs
+
+For manual setup, you can also set individual environment variables:
 ```bash
 export AIRNOW_API_KEY="your_key"
 export PURPLEAIR_API_KEY="your_key"
-export AIRTABLE_API_KEY="your_key"
+export AIRTABLE_ACCESS_TOKEN="your_token"
 export AIRTABLE_BASE_ID="your_base_id"
-export SLACK_WEBHOOK_URL="your_webhook"
-export MINIO_ENDPOINT="your_endpoint"
-export MINIO_ACCESS_KEY="your_access_key"
-export MINIO_SECRET_KEY="your_secret_key"
+export SLACK_TOKEN="your_token"
+export S3_BUCKET="your_bucket"
+export S3_ACCESS_KEY="your_access_key"
+export S3_SECRET_KEY="your_secret_key"
 ```
-`export $(grep -v '^#' workflows/.env | xargs)`
 
 ### Asset Testing
 ```bash
