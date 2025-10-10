@@ -3,6 +3,7 @@ import logging
 import requests
 import hmac
 import hashlib
+import json
 from threading import Thread
 from flask import Flask, request, jsonify
 from slack_bolt import App
@@ -46,9 +47,31 @@ def verify_webhook_signature(payload, signature):
     return hmac.compare_digest(signature, expected_signature)
 
 
-def send_preview_notification(channel, asset_name=None, metadata=None):
+def send_preview_notification(channel, asset_name=None, metadata=None,
+                             preview_hook=None, deploy_hook=None,
+                             preview_url=None, deploy_url=None,
+                             reject_message=None):
     """Send preview deployment notification with approval buttons"""
     try:
+        # Use provided values or fall back to environment defaults
+        preview_hook = preview_hook or NETLIFY_PREVIEW_HOOK
+        deploy_hook = deploy_hook or NETLIFY_PRODUCTION_HOOK
+        preview_url = preview_url or NETLIFY_PREVIEW_URL
+        deploy_url = deploy_url or NETLIFY_PRODUCTION_URL
+        reject_message = reject_message or NETLIFY_REJECT_MESSAGE
+
+        # Create state object to store in button values
+        state = {
+            "asset_name": asset_name,
+            "metadata": metadata,
+            "preview_hook": preview_hook,
+            "deploy_hook": deploy_hook,
+            "preview_url": preview_url,
+            "deploy_url": deploy_url,
+            "reject_message": reject_message
+        }
+        state_json = json.dumps(state)
+
         message_text = "🚀 *Preview Deployment Ready*"
         if asset_name:
             message_text += f"\n📦 Asset: `{asset_name}`"
@@ -65,7 +88,7 @@ def send_preview_notification(channel, asset_name=None, metadata=None):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"Preview URL: <{NETLIFY_PREVIEW_URL}|View Preview>"
+                    "text": f"Preview URL: <{preview_url}|View Preview>"
                 }
             },
             {
@@ -80,7 +103,7 @@ def send_preview_notification(channel, asset_name=None, metadata=None):
                         },
                         "style": "primary",
                         "action_id": "approve_deploy",
-                        "value": metadata or "deploy"
+                        "value": state_json
                     },
                     {
                         "type": "button",
@@ -90,7 +113,7 @@ def send_preview_notification(channel, asset_name=None, metadata=None):
                         },
                         "style": "danger",
                         "action_id": "reject_deploy",
-                        "value": metadata or "deploy"
+                        "value": state_json
                     }
                 ]
             }
@@ -138,14 +161,24 @@ def webhook_trigger_preview():
         data = request.get_json()
         asset_name = data.get('asset_name')
         metadata = data.get('metadata')
+        preview_hook =data.get("preview_hook") or NETLIFY_PREVIEW_HOOK
+        deploy_hook =data.get("deploy_hook") or NETLIFY_PRODUCTION_HOOK
+        preview_url =data.get("preview_url") or NETLIFY_PREVIEW_URL
+        deploy_url =data.get("deploy_url") or NETLIFY_PRODUCTION_URL
+        reject_message =data.get("reject_message") or NETLIFY_REJECT_MESSAGE
 
         logger.info(f"Webhook received for asset: {asset_name}")
 
-        # Send preview notification
+        # Send preview notification with dynamic values
         send_preview_notification(
             SLACK_CHANNEL_ID,
             asset_name=asset_name,
-            metadata=metadata
+            metadata=metadata,
+            preview_hook=preview_hook,
+            deploy_hook=deploy_hook,
+            preview_url=preview_url,
+            deploy_url=deploy_url,
+            reject_message=reject_message
         )
 
         return jsonify({"status": "success", "message": "Preview notification sent"}), 200
@@ -172,10 +205,24 @@ def handle_approve_deploy(ack, body, client):
         message_ts = body["message"]["ts"]
         user_id = body["user"]["id"]
 
+        # Extract state from button value
+        button_value = body["actions"][0]["value"]
+        try:
+            state = json.loads(button_value)
+            deploy_hook = state.get("deploy_hook", NETLIFY_PRODUCTION_HOOK)
+            preview_url = state.get("preview_url", NETLIFY_PREVIEW_URL)
+            deploy_url = state.get("deploy_url", NETLIFY_PRODUCTION_URL)
+        except (json.JSONDecodeError, KeyError):
+            # Fallback to environment defaults if state parsing fails
+            logger.warning("Failed to parse state from button value, using defaults")
+            deploy_hook = NETLIFY_PRODUCTION_HOOK
+            preview_url = NETLIFY_PREVIEW_URL
+            deploy_url = NETLIFY_PRODUCTION_URL
+
         logger.info(f"Deploy approved by user {user_id}")
 
-        # Trigger production build
-        success = trigger_netlify_build(NETLIFY_PRODUCTION_HOOK)
+        # Trigger production build with dynamic hook
+        success = trigger_netlify_build(deploy_hook)
 
         if success:
             # Update original message to remove buttons
@@ -195,7 +242,7 @@ def handle_approve_deploy(ack, body, client):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"Preview URL: <{NETLIFY_PREVIEW_URL}|View Preview>"
+                            "text": f"Preview URL: <{preview_url}|View Preview>"
                         }
                     }
                 ]
@@ -204,13 +251,13 @@ def handle_approve_deploy(ack, body, client):
             # Post follow-up message with production URL
             client.chat_postMessage(
                 channel=channel,
-                text=f"🚀 Production deployment triggered! View at: {NETLIFY_PRODUCTION_URL}",
+                text=f"🚀 Production deployment triggered! View at: {deploy_url}",
                 blocks=[
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"🚀 *Production deployment triggered!*\n\nProduction URL: <{NETLIFY_PRODUCTION_URL}|View Production>"
+                            "text": f"🚀 *Production deployment triggered!*\n\nProduction URL: <{deploy_url}|View Production>"
                         }
                     }
                 ]
@@ -243,6 +290,20 @@ def handle_reject_deploy(ack, body, client):
         message_ts = body["message"]["ts"]
         user_id = body["user"]["id"]
 
+        # Extract state from button value
+        button_value = body["actions"][0]["value"]
+        try:
+            state = json.loads(button_value)
+            preview_url = state.get("preview_url", NETLIFY_PREVIEW_URL)
+            reject_message = state.get("reject_message", NETLIFY_REJECT_MESSAGE)
+            preview_hook = state.get("preview_hook", NETLIFY_PREVIEW_HOOK)
+        except (json.JSONDecodeError, KeyError):
+            # Fallback to environment defaults if state parsing fails
+            logger.warning("Failed to parse state from button value, using defaults")
+            preview_url = NETLIFY_PREVIEW_URL
+            reject_message = NETLIFY_REJECT_MESSAGE
+            preview_hook = NETLIFY_PREVIEW_HOOK
+
         logger.info(f"Deploy rejected by user {user_id}")
 
         # Update original message to remove buttons
@@ -262,22 +323,29 @@ def handle_reject_deploy(ack, body, client):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"Preview URL: <{NETLIFY_PREVIEW_URL}|View Preview>"
+                        "text": f"Preview URL: <{preview_url}|View Preview>"
                     }
                 }
             ]
         )
 
+        # Create state for the trigger preview button
+        trigger_state = {
+            "preview_hook": preview_hook,
+            "reject_message": reject_message
+        }
+        trigger_state_json = json.dumps(trigger_state)
+
         # Post follow-up message with rejection instructions
         client.chat_postMessage(
             channel=channel,
-            text=NETLIFY_REJECT_MESSAGE,
+            text=reject_message,
             blocks=[
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"ℹ️ {NETLIFY_REJECT_MESSAGE}"
+                        "text": f"ℹ️ {reject_message}"
                     }
                 },
                 {
@@ -291,7 +359,8 @@ def handle_reject_deploy(ack, body, client):
                                 "text": "🔄 Trigger Preview"
                             },
                             "action_id": "trigger_preview",
-                            "style": "primary"
+                            "style": "primary",
+                            "value": trigger_state_json
                         }
                     ]
                 }
@@ -318,23 +387,35 @@ def handle_trigger_preview(ack, body, client):
         message_ts = body["message"]["ts"]
         user_id = body["user"]["id"]
 
+        # Extract state from button value
+        button_value = body["actions"][0]["value"]
+        try:
+            state = json.loads(button_value)
+            preview_hook = state.get("preview_hook", NETLIFY_PREVIEW_HOOK)
+            reject_message = state.get("reject_message", NETLIFY_REJECT_MESSAGE)
+        except (json.JSONDecodeError, KeyError):
+            # Fallback to environment defaults if state parsing fails
+            logger.warning("Failed to parse state from button value, using defaults")
+            preview_hook = NETLIFY_PREVIEW_HOOK
+            reject_message = NETLIFY_REJECT_MESSAGE
+
         logger.info(f"Preview re-trigger requested by user {user_id}")
 
-        # Trigger preview build
-        success = trigger_netlify_build(NETLIFY_PREVIEW_HOOK)
+        # Trigger preview build with dynamic hook
+        success = trigger_netlify_build(preview_hook)
 
         if success:
             # Update message to disable button
             client.chat_update(
                 channel=channel,
                 ts=message_ts,
-                text=NETLIFY_REJECT_MESSAGE,
+                text=reject_message,
                 blocks=[
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"ℹ️ {NETLIFY_REJECT_MESSAGE}"
+                            "text": f"ℹ️ {reject_message}"
                         }
                     },
                     {
@@ -347,7 +428,7 @@ def handle_trigger_preview(ack, body, client):
                 ]
             )
 
-            # Send new preview notification
+            # Send new preview notification - use defaults since we don't have full state
             send_preview_notification(channel)
         else:
             # Post error message

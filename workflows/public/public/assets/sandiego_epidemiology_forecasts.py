@@ -43,6 +43,7 @@ FORECAST_NETILFY_PREVIEW_HOOK=os.environ.get("FORECAST_NETILFY_DEPLOY_TRIGGER")
 FORECAST_NETILFY_PRODUCTION_HOOK=os.environ.get("FORECAST_NETILFY_PRODUCTION_TRIGGER")
 FORECAST_NETLIFY_PREVIEW_URL=os.environ.get("FORECAST_NETLIFY_PREVIEW_URL")
 FORECAST_NETLIFY_PRODUCTION_URL=os.environ.get("FORECAST_NETLIFY_PRODUCTION_URL")
+FORECAST_NETLIFY_REJECT_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_MESSAGE","Please edit the prompts in Airtable and trigger a new preview when ready." )
 TRIGGER_PREVIEW_HOOK=os.environ.get("TRIGGER_PREVIEW_HOOK")
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDID=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDID","rec4NITTQNAONirhd")
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME","CoSD-ILI-Report")
@@ -681,6 +682,8 @@ def triggerDeploy():
         return False
     response = requests.post(f"{FORECAST_NETILFY_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster")
     if response.status_code == 200:
+        dagster.get_dagster_logger().info(f'Netlify Preview Hook called successfully')
+
         if TRIGGER_PREVIEW_HOOK is not None:
             data =  {
                 "asset_name": "sd_epidemiology_forecast",
@@ -688,15 +691,20 @@ def triggerDeploy():
                 "preview_hook": FORECAST_NETILFY_PREVIEW_HOOK,
                 "deploy_hook": FORECAST_NETILFY_PRODUCTION_HOOK,
                 "preview_url": FORECAST_NETLIFY_PREVIEW_URL,
-                "deploy_url": FORECAST_NETLIFY_PRODUCTION_URL
+                "deploy_url": FORECAST_NETLIFY_PRODUCTION_URL,
+                "reject_message":FORECAST_NETLIFY_REJECT_MESSAGE
                 }
             response = requests.post(f"{TRIGGER_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster", data=data)
             if response.status_code == 200:
                 dagster.get_dagster_logger().info(f'Slack workflow triggered successfully {TRIGGER_PREVIEW_HOOK}')
             else:
                 dagster.get_dagster_logger().error(f'Failed to trigger Slack workflow {TRIGGER_PREVIEW_HOOK}')
+        else:
+            dagster.get_dagster_logger().error(f'trigger not configured no TRIGGER_PREVIEW_HOOK  environment variable')
+
         return True
     else:
+        dagster.get_dagster_logger().error(f'Netlify Preview Hook failed  {response.status_code} {response.text}')
         return False
 
 #
