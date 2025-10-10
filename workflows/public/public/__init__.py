@@ -24,6 +24,7 @@ all_assets = load_assets_from_modules([assets])
 asset_checks=[assets.sd_complaints_freshness_check
     , assets.current_freshness_check
     , assets.sde_timeseries_checks
+    , assets.mpox_data_checks
               ]
 all_schedules = [assets.beach_waterquality_schedule,
               #   assets.complaints_daily_schedule, # now a sensor
@@ -42,6 +43,7 @@ all_sensors=[slack_on_run_failure,
              assets.spills_latest_sensor,
              assets.sandiego_epidemiology_sensor,
              assets.epidemiology_forecasts_sensor,
+             assets.mpox_epidemiology_sensor,
              ]
 all_jobs=[
     #assets.complaints_daily_job

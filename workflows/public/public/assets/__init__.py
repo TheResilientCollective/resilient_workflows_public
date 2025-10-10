@@ -55,3 +55,10 @@ epidemiology_forecasts_job,
 epidemiology_forecasts_sensor,
 update_resilientllm_asset, summary_resilientllm_asset
 )
+from .sandiego_epidemiology_mpox import (
+mpox_workbook_download,
+mpox_hyper_extraction,
+mpox_data_checks,
+mpox_epidemiology_job,
+mpox_epidemiology_sensor
+)
