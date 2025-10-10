@@ -5,6 +5,8 @@ from dagster_openai import OpenAIResource
 from . import assets
 from .resources.minio import S3Resource
 from .resources.airtable import AirtableResource
+from .resources.resilientsims import ResilientSimsResource,ResourceWithResilientSimsConfiguration
+from .resources.resilientllm import ResilientLLMResource
 
 def slack_message_fn(context: RunFailureSensorContext) -> str:
     return (
@@ -19,7 +21,10 @@ slack_on_run_failure = make_slack_on_run_failure_sensor(
 )
 
 all_assets = load_assets_from_modules([assets])
-asset_checks=[assets.sd_complaints_freshness_check, assets.current_freshness_check]
+asset_checks=[assets.sd_complaints_freshness_check
+    , assets.current_freshness_check
+    , assets.sde_timeseries_checks
+              ]
 all_schedules = [assets.beach_waterquality_schedule,
               #   assets.complaints_daily_schedule, # now a sensor
                  assets.apcd_current_schedule, assets.apcd_all_schedule,
@@ -28,12 +33,15 @@ all_schedules = [assets.beach_waterquality_schedule,
                     assets.purple_air_schedule,
                  assets.spills_historic_schedule,
                  assets.cdc_nnds.cdc_nndss_raw_schedule,
-                 assets.mpox_counties_weekly_schedule
+                 assets.mpox_counties_weekly_schedule,
+                # assets.sandiego_epidemiology_schedule # now a sensor
                  ]
 all_sensors=[slack_on_run_failure,
              assets.complaints_data_sensor,
              assets.beachinfo_updated_sensor,
              assets.spills_latest_sensor,
+             assets.sandiego_epidemiology_sensor,
+             assets.epidemiology_forecasts_sensor,
              ]
 all_jobs=[
     #assets.complaints_daily_job
@@ -56,6 +64,17 @@ openai=OpenAIResource(
    api_key=EnvVar("OPENAI_API_KEY"),
    base_url=EnvVar("OPENAI_BASE_URL")
 )
+resilentsims_config=ResilientSimsResource(
+    RESILIENTSIMS_SERVER_URL=os.environ.get("RESILIENTSIMS_SERVER_URL", "https://sims.resilientservice.mooo.com"),
+    RESILIENTSIMS_API_PATH=os.environ.get("RESILIENTSIMS_API_PATH", "/api/v1"),
+    RESILIENTSIMS_USERNAME=EnvVar("RESILIENTSIMS_USERNAME"),
+    RESILIENTSIMS_PASSWORD=EnvVar("RESILIENTSIMS_PASSWORD"),
+    RESILIENTSIMS_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET","resilientseasonal"),
+    RESILIENTSIMS_SIMULATOR_ID=EnvVar.int("RESILIENTSIMS_SIMULATOR_ID"),
+)
+resilientllm_config = ResilientLLMResource(
+    token=EnvVar("RESILIENTLLM_API_TOKEN"),
+)
 # SLACK docker env has prefix
 resources ={
     "local": {
@@ -63,11 +82,16 @@ resources ={
         "airtable": airtable,
         "openai":openai,
         "slack": SlackResource(token=EnvVar("SLACK_TOKEN")),
+       "resilientsims": resilentsims_config,
+        "resilientllm": resilientllm_config,
     },
     "production": {
         "s3":minio,
+        "airtable": airtable,
         "openai": openai,
         "slack":SlackResource(token=EnvVar("SLACK_TOKEN")),
+       "resilientsims":resilentsims_config,
+       "resilientllm": resilientllm_config,
     },
 }
 deployment_name = os.environ.get("DAGSTER_DEPLOYMENT", "local")

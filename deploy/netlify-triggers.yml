@@ -1,0 +1,60 @@
+version: "3.9"
+# this NEEDS
+# $HOST
+# $PROJECT
+
+
+# not sure is a named external network works well with traffik, or if the label
+#            - "traefik.docker.network=traefik_proxy"
+# is even needed if the network is defined.
+
+networks:
+  traefik_proxy:
+    external: true
+    name: ${RESILIENT_PROXY_NETWORK:-traefik_proxy}
+
+
+services:
+  netlify-triggers:
+    image: docker.io/resilientucsd/netlify-triggers:${CONTAINER_NETLIFY_TRIGGERS_TAG:-latest}
+    environment:
+      # sort these in BBedit to make finding them easier
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID}
+
+      # Netlify Configuration
+      - NETLIFY_PREVIEW_URL=${NETLIFY_PREVIEW_URL}
+      - NETLIFY_PRODUCTION_URL=${NETLIFY_PRODUCTION_URL}
+      - NETLIFY_PREVIEW_HOOK=${NETLIFY_PREVIEW_HOOK}
+      - NETLIFY_PRODUCTION_HOOK=${NETLIFY_PRODUCTION_HOOK}
+      # Custom Messages
+      - NETLIFY_REJECT_MESSAGE=${NETLIFY_REJECT_MESSAGE:-"Please edit the prompts in Airtable and trigger a new preview when ready"}
+
+      # Webhook Configuration (optional)
+      #- WEBHOOK_SECRET=abcde12345
+      - WEBHOOK_PORT=${WEBHOOK_PORT:-5000}
+
+#    ports:
+#      - 3000:3000
+    networks:
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.triggers-${PROJECT:-res}.entrypoints=http"
+      - "traefik.http.routers.triggers-${PROJECT:-res}.priority=13"
+      - "traefik.http.routers.triggers-${PROJECT:-res}.rule=Host(`${TRIGGERS_HOSTNAME:-triggers}.${HOST? HOST is required}`)"
+      - "traefik.http.middlewares.triggers-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.triggers-${PROJECT:-res}.middlewares=triggers-https-redirect"
+      - "traefik.http.routers.triggers-${PROJECT:-res}-secure.entrypoints=https"
+      - "traefik.http.routers.triggers-${PROJECT:-res}-secure.priority=12"
+      - "traefik.http.routers.triggers-${PROJECT:-res}-secure.rule=Host(`${TRIGGERS_HOSTNAME:-triggers}.${HOST? HOST is required}`)"
+      - "traefik.http.routers.triggers-${PROJECT:-res}-secure.tls=true"
+      - "traefik.http.routers.triggers-${PROJECT:-res}-secure.tls.certresolver=httpresolver"
+      - "traefik.http.routers.triggers-${PROJECT:-res}-secure.service=triggers-${PROJECT:-res}"
+      - "traefik.http.services.triggers-${PROJECT:-res}.loadbalancer.server.port=3000"
+      - "traefik.docker.network=${RESILIENT_PROXY_NETWORK:-traefik_proxy}"
+      - "traefik.http.middlewares.triggers-${PROJECT:-res}.headers.accesscontrolallowmethods=GET,OPTIONS,POST"
+      - "traefik.http.middlewares.triggers-${PROJECT:-res}.headers.accessControlAllowOriginList=*"
+      - "traefik.http.middlewares.triggers-${PROJECT:-res}.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.triggers-${PROJECT:-res}.headers.addvaryheader=true"

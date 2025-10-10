@@ -377,7 +377,13 @@ cdc_nndss_raw_job = define_asset_job(
 
 @schedule(job=cdc_nndss_raw_job, cron_schedule="@weekly", name="cdc_nndss_raw_job")
 def cdc_nndss_raw_schedule(context):
-    partition_key = weekly_partitions.get_partition_key_for_timestamp(context.scheduled_execution_time.timestamp())
+    # this causes an error. no partion
+    #partition_key = weekly_partitions.get_partition_key_for_timestamp(context.scheduled_execution_time.timestamp())
+
+    thisweek=context.scheduled_execution_time.timestamp()
+    last_week=thisweek-timedelta(days=7).total_seconds()
+    partition_key = weekly_partitions.get_partition_key_for_timestamp(last_week)
+
 
     return RunRequest(
         partition_key=partition_key,

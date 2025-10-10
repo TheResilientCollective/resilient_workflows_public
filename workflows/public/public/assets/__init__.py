@@ -43,3 +43,15 @@ from .airnow import (get_aq_combined_kml, get_aq_forecast, get_aq_site, aq_combi
 from .purple_air import memberGroup, getGroupData, purple_air_schedule
 
 from .mpox_counties import mpox_la_powerbi, mpox_sf_dataportal, mpox_counties_weekly_schedule
+from .sandiego_epidemiology import (
+sandiego_epidemiology_workbook_download,
+sandiego_epidemiology_hyper_extraction,sde_timeseries_checks,
+sandiego_epidemiology_job, sandiego_epidemiology_sensor
+)
+from .sandiego_epidemiology_forecasts import (
+run_epidemic_simulation,
+process_epidemiology_forecasts,
+epidemiology_forecasts_job,
+epidemiology_forecasts_sensor,
+update_resilientllm_asset, summary_resilientllm_asset
+)

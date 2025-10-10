@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="dagster dev public" type="PythonConfigurationType" factoryName="Python" folderName="public">
-    <module name="resilient_workflows" />
+  <configuration default="false" name="dagster asset beachwatch recent" type="PythonConfigurationType" factoryName="Python" folderName="public">
+    <module name="resilient_workflows_public" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
@@ -8,8 +8,8 @@
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="DAGSTER_HOME" value="$PROJECT_DIR$/dev_resources" />
     </envs>
-    <option name="SDK_HOME" value="$PROJECT_DIR$/information/venv/bin/python" />
-    <option name="SDK_NAME" value="uv (resilient_workflows)" />
+    <option name="SDK_HOME" value="" />
+    <option name="SDK_NAME" value="uv (resilient_workflows_public) (2)" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/workflows/public" />
     <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
@@ -27,7 +27,7 @@
       </ENTRIES>
     </EXTENSION>
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="dev -w workspace.yaml --verbose" />
+    <option name="PARAMETERS" value="asset materialize --select waterquality/beachwatch_closures_recent -m public" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />

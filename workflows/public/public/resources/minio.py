@@ -1,3 +1,6 @@
+from typing import Iterator, Generator
+
+import minio.datatypes
 from dagster import asset, get_dagster_logger, define_asset_job, ConfigurableResource
 from minio import Minio
 import io
@@ -27,7 +30,7 @@ class ResourceWithS3Configuration(ConfigurableResource):
     S3_PORT: str =  Field(
          description="S3_PORT.")
     S3_USE_SSL: bool=  Field(
-         default=False)
+         default=True)
     S3_ACCESS_KEY: str = Field(
         description="S3_ACCESS_KEY")
     S3_SECRET_KEY: str = Field(
@@ -45,6 +48,12 @@ class S3Resource(ResourceWithS3Configuration):
     def getClient(self):
         return     Minio(PythonMinioAddress(self.S3_ADDRESS, self.S3_PORT), self.S3_ACCESS_KEY, self.S3_SECRET_KEY)
 
+    def baseUrl(self):
+        url = PythonMinioAddress(self.S3_ADDRESS, self.S3_PORT)
+        if self.S3_USE_SSL:
+            return f"https://{url}"
+        else:
+            return f"http://{url}"
 ## https://docs.dagster.io/_apidocs/libraries/dagster-aws#s3
 #   fields from dagster_aws.s3.S3Resource
 # region_name
@@ -52,34 +61,40 @@ class S3Resource(ResourceWithS3Configuration):
 # use_ssl
 # aws_access_key_id
 # aws_secret_access_key
-    def listPath(self, path='orgs', recusrsive=True):
+    def listPath(self, path='orgs', recusrsive=True, bucket=None) -> Iterator[minio.datatypes.Object]:
+        if bucket is None:
+            bucket = self.S3_BUCKET
         result = self.getClient().list_objects(
-            Bucket=self.S3_BUCKET,
-            Prefix=path,
+            bucket,
+            path,
 #            Recusrsive=recusrsive
         )
-        return result["Contents"]
-    def getFile(self, path='test'):
+        return result
+    def getFile(self, path='test', bucket=None):
+        if bucket is None:
+            bucket = self.S3_BUCKET
         try:
             result =   self.getClient().get_object(
-                Bucket=self.S3_BUCKET,
-                Key=path,
+                bucket,
+                path,
             )
             get_dagster_logger().info(
-                f"file {result['Body']}" )
-            return result["Body"]
+                f"file {result.status}" )
+            return result.data
         except Exception as ex:
-            get_dagster_logger().info(f"file {path} not found  in {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
-            raise Exception(f"file {path} not found  in {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
+            get_dagster_logger().info(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
 
 # note metadata is S3 metadata not JSONLD metadata
-    def putFile_text(self, data, metadata={}, path='test'):
+    def putFile_text(self, data, metadata={}, path='test',content_type='text/plain', bucket=None):
+        if bucket is None:
+            bucket = self.S3_BUCKET
         try:
             result =  self.getClient().put_object(
-                self.S3_BUCKET, path,
+                bucket, path,
                 data=io.BytesIO(data.encode('utf-8')),
                 length=len(data),
-                content_type="text/plain", metadata=metadata
+                content_type=content_type, metadata=metadata
             )
             get_dagster_logger().info(
                 "created {0} object; etag: {1}, version-id: {2}".format(
@@ -90,6 +105,27 @@ class S3Resource(ResourceWithS3Configuration):
                 f"file {result.object_name}" )
             return result.object_name
         except Exception as ex:
-            get_dagster_logger().info(f"file {path} failed to push  to {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
-            raise Exception(f"file {path} failed to push  to {self.S3_BUCKET} at {self.S3_ADDRESS} {ex}")
+            get_dagster_logger().info(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
 
+    def putFile(self, data, metadata={}, path='test', content_type='application/octet-stream', bucket=None):
+        if bucket is None:
+            bucket = self.S3_BUCKET
+        try:
+            result =  self.getClient().put_object(
+                bucket, path,
+                data=io.BytesIO(data),
+                length=len(data),
+                content_type=content_type, metadata=metadata
+            )
+            get_dagster_logger().info(
+                "created {0} object; etag: {1}, version-id: {2}".format(
+                    result.object_name, result.etag, result.version_id,
+                ),
+            )
+            get_dagster_logger().info(
+                f"file {result.object_name}" )
+            return result.object_name
+        except Exception as ex:
+            get_dagster_logger().info(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
