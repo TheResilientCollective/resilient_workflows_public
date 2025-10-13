@@ -140,8 +140,8 @@ def mpox_weekly(context):
             jurisdiction = 'Unknown'
 
         try:
-            # Create basic epidemiology record for current week cases
-            if pd.notna(row['current_week']) and row['current_week'] > 0:
+            # Create basic epidemiology record for current week cases (including zero counts)
+            if pd.notna(row['current_week']):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
                     'Count': [int(row['current_week'])]
@@ -385,8 +385,8 @@ def measles_weekly(context):
             disease_name = 'Measles (Imported)'
 
         try:
-            # Create basic epidemiology record for current week cases
-            if pd.notna(row['current_week']) and row['current_week'] > 0:
+            # Create basic epidemiology record for current week cases (including zero counts)
+            if pd.notna(row['current_week']):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
                     'Count': [int(row['current_week'])]
