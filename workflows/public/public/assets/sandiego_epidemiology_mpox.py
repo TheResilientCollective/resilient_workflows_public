@@ -13,6 +13,11 @@ import datetime
 
 from ..resources import minio
 from ..utils import store_assets
+from ..utils.resilient_epi_schemas import (
+    BasicEpidemiologySchema,
+    ResilientEpiProcessor,
+    transform_to_basic_epidemiology
+)
 
 from workflows.public.public.utils.tableau_workbook import TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
 from ..utils.date import check_missing_weeks
@@ -76,59 +81,89 @@ def dates3Path(date=None):
 
 def transform_mpxv_disease_summary(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Transform MPXV Disease Summary data according to the plan specifications:
+    Transform MPXV Disease Summary data using the Resilient Epidemiology Schema.
 
-    Input columns: Date, Count
-    Output columns:
-    - Jurisdiction: SanDiego
-    - date_week_start: Date from dataset
-    - date_week_end: Date + Seven Days
-    - Week_Number: Week Number of Date
-    - Year: Year of Date
-    - Week_Year: f'{Week_Number}-{Year}'
-    - Cases: Count from dataset
+    Uses the standardized BasicEpidemiologySchema for consistent data output.
+    Handles column mapping from actual Tableau data to expected schema format.
     """
+    logger = get_dagster_logger()
+
     if df.empty:
-        return df
+        logger.warning("Input DataFrame is empty for MPXV Disease Summary")
+        return pd.DataFrame(columns=BasicEpidemiologySchema.schema.columns.keys())
 
-    # Ensure we have the required columns
-    if 'Date' not in df.columns or 'Count' not in df.columns:
-        raise ValueError("Required columns 'Date' and 'Count' not found in MPXV Disease Summary data")
+    # Debug: Log the actual DataFrame structure
+    logger.info(f"MPXV Disease Summary input DataFrame shape: {df.shape}")
+    logger.info(f"MPXV Disease Summary columns: {list(df.columns)}")
+    logger.info(f"MPXV Disease Summary sample data:\n{df.head()}")
 
-    # Debug: Log what's in the Date column
-    print(f"Date column sample values: {df['Date'].head()}")
-    print(f"Date column dtypes: {df['Date'].dtype}")
-    print(f"Date column unique values: {df['Date'].unique()}")
-
-    # Convert Date to datetime with error handling
     try:
-        df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d', errors='coerce')
-        # Check for any failed conversions
-        null_dates = df['Date'].isnull().sum()
-        if null_dates > 0:
-            print(f"Warning: {null_dates} dates could not be parsed and were set to NaT")
+        # Map the actual columns to the expected schema format
+        # The original code expected 'Date' and 'Count', but let's check what we actually have
+        df_mapped = df.copy()
+
+        # Common column name mappings from Tableau extracts
+        column_mappings = {
+            # Date column variations
+            'Episode Week': 'Date',
+            'Week Starting': 'Date',
+            'Week Start': 'Date',
+            'episode_week': 'Date',
+            'week_starting': 'Date',
+            'week_start': 'Date',
+            # Count column variations
+            'Case Count': 'Count',
+            'Cases': 'Count',
+            'Count': 'Count',
+            'case_count': 'Count',
+            'cases': 'Count',
+            'n': 'Count',
+            'SUM(Number of Records)': 'Count'
+        }
+
+        # Apply column mappings
+        for old_col, new_col in column_mappings.items():
+            if old_col in df_mapped.columns and new_col not in df_mapped.columns:
+                df_mapped = df_mapped.rename(columns={old_col: new_col})
+                logger.info(f"Mapped column '{old_col}' to '{new_col}'")
+
+        # Check if we have the required columns after mapping
+        if 'Date' not in df_mapped.columns:
+            logger.error(f"No date column found after mapping. Available columns: {list(df_mapped.columns)}")
+            # Try to find any date-like column
+            date_cols = [col for col in df_mapped.columns if any(word in col.lower() for word in ['date', 'week', 'time'])]
+            if date_cols:
+                logger.info(f"Found potential date columns: {date_cols}. Using first one: {date_cols[0]}")
+                df_mapped = df_mapped.rename(columns={date_cols[0]: 'Date'})
+            else:
+                raise ValueError("No date column found in MPXV data")
+
+        if 'Count' not in df_mapped.columns:
+            logger.error(f"No count column found after mapping. Available columns: {list(df_mapped.columns)}")
+            # Try to find any numeric column that could be a count
+            numeric_cols = df_mapped.select_dtypes(include=[int, float]).columns.tolist()
+            if numeric_cols:
+                logger.info(f"Found potential count columns: {numeric_cols}. Using first one: {numeric_cols[0]}")
+                df_mapped = df_mapped.rename(columns={numeric_cols[0]: 'Count'})
+            else:
+                raise ValueError("No count column found in MPXV data")
+
+        # Now use the standardized transform function
+        transformed_df = transform_to_basic_epidemiology(df_mapped, jurisdiction='SanDiego')
+
+        logger.info(f"Successfully transformed MPXV data using BasicEpidemiologySchema: {len(transformed_df)} rows")
+        logger.info(f"Output columns: {list(transformed_df.columns)}")
+        return transformed_df
+
     except Exception as e:
-        raise ValueError(f"Failed to convert Date column to datetime: {e}")
-
-    # Create transformed DataFrame
-    transformed_df = pd.DataFrame()
-    # want it first, but setting an empty df to a value provides an empty value..
-    transformed_df['Jurisdiction'] = ''
-
-    # Date columns
-    transformed_df['date_week_start'] = df['Date'].dt.strftime('%Y-%m-%d')
-    transformed_df['date_week_end'] = (df['Date'] + pd.Timedelta(days=7)).dt.strftime('%Y-%m-%d')
-
-    # Week and year calculations
-    transformed_df['Week_Number'] = df['Date'].dt.isocalendar().week
-    transformed_df['Year'] = df['Date'].dt.year
-    transformed_df['Week_Year'] = transformed_df['Week_Number'].astype(str) + '-' + transformed_df['Year'].astype(str)
-    # Static jurisdiction
-    transformed_df['Jurisdiction'] = 'SanDiego'
-    # Cases (renamed from Count)
-    transformed_df['Cases'] = df['Count'].fillna(0).astype(int)
-
-    return transformed_df
+        logger.error(f"Error transforming MPXV Disease Summary with schema: {e}")
+        # Log comprehensive debug information
+        logger.info(f"Input DataFrame shape: {df.shape}")
+        logger.info(f"Input DataFrame columns: {list(df.columns)}")
+        logger.info(f"Input DataFrame dtypes:\n{df.dtypes}")
+        if not df.empty:
+            logger.info(f"Sample data:\n{df.head()}")
+        raise
 
 def transform_demographics_mpxv(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -268,8 +303,15 @@ def mpox_hyper_extraction(
                             # Process target workbooks with specific transformations
                             if table_name.startswith('MPXV'):
                                 # Transform MPXV Disease Summary data
+                                logger.info(f"🔍 Processing MPXV Disease Summary for table: {table_name}")
+                                logger.info(f"📊 Raw MPXV data shape: {df.shape}")
+                                logger.info(f"📋 Raw MPXV columns: {list(df.columns)}")
+                                logger.info(f"🔢 Raw MPXV dtypes: {df.dtypes.to_dict()}")
+
                                 try:
                                     transformed_df = transform_mpxv_disease_summary(df)
+                                    logger.info(f"✅ Transformation completed. Result shape: {transformed_df.shape}")
+
                                     if not transformed_df.empty:
                                         _store_dataframe_to_s3(
                                             df=transformed_df,
@@ -280,10 +322,44 @@ def mpox_hyper_extraction(
                                             base_s3_output_prefix=f"{s3_output_path}output",
                                             source_url=config.url
                                         )
-                                        logger.info(f"Processed MPXV Disease Summary: {len(transformed_df)} rows")
+                                        logger.info(f"✅ Successfully processed and stored MPXV Disease Summary: {len(transformed_df)} rows")
                                         processed_count += 1
+                                    else:
+                                        logger.warning("❌ Transformed MPXV DataFrame is empty - no data stored")
+
+                                        # Try to store raw data as fallback for inspection
+                                        logger.info("💾 Storing raw MPXV data as fallback for debugging")
+                                        _store_dataframe_to_s3(
+                                            df=df,
+                                            s3_resource=s3_resource,
+                                            workbook_name=workbook_name,
+                                            dataset_identifier="raw_fallback/mpxv_disease_summary",
+                                            logger=logger,
+                                            base_s3_output_prefix=f"{s3_output_path}output",
+                                            source_url=config.url
+                                        )
+
                                 except Exception as e:
-                                    logger.error(f"Error transforming MPXV Disease Summary: {e}")
+                                    logger.error(f"❌ Error transforming MPXV Disease Summary: {e}")
+                                    logger.error(f"📝 Raw data will be stored for debugging")
+
+                                    # Store raw data for debugging
+                                    try:
+                                        _store_dataframe_to_s3(
+                                            df=df,
+                                            s3_resource=s3_resource,
+                                            workbook_name=workbook_name,
+                                            dataset_identifier="debug/mpxv_disease_summary_raw",
+                                            logger=logger,
+                                            base_s3_output_prefix=f"{s3_output_path}output",
+                                            source_url=config.url
+                                        )
+                                        logger.info("💾 Raw debug data stored successfully")
+                                    except Exception as store_error:
+                                        logger.error(f"Failed to store debug data: {store_error}")
+
+                                    # Re-raise the original error to ensure proper failure handling
+                                    raise
 
                             elif table_name.startswith('Demographics'):
                                 # Transform Demographics data

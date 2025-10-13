@@ -16,6 +16,12 @@ from ..utils import store_assets
 
 from workflows.public.public.utils.tableau_workbook import TableauWorkbookConfig, TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
 from ..utils.date import check_missing_weeks
+from ..utils.resilient_epi_schemas import (
+    BasicEpidemiologySchema,
+    ResilientEpiProcessor,
+    EpidemiologyValidationError,
+    transform_to_basic_epidemiology
+)
 
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
 # configure notebook url in utils/tableau_workbook
@@ -202,30 +208,65 @@ def sandiego_epidemiology_hyper_extraction(
                             # Call reformatDf to process and prepare data by disease
                             processed_dfs_by_disease = reformatDf(df)
 
-                            for disease, processed_df_for_disease in processed_dfs_by_disease.items():
-                                if not processed_df_for_disease.empty:
-                                    disease_safe_name = disease.replace(' ', '_').replace('/', '_').upper()
+                            for disease, disease_data in processed_dfs_by_disease.items():
+                                disease_safe_name = disease.replace(' ', '_').replace('/', '_').upper()
+
+                                # Store original format data
+                                original_df = disease_data['original_format']
+                                if not original_df.empty:
                                     _store_dataframe_to_s3(
-                                        df=processed_df_for_disease,
+                                        df=original_df,
                                         s3_resource=s3_resource,
                                         workbook_name=workbook_name,
                                         dataset_identifier=f"processed_by_disease/{disease_safe_name}",
                                         logger=logger,
                                         base_s3_output_prefix=f"{s3_output_path}output",
                                         source_url=config.url
-
                                     )
 
-                                    logger.info(f"Processed and stored data for disease {disease} to S3: s3://{s3_resource.S3_BUCKET}{s3_output_path}output/{workbook_name}/processed_by_disease/{disease_safe_name}")
+                                    logger.info(f"📊 Stored original format data for {disease}: {len(original_df)} rows")
 
-                                    all_dataframes[f"{table_name}_{disease}"] = { # Adjust key to reflect disease
-                                        "rows": len(processed_df_for_disease),
-                                        "columns": len(processed_df_for_disease.columns),
-                                        "s3_path": f"{s3_output_path}output/{workbook_name}/processed_by_disease/{disease_safe_name}"
+                                # Store validated epidemiology schema data
+                                validated_df = disease_data['basic_epi_schema']
+                                validation_status = disease_data['validation_status']
+
+                                if not validated_df.empty and validation_status == 'success':
+                                    _store_dataframe_to_s3(
+                                        df=validated_df,
+                                        s3_resource=s3_resource,
+                                        workbook_name=workbook_name,
+                                        dataset_identifier=f"validated_epi_schema/{disease_safe_name}",
+                                        logger=logger,
+                                        base_s3_output_prefix=f"{s3_output_path}output",
+                                        source_url=config.url
+                                    )
+
+                                    logger.info(f"✅ Stored validated epidemiology schema for {disease}: {len(validated_df)} rows")
+
+                                elif validation_status != 'success':
+                                    logger.error(f"❌ Validation failed for {disease}: {validation_status}")
+                                    if 'error_message' in disease_data:
+                                        logger.error(f"Error details: {disease_data['error_message']}")
+
+                                # Update tracking metadata
+                                all_dataframes[f"{table_name}_{disease}_original"] = {
+                                    "rows": len(original_df),
+                                    "columns": len(original_df.columns),
+                                    "s3_path": f"{s3_output_path}output/{workbook_name}/processed_by_disease/{disease_safe_name}",
+                                    "format": "original"
+                                }
+
+                                if not validated_df.empty:
+                                    all_dataframes[f"{table_name}_{disease}_validated"] = {
+                                        "rows": len(validated_df),
+                                        "columns": len(validated_df.columns),
+                                        "s3_path": f"{s3_output_path}output/{workbook_name}/validated_epi_schema/{disease_safe_name}",
+                                        "format": "basic_epidemiology_schema",
+                                        "validation_status": validation_status
                                     }
-                                    processed_count += 1
-                                    logger.info(f"Processed {table_name}: {len(df)} rows, {len(df.columns)} columns") # Original logging
-                                    logger.info(f"Processed data for {disease} - {len(processed_df_for_disease)} rows, {len(processed_df_for_disease.columns)} columns") # New logging for disease-specific
+
+                                processed_count += 1
+                                logger.info(f"🦠 Completed processing {disease}: Original({len(original_df)} rows), Validated({len(validated_df)} rows), Status: {validation_status}")
 
                 hyper_files_stored.append({
                     "filename": hyper_file_path.name,
@@ -271,7 +312,7 @@ def fixTableNames(name):
 def reformatDf(df):
     """
     Reformats the input DataFrame, pivots metrics into columns, renames columns,
-    and returns a dictionary of disease-specific DataFrames.
+    and returns a dictionary of disease-specific DataFrames using resilient epi schemas.
 
     Args:
         df (pd.DataFrame): The input DataFrame from Hyper extraction,
@@ -280,44 +321,51 @@ def reformatDf(df):
 
     Returns:
         dict: A dictionary where keys are disease names (str) and values are
-              the processed pandas DataFrames for that disease.
-              Returns an empty dictionary if essential columns are missing or no relevant data.
+              the processed pandas DataFrames for that disease, validated using
+              resilient epi schemas. Returns an empty dictionary if essential
+              columns are missing or no relevant data.
     """
+    logger = get_dagster_logger()
+    epi_processor = ResilientEpiProcessor()
+
+    logger.info(f"🔄 Starting reformatDf with {len(df)} rows")
+
     # Ensure necessary columns exist
     required_columns = ['FY', 'CDCWk', 'WkStrtActual', 'Disease', 'Metric', 'Count']
     if not all(col in df.columns for col in required_columns):
-        # Using get_dagster_logger() in an asset or context would be better, but print for now
-        print(f"Input DataFrame is missing some required columns. Expected: {required_columns}")
+        logger.error(f"❌ Input DataFrame missing required columns. Expected: {required_columns}, Got: {list(df.columns)}")
         return {}
 
     # Prepare for pivoting: ensure 'epiweek_start' is derived from 'WkStart'
     df_processed = df.copy()
     df_processed['FY_original'] = df_processed['FY']
-    if 'WkStrtActual' in df_processed.columns:
-        df_processed['epiweek_start'] = df_processed['WkStrtActual'].apply(lambda x:  pd.Timestamp( str(x)) )
-        # WkStrtActual is actually a tableauhyper
-        df_processed['FY']=df_processed['epiweek_start'].dt.year
-        df_processed['epiweek_start']= df_processed['epiweek_start'].dt.strftime('%Y-%m-%d')
 
+    if 'WkStrtActual' in df_processed.columns:
+        logger.info(f"📅 Processing dates from WkStrtActual column")
+        df_processed['epiweek_start'] = df_processed['WkStrtActual'].apply(lambda x: pd.Timestamp(str(x)))
+        # WkStrtActual is actually a tableauhyper timestamp
+        df_processed['FY'] = df_processed['epiweek_start'].dt.year
+        df_processed['epiweek_start'] = df_processed['epiweek_start'].dt.strftime('%Y-%m-%d')
     else:
-        print("Error: 'WkStrtActual' column not found in DataFrame, cannot derive 'epiweek_start'.")
+        logger.error("❌ 'WkStrtActual' column not found in DataFrame, cannot derive 'epiweek_start'.")
         return {}
 
     # Replace 'Hospitalizations' with 'weekly_admissions' for easier column naming
     df_processed['Metric'] = df_processed['Metric'].replace('Hospitalizations', 'weekly_admissions')
-
 
     # Filter out rows where 'Metric' is not one of the target types
     target_metrics = ['Cases', 'weekly_admissions', 'Deaths']
     df_filtered = df_processed[df_processed['Metric'].isin(target_metrics)]
 
     if df_filtered.empty:
-        print("No relevant metrics (Cases, Hospitalizations, Deaths) found in the DataFrame after filtering.")
+        logger.error("❌ No relevant metrics (Cases, Hospitalizations, Deaths) found in the DataFrame after filtering.")
         return {}
+
+    logger.info(f"📊 Pivoting data with {len(df_filtered)} filtered rows")
 
     # Pivot the DataFrame
     pivoted_df = df_filtered.pivot_table(
-        index=['Disease','epiweek_start','FY', 'CDCWk'  ],
+        index=['Disease', 'epiweek_start', 'FY', 'CDCWk'],
         columns='Metric',
         values='Count',
         aggfunc='sum'
@@ -345,13 +393,69 @@ def reformatDf(df):
     for col in ['cases', 'weekly_admissions', 'deaths']:
         processed_df[col] = pd.to_numeric(processed_df[col], errors='coerce').fillna(0).astype(int)
 
-    # Group by 'Disease' and prepare the dictionary of DataFrames
-    processed_dfs_by_disease = {}
-    for disease, group_df in processed_df.groupby('Disease'):
-        # Drop the 'Disease' column from the individual DataFrames
-        group_df_to_store = group_df.drop(columns=['Disease']).copy()
-        processed_dfs_by_disease[disease] = group_df_to_store
+    logger.info(f"📋 Processing {len(processed_df.groupby('Disease'))} diseases")
 
+    # Group by 'Disease' and prepare the dictionary of DataFrames with validation
+    processed_dfs_by_disease = {}
+
+    for disease, group_df in processed_df.groupby('Disease'):
+        logger.info(f"🦠 Processing disease: {disease} ({len(group_df)} rows)")
+
+        # Drop the 'Disease' column from the individual DataFrames
+        group_df_clean = group_df.drop(columns=['Disease']).copy()
+
+        # Transform to basic epidemiology schema format for cases data
+        cases_data = group_df_clean[['epiweek_start', 'cases']].copy()
+        cases_data = cases_data.rename(columns={'epiweek_start': 'Date', 'cases': 'Count'})
+
+        try:
+            # Use resilient epi schema to transform and validate
+            jurisdiction = f"SanDiego{disease.replace(' ', '').replace('/', '')}"
+            validated_epi_data = epi_processor.process_basic_epidemiology_data(
+                cases_data,
+                jurisdiction=jurisdiction,
+                validate=True
+            )
+
+            if not validated_epi_data.empty:
+                logger.info(f"✅ Successfully validated {len(validated_epi_data)} rows for {disease}")
+
+                # Store both original processed format and validated schema format
+                processed_dfs_by_disease[disease] = {
+                    'original_format': group_df_clean,
+                    'basic_epi_schema': validated_epi_data,
+                    'validation_status': 'success',
+                    'row_count': len(validated_epi_data)
+                }
+            else:
+                logger.warning(f"⚠️  Validation produced empty result for {disease}")
+                processed_dfs_by_disease[disease] = {
+                    'original_format': group_df_clean,
+                    'basic_epi_schema': pd.DataFrame(),
+                    'validation_status': 'empty_result',
+                    'row_count': 0
+                }
+
+        except EpidemiologyValidationError as ve:
+            logger.error(f"❌ Validation failed for {disease}: {ve}")
+            processed_dfs_by_disease[disease] = {
+                'original_format': group_df_clean,
+                'basic_epi_schema': pd.DataFrame(),
+                'validation_status': 'validation_error',
+                'error_message': str(ve),
+                'row_count': 0
+            }
+        except Exception as e:
+            logger.error(f"❌ Unexpected error processing {disease}: {e}")
+            processed_dfs_by_disease[disease] = {
+                'original_format': group_df_clean,
+                'basic_epi_schema': pd.DataFrame(),
+                'validation_status': 'processing_error',
+                'error_message': str(e),
+                'row_count': 0
+            }
+
+    logger.info(f"✅ Completed reformatDf processing for {len(processed_dfs_by_disease)} diseases")
     return processed_dfs_by_disease
 
 @dg.multi_asset_check(

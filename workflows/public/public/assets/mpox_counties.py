@@ -1,11 +1,19 @@
 import requests
 import json
 import pandas as pd
-from dagster import asset, AutomationCondition, schedule, RunRequest, define_asset_job, AssetKey
+from dagster import asset, AutomationCondition, schedule, RunRequest, define_asset_job, AssetKey, get_dagster_logger
 import geopandas as gpd
 from datetime import datetime, date
 import requests
 from ..utils import store_assets
+from ..utils.resilient_epi_schemas import (
+    BasicEpidemiologySchema,
+    StatisticalExtensionSchema,
+    ResilientEpiProcessor,
+    EpidemiologyValidationError,
+    transform_to_basic_epidemiology,
+    create_statistical_extension_record
+)
 
 s3_output_path = 'pathogens/ca/counties/'
 
@@ -60,8 +68,99 @@ def mpox_la_powerbi(context):
     # Save to CSV
     df = pd.DataFrame(records)
 
+    logger = get_dagster_logger()
+    epi_processor = ResilientEpiProcessor()
+
+    logger.info(f"🏙️ Processing {len(df)} Los Angeles County Mpox records with resilient epi schemas")
+
+    # Store original format
     filename = f"{s3_output_path}output/mpox_la_weekly"
     store_assets.dataframe_to_s3(df, filename, s3_resource, metadata=metadata, formats=['csv','json'])
+    logger.info(f"📊 Stored original LA Mpox data: {len(df)} rows")
+
+    # Process through resilient epi schemas
+    try:
+        # Filter out records with missing case data and prepare for basic epidemiology schema
+        valid_records = df.dropna(subset=['cases']).copy()
+
+        if not valid_records.empty:
+            # Prepare data for basic epidemiology schema transformation
+            basic_data = valid_records[['week_start_date', 'cases']].copy()
+            basic_data['week_start_date'] = pd.to_datetime(basic_data['week_start_date'])
+            basic_data = basic_data.rename(columns={
+                'week_start_date': 'Date',
+                'cases': 'Count'
+            })
+
+            # Transform to basic epidemiology schema
+            validated_basic = epi_processor.process_basic_epidemiology_data(
+                basic_data,
+                jurisdiction='LosAngelesCounty',
+                validate=True
+            )
+
+            if not validated_basic.empty:
+                logger.info(f"✅ Created {len(validated_basic)} validated basic epidemiology records for LA County")
+
+                # Add additional metadata
+                validated_basic['source_jurisdiction'] = 'Los Angeles County'
+                validated_basic['data_source'] = 'PowerBI'
+                validated_basic['disease'] = 'Mpox'
+
+                # Store validated basic epidemiology data
+                filename_basic = f"{s3_output_path}output/validated_epi_schema/mpox_la_weekly_basic"
+                metadata_basic = store_assets.objectMetadata(
+                    name="mpox_la_weekly_basic_epidemiology",
+                    description="Los Angeles County Mpox weekly data in basic epidemiology schema format",
+                    source_url=source_url
+                )
+
+                store_assets.dataframe_to_s3(validated_basic, filename_basic, s3_resource,
+                                           metadata=metadata_basic, formats=['csv', 'json'])
+                logger.info(f"📋 Stored validated basic epidemiology data for LA County: {len(validated_basic)} rows")
+
+                # Create statistical extension records
+                statistical_records = []
+                for _, row in valid_records.iterrows():
+                    date_str = pd.to_datetime(row['week_start_date']).strftime('%Y-%m-%d')
+
+                    stat_record = create_statistical_extension_record(
+                        jurisdiction='LosAngelesCounty',
+                        date=date_str,
+                        disease='Mpox',
+                        metric='cases',
+                        observation_type='actual',
+                        count=int(row['cases']) if pd.notna(row['cases']) else 0
+                    )
+
+                    if not stat_record.empty:
+                        stat_record['source_jurisdiction'] = 'Los Angeles County'
+                        stat_record['data_source'] = 'PowerBI'
+                        statistical_records.append(stat_record)
+
+                if statistical_records:
+                    combined_statistical = pd.concat(statistical_records, ignore_index=True)
+                    logger.info(f"✅ Created {len(combined_statistical)} statistical extension records for LA County")
+
+                    filename_statistical = f"{s3_output_path}output/validated_epi_schema/mpox_la_weekly_statistical"
+                    metadata_statistical = store_assets.objectMetadata(
+                        name="mpox_la_weekly_statistical_extension",
+                        description="Los Angeles County Mpox weekly data in statistical extension schema format",
+                        source_url=source_url
+                    )
+
+                    store_assets.dataframe_to_s3(combined_statistical, filename_statistical, s3_resource,
+                                               metadata=metadata_statistical, formats=['csv', 'json'])
+                    logger.info(f"📊 Stored statistical extension data for LA County: {len(combined_statistical)} rows")
+            else:
+                logger.warning(f"⚠️  No valid epidemiology data created for LA County")
+        else:
+            logger.warning(f"⚠️  No valid case data found in LA County records")
+
+    except EpidemiologyValidationError as ve:
+        logger.error(f"❌ Validation error for LA County Mpox data: {ve}")
+    except Exception as e:
+        logger.error(f"❌ Error processing LA County Mpox data with resilient epi schemas: {e}")
 
 @asset(group_name="pathogens", key_prefix="mpox",
        name="mpox_sf_weekly",
@@ -80,8 +179,119 @@ def mpox_sf_dataportal(context):
     base_url = "https://data.sfgov.org/resource/vi7r-brsi.csv"
     mpox_df=pd.read_csv(base_url)
 
+    logger = get_dagster_logger()
+    epi_processor = ResilientEpiProcessor()
+
+    logger.info(f"🌉 Processing {len(mpox_df)} San Francisco County Mpox records with resilient epi schemas")
+
+    # Store original format
     filename = f"{s3_output_path}output/mpox_sf_weekly"
     store_assets.dataframe_to_s3(mpox_df, filename, s3_resource, metadata=metadata, formats=['csv','json'])
+    logger.info(f"📊 Stored original SF Mpox data: {len(mpox_df)} rows")
+
+    # Process through resilient epi schemas
+    try:
+        # Filter out records with missing case data and prepare for basic epidemiology schema
+        valid_records = mpox_df.dropna(subset=['new_cases']).copy()
+
+        if not valid_records.empty:
+            # Prepare data for basic epidemiology schema transformation
+            basic_data = valid_records[['episode_date', 'new_cases']].copy()
+            basic_data['episode_date'] = pd.to_datetime(basic_data['episode_date'])
+            basic_data = basic_data.rename(columns={
+                'episode_date': 'Date',
+                'new_cases': 'Count'
+            })
+
+            # Transform to basic epidemiology schema
+            validated_basic = epi_processor.process_basic_epidemiology_data(
+                basic_data,
+                jurisdiction='SanFranciscoCounty',
+                validate=True
+            )
+
+            if not validated_basic.empty:
+                logger.info(f"✅ Created {len(validated_basic)} validated basic epidemiology records for SF County")
+
+                # Add additional metadata
+                validated_basic['source_jurisdiction'] = 'San Francisco County'
+                validated_basic['data_source'] = 'DataPortal'
+                validated_basic['disease'] = 'Mpox'
+
+                # Store validated basic epidemiology data
+                filename_basic = f"{s3_output_path}output/validated_epi_schema/mpox_sf_weekly_basic"
+                metadata_basic = store_assets.objectMetadata(
+                    name="mpox_sf_weekly_basic_epidemiology",
+                    description="San Francisco County Mpox weekly data in basic epidemiology schema format",
+                    source_url=source_url
+                )
+
+                store_assets.dataframe_to_s3(validated_basic, filename_basic, s3_resource,
+                                           metadata=metadata_basic, formats=['csv', 'json'])
+                logger.info(f"📋 Stored validated basic epidemiology data for SF County: {len(validated_basic)} rows")
+
+                # Create statistical extension records for both new cases and cumulative cases
+                statistical_records = []
+                for _, row in valid_records.iterrows():
+                    date_str = pd.to_datetime(row['episode_date']).strftime('%Y-%m-%d')
+
+                    # New cases record
+                    if pd.notna(row['new_cases']):
+                        new_cases_record = create_statistical_extension_record(
+                            jurisdiction='SanFranciscoCounty',
+                            date=date_str,
+                            disease='Mpox',
+                            metric='cases',
+                            observation_type='actual',
+                            count=int(row['new_cases'])
+                        )
+
+                        if not new_cases_record.empty:
+                            new_cases_record['source_jurisdiction'] = 'San Francisco County'
+                            new_cases_record['data_source'] = 'DataPortal'
+                            new_cases_record['metric_type'] = 'new_cases'
+                            statistical_records.append(new_cases_record)
+
+                    # Cumulative cases record
+                    if pd.notna(row['cumulative_cases']):
+                        cumulative_record = create_statistical_extension_record(
+                            jurisdiction='SanFranciscoCounty',
+                            date=date_str,
+                            disease='Mpox',
+                            metric='cases',
+                            observation_type='partial-data estimate',
+                            count=int(row['cumulative_cases'])
+                        )
+
+                        if not cumulative_record.empty:
+                            cumulative_record['source_jurisdiction'] = 'San Francisco County'
+                            cumulative_record['data_source'] = 'DataPortal'
+                            cumulative_record['metric_type'] = 'cumulative_cases'
+                            statistical_records.append(cumulative_record)
+
+                if statistical_records:
+                    combined_statistical = pd.concat(statistical_records, ignore_index=True)
+                    logger.info(f"✅ Created {len(combined_statistical)} statistical extension records for SF County")
+
+                    filename_statistical = f"{s3_output_path}output/validated_epi_schema/mpox_sf_weekly_statistical"
+                    metadata_statistical = store_assets.objectMetadata(
+                        name="mpox_sf_weekly_statistical_extension",
+                        description="San Francisco County Mpox weekly data in statistical extension schema format",
+                        source_url=source_url
+                    )
+
+                    store_assets.dataframe_to_s3(combined_statistical, filename_statistical, s3_resource,
+                                               metadata=metadata_statistical, formats=['csv', 'json'])
+                    logger.info(f"📊 Stored statistical extension data for SF County: {len(combined_statistical)} rows")
+            else:
+                logger.warning(f"⚠️  No valid epidemiology data created for SF County")
+        else:
+            logger.warning(f"⚠️  No valid case data found in SF County records")
+
+    except EpidemiologyValidationError as ve:
+        logger.error(f"❌ Validation error for SF County Mpox data: {ve}")
+    except Exception as e:
+        logger.error(f"❌ Error processing SF County Mpox data with resilient epi schemas: {e}")
 
 mpox_counties_job = define_asset_job(
     "mpox_counties_weekly",
