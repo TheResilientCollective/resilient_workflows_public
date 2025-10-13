@@ -62,3 +62,11 @@ mpox_data_checks,
 mpox_epidemiology_job,
 mpox_epidemiology_sensor
 )
+from .cdc_data_quality_checks import (
+check_mpox_weekly_completeness,
+check_measles_weekly_completeness,
+check_mpox_statistical_extension_completeness,
+check_measles_statistical_extension_completeness,
+check_mpox_zero_counts_preserved,
+check_measles_zero_counts_preserved
+)
