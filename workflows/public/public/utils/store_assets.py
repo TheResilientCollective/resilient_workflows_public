@@ -218,7 +218,10 @@ def series_to_s3(pdseries, path_w_basename, s3_resource:S3Resource,
        #         table="my_table"
        #     )
     if metadata is not None:
-        metadata.distribution = distributions
+        if metadata.distribution is not None and len(metadata.distribution ) >0:
+            metadata.distribution.extend(distributions)
+        else:
+            metadata.distribution = distributions
         metadata_to_s3(metadata, path_w_basename, s3_resource)
 
 #### METADATA
