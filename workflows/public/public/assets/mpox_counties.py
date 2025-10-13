@@ -164,8 +164,9 @@ def mpox_la_powerbi(context):
 
 @asset(group_name="pathogens", key_prefix="mpox",
        name="mpox_sf_weekly",
-required_resource_keys={"s3"})
-def mpox_sf_dataportal(context):
+required_resource_keys={"s3"},
+       automation_condition=AutomationCondition.eager())
+def mpox_sf_weekly(context):
     '''https://data.sfgov.org/Health-and-Social-Services/Mpox-Cases-Over-Time/vi7r-brsi/explore/query/SELECT%0A%20%20%60episode_date%60%2C%0A%20%20%60new_cases%60%2C%0A%20%20%60cumulative_cases%60%2C%0A%20%20%60max_episode_date%60%2C%0A%20%20%60data_as_of%60%2C%0A%20%20%60data_updated_at%60%2C%0A%20%20%60data_loaded_at%60/page/filter'''
     '''https://data.sfgov.org/Health-and-Social-Services/Mpox-Cases-Over-Time/vi7r-brsi/about_data'''
     s3_resource = context.resources.s3
