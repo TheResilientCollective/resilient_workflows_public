@@ -57,6 +57,28 @@ def raw_to_s3(rawdata, path_w_name, s3_resource:S3Resource
     if metadata is not None:
         metadata_to_s3(metadata, path_w_name, s3_resource) # just append the metadata.json to the end of the path
 
+def store_dataframe_to_s3(
+    df: pd.DataFrame,
+        path_w_basename, s3_resource: S3Resource,
+ metadata=None, dataset_identifier=""
+):
+    """
+    Helper function to store a DataFrame to S3, handling GeoDataFrame conversion and metadata.
+    Will output all default formats
+    """
+    logger = get_dagster_logger()
+
+    try:
+        import geopandas as gpd
+        gdf = gpd.GeoDataFrame(df)
+        geodataframe_to_s3(gdf, path_w_basename, s3_resource, metadata=metadata)
+        logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
+
+    except Exception as geo_error:
+        logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
+        dataframe_to_s3(df, path_w_basename, s3_resource, metadata=metadata)
+        logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
+
 def geodataframe_to_s3(geodataframe, path_w_basename, s3_resource:S3Resource,
                        formats=[
                              'geojson',

@@ -18,6 +18,14 @@ from datetime import datetime, timedelta, date
 import re
 from ..utils.constants import ICONS
 from ..utils import store_assets
+from ..utils.resilient_epi_schemas import (
+    BasicEpidemiologySchema,
+    StatisticalExtensionSchema,
+    ResilientEpiProcessor,
+    EpidemiologyValidationError,
+    transform_to_basic_epidemiology,
+    create_statistical_extension_record
+)
 
 yearly_partitions = TimeWindowPartitionsDefinition(
     cron_schedule="0 0 1 1 *",
@@ -94,8 +102,119 @@ def mpox_weekly(context):
     mpox_df["key"] = mpox_df["label"] + '_' + mpox_df["year"] + '_' + mpox_df["week"] + '_' + mpox_df["location1"]
     mpox_df.dropna(inplace=True, subset=['key']) # if a key is not generate
     mpox_df.drop(columns=["sort_order"], inplace=True)
+
+    logger = get_dagster_logger()
+    epi_processor = ResilientEpiProcessor()
+
+    logger.info(f"🦠 Processing {len(mpox_df)} Mpox records with resilient epi schemas")
+
+    # Store original format
     filename = f'{s3_output_path}/output/mpox_weekly'
     store_assets.geodataframe_to_s3(mpox_df, filename, s3_resource )
+    logger.info(f"📊 Stored original Mpox data: {len(mpox_df)} rows")
+
+    # Process through resilient epi schemas by state/location
+    validated_basic_records = []
+    statistical_extension_records = []
+
+    for _, row in mpox_df.iterrows():
+        location = row['location1'] if pd.notna(row['location1']) else 'Unknown'
+        state = row['states'] if pd.notna(row['states']) else 'Unknown'
+        jurisdiction = f"CDC{state.replace(' ', '')}" if state != 'Unknown' else 'CDCUnknown'
+
+        try:
+            # Create basic epidemiology record for current week cases
+            if pd.notna(row['current_week']) and row['current_week'] > 0:
+                basic_data = pd.DataFrame({
+                    'Date': [row['date'].strftime('%Y-%m-%d')],
+                    'Count': [int(row['current_week'])]
+                })
+
+                validated_basic = epi_processor.process_basic_epidemiology_data(
+                    basic_data,
+                    jurisdiction=jurisdiction,
+                    validate=True
+                )
+
+                if not validated_basic.empty:
+                    validated_basic['original_location'] = location
+                    validated_basic['original_state'] = state
+                    validated_basic['disease'] = 'Mpox'
+                    validated_basic_records.append(validated_basic)
+
+            # Create statistical extension records for all metrics
+            date_str = row['date'].strftime('%Y-%m-%d')
+
+            metrics_data = [
+                ('cases', 'current_week', row['current_week']),
+                ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
+                ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
+                ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
+            ]
+
+            for metric_type, observation_prefix, value in metrics_data:
+                if pd.notna(value) and value >= 0:
+                    observation_type = 'actual' if 'current_week' in observation_prefix else 'partial-data estimate'
+
+                    stat_record = create_statistical_extension_record(
+                        jurisdiction=jurisdiction,
+                        date=date_str,
+                        disease='Mpox',
+                        metric=metric_type,
+                        observation_type=observation_type,
+                        count=int(value) if value == int(value) else value
+                    )
+
+                    if not stat_record.empty:
+                        stat_record['original_location'] = location
+                        stat_record['original_state'] = state
+                        stat_record['cdc_week'] = row['week']
+                        stat_record['cdc_year'] = row['year']
+                        stat_record['metric_category'] = observation_prefix
+                        statistical_extension_records.append(stat_record)
+
+        except EpidemiologyValidationError as ve:
+            logger.warning(f"⚠️  Validation error for {jurisdiction} on {row['date']}: {ve}")
+        except Exception as e:
+            logger.error(f"❌ Error processing {jurisdiction} on {row['date']}: {e}")
+
+    # Combine and store validated basic epidemiology data
+    if validated_basic_records:
+        combined_basic = pd.concat(validated_basic_records, ignore_index=True)
+        logger.info(f"✅ Created {len(combined_basic)} validated basic epidemiology records")
+
+        filename_basic = f'{s3_output_path}/output/validated_epi_schema/mpox_weekly_basic'
+        metadata_basic = store_assets.objectMetadata(
+            name="mpox_weekly_basic_epidemiology",
+            description="CDC Mpox weekly data in basic epidemiology schema format",
+            source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
+        )
+        try:
+            gdf_basic = gpd.GeoDataFrame(combined_basic)
+            store_assets.geodataframe_to_s3(gdf_basic, filename_basic, s3_resource, metadata=metadata_basic)
+            logger.info(f"📋 Stored validated basic epidemiology data: {len(combined_basic)} rows")
+        except Exception as e:
+            logger.warning(f"⚠️  Storing as DataFrame instead of GeoDataFrame: {e}")
+            store_assets.dataframe_to_s3(combined_basic, filename_basic, s3_resource, metadata=metadata_basic)
+
+    # Combine and store statistical extension data
+    if statistical_extension_records:
+        combined_statistical = pd.concat(statistical_extension_records, ignore_index=True)
+        logger.info(f"✅ Created {len(combined_statistical)} statistical extension records")
+
+        filename_statistical = f'{s3_output_path}/output/validated_epi_schema/mpox_weekly_statistical'
+        metadata_statistical = store_assets.objectMetadata(
+            name="mpox_weekly_statistical_extension",
+            description="CDC Mpox weekly data in statistical extension schema format",
+            source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
+        )
+        try:
+            gdf_statistical = gpd.GeoDataFrame(combined_statistical)
+            store_assets.geodataframe_to_s3(gdf_statistical, filename_statistical, s3_resource, metadata=metadata_statistical)
+            logger.info(f"📊 Stored statistical extension data: {len(combined_statistical)} rows")
+        except Exception as e:
+            logger.warning(f"⚠️  Storing as DataFrame instead of GeoDataFrame: {e}")
+            store_assets.dataframe_to_s3(combined_statistical, filename_statistical, s3_resource, metadata=metadata_statistical)
 
     mpox_df=mpox_df.dropna( subset=["lat", "lon"])
 

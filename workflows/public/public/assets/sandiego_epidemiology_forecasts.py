@@ -33,6 +33,12 @@ from icecream import ic
 from . import sandiego_epidemiology_hyper_extraction
 from ..resources import minio
 from ..utils import store_assets
+from ..utils.resilient_epi_schemas import (
+    StatisticalExtensionSchema,
+    ResilientEpiProcessor,
+    EpidemiologyValidationError,
+    create_statistical_extension_record
+)
 
 # S3 paths
 FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
@@ -356,7 +362,119 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
                     continue
                 df= df.rename(columns=mappings)
 
-                logger.info(f"Processing {csv_file.object_name}  for {object_name} with {len(df)} rows for table {table_id}")
+                logger.info(f"📊 Processing {csv_file.object_name} for {object_name} with {len(df)} rows for table {table_id}")
+
+                # Process through resilient epi schemas - Statistical Extension Model
+                epi_processor = ResilientEpiProcessor()
+
+                try:
+                    logger.info(f"🔬 Integrating statistical extension schema for forecast data: {object_name}")
+
+                    # Determine the metric type from filename
+                    metric_type = 'cases'
+                    if 'hosp' in object_name.lower():
+                        metric_type = 'hospitalizations'
+
+                    # Determine observation type from the data type
+                    observation_type = 'forecast'
+                    if 'reports' in object_name.lower():
+                        observation_type = 'actual'  # Historical data
+                    elif 'Rt' in object_name:
+                        observation_type = 'prediction'  # Rt estimates
+
+                    # Process each row to create statistical extension records
+                    statistical_extension_records = []
+
+                    for _, row in df.iterrows():
+                        if 'Disease' in row and 'Date' in row:
+                            disease = row['Disease']
+                            date_str = pd.to_datetime(row['Date']).strftime('%Y-%m-%d')
+                            jurisdiction = f"SanDiego{disease.replace(' ', '').replace('/', '')}"
+
+                            # Create base record with required fields
+                            base_fields = {
+                                'jurisdiction': jurisdiction,
+                                'date': date_str,
+                                'disease': disease,
+                                'metric': metric_type,
+                                'observation_type': observation_type
+                            }
+
+                            # Add statistical fields if present
+                            statistical_fields = {}
+
+                            # Map statistical columns to our schema fields
+                            field_mappings = {
+                                'Mean': 'mean',
+                                'Median': 'median',
+                                'Lower 90': 'lower_90',
+                                'Upper 90': 'upper_90',
+                                'Lower 50': 'lower_50',
+                                'Upper 50': 'upper_50',
+                                'Lower 20': 'lower_20',
+                                'Upper 20': 'upper_20',
+                                'New cases': 'count',
+                                'Reported hospital admissions': 'count',
+                                'Estimated mean hospital admissions': 'mean'
+                            }
+
+                            for df_col, schema_field in field_mappings.items():
+                                if df_col in row and pd.notna(row[df_col]):
+                                    try:
+                                        value = float(row[df_col])
+                                        if value >= 0:  # Ensure non-negative values
+                                            statistical_fields[schema_field] = value
+                                    except (ValueError, TypeError):
+                                        continue
+
+                            # Only create record if we have at least one statistical field
+                            if statistical_fields:
+                                try:
+                                    stat_record = create_statistical_extension_record(
+                                        **base_fields,
+                                        **statistical_fields
+                                    )
+
+                                    if not stat_record.empty:
+                                        # Add metadata about the forecast
+                                        stat_record['forecast_run_id'] = run_id
+                                        stat_record['forecast_file'] = object_name
+                                        stat_record['data_source'] = 'ResilientSims'
+                                        if 'Type' in row:
+                                            stat_record['forecast_type'] = row['Type']
+                                        if 'Variable' in row:
+                                            stat_record['forecast_variable'] = row['Variable']
+
+                                        statistical_extension_records.append(stat_record)
+
+                                except EpidemiologyValidationError as ve:
+                                    logger.warning(f"⚠️  Validation error for {disease} on {date_str}: {ve}")
+                                except Exception as e:
+                                    logger.warning(f"⚠️  Error creating statistical record for {disease}: {e}")
+
+                    # Combine and store validated statistical extension data
+                    if statistical_extension_records:
+                        combined_statistical = pd.concat(statistical_extension_records, ignore_index=True)
+                        logger.info(f"✅ Created {len(combined_statistical)} validated statistical extension records from {object_name}")
+
+                        # Store validated statistical extension data
+                        stat_filename = f"{s3_output_path}output/validated_epi_schema/forecasts/{run_id}/{object_name.replace('.csv', '_statistical')}"
+                        stat_metadata = store_assets.objectMetadata(
+                            name=f"forecast_statistical_extension_{object_name}",
+                            description=f"San Diego epidemiology forecast data in statistical extension schema format from {object_name}",
+                            source_url="ResilientSims_Forecast"
+                        )
+
+                        store_assets.dataframe_to_s3(combined_statistical, stat_filename, s3_resource,
+                                                   metadata=stat_metadata, formats=['csv', 'json'])
+                        logger.info(f"📋 Stored validated statistical extension forecast data: {len(combined_statistical)} rows")
+                    else:
+                        logger.warning(f"⚠️  No valid statistical extension records created from {object_name}")
+
+                except Exception as e:
+                    logger.error(f"❌ Error processing {object_name} with statistical extension schema: {e}")
+                    # Continue with original processing even if validation fails
+
                 #try:
                 at_result=airtable_resource.batch_create2Table(
                     tableid=table_id,

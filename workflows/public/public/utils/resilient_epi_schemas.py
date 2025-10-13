@@ -244,7 +244,7 @@ class BasicEpidemiologySchema:
 
         transformed_df = pd.DataFrame()
 
-        # Date columns
+        # Date columns (create rows first)
         transformed_df['date_week_start'] = df['Date'].dt.strftime('%Y-%m-%d')
         transformed_df['date_week_end'] = (df['Date'] + pd.Timedelta(days=7)).dt.strftime('%Y-%m-%d')
 
@@ -257,11 +257,15 @@ class BasicEpidemiologySchema:
             transformed_df['Year'].astype(str)
         )
 
-        # Jurisdiction (ensure no spaces)
-        transformed_df['Jurisdiction'] = jurisdiction.replace(' ', '')
-
         # Cases
         transformed_df['Cases'] = pd.to_numeric(df['Count'], errors='coerce').fillna(0).astype(int)
+
+        # Jurisdiction (set after rows exist, ensure no spaces)
+        transformed_df['Jurisdiction'] = jurisdiction.replace(' ', '')
+
+        # Reorder columns to match specification: Jurisdiction, date_week_start, date_week_end, Week_Number, Year, Week_Year, Cases
+        column_order = ['Jurisdiction', 'date_week_start', 'date_week_end', 'Week_Number', 'Year', 'Week_Year', 'Cases']
+        transformed_df = transformed_df[column_order]
 
         return cls.validate(transformed_df)
 
