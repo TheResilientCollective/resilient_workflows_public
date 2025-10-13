@@ -348,10 +348,7 @@ class ResilientEpiProcessor:
             # Transform to schema format
             transformed_df = BasicEpidemiologySchema.transform_from_source(df, jurisdiction)
 
-            # Validation is done in transform_from_source
-            if validate:
-                self.logger.info("Basic epidemiology schema validation passed")
-
+            # Validation is done in transform_from_source - no need to log each success
             return transformed_df
 
         except Exception as e:
@@ -365,7 +362,6 @@ class ResilientEpiProcessor:
         try:
             if validate:
                 validated_df = StatisticalExtensionSchema.validate(df)
-                self.logger.info("Statistical extension schema validation passed")
                 return validated_df
             else:
                 return df.copy()

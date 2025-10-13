@@ -113,6 +113,17 @@ def mpox_weekly(context):
     store_assets.geodataframe_to_s3(mpox_df, filename, s3_resource )
     logger.info(f"📊 Stored original Mpox data: {len(mpox_df)} rows")
 
+    # Ensure proper data types before processing
+    mpox_df['date'] = pd.to_datetime(mpox_df['date'], errors='coerce')
+    mpox_df['current_week'] = pd.to_numeric(mpox_df['current_week'], errors='coerce').fillna(0)
+    mpox_df['previous_52_weeks__max'] = pd.to_numeric(mpox_df['previous_52_weeks__max'], errors='coerce').fillna(0)
+    mpox_df['current_YTD__cummulative'] = pd.to_numeric(mpox_df['current_YTD__cummulative'], errors='coerce').fillna(0)
+    mpox_df['previous_YTD__cummulative'] = pd.to_numeric(mpox_df['previous_YTD__cummulative'], errors='coerce').fillna(0)
+
+    # Remove rows with invalid dates
+    mpox_df = mpox_df.dropna(subset=['date'])
+    logger.info(f"🔧 After type conversion and cleaning: {len(mpox_df)} records")
+
     # Process through resilient epi schemas by state/location
     validated_basic_records = []
     statistical_extension_records = []
@@ -120,7 +131,13 @@ def mpox_weekly(context):
     for _, row in mpox_df.iterrows():
         location = row['location1'] if pd.notna(row['location1']) else 'Unknown'
         state = row['states'] if pd.notna(row['states']) else 'Unknown'
-        jurisdiction = f"CDC{state.replace(' ', '')}" if state != 'Unknown' else 'CDCUnknown'
+
+        # Create proper camel case jurisdiction from state name
+        if state != 'Unknown':
+            # Convert state name to proper camel case (e.g., "OKLAHOMA" -> "Oklahoma", "NEW YORK" -> "NewYork")
+            jurisdiction = ''.join(word.capitalize() for word in state.split())
+        else:
+            jurisdiction = 'Unknown'
 
         try:
             # Create basic epidemiology record for current week cases
@@ -182,6 +199,7 @@ def mpox_weekly(context):
     if validated_basic_records:
         combined_basic = pd.concat(validated_basic_records, ignore_index=True)
         logger.info(f"✅ Created {len(combined_basic)} validated basic epidemiology records")
+        logger.info(f"🔍 Basic epidemiology schema validation passed for {len(validated_basic_records)} record batches")
 
         filename_basic = f'{s3_output_path}/output/validated_epi_schema/mpox_weekly_basic'
         metadata_basic = store_assets.objectMetadata(
@@ -201,6 +219,7 @@ def mpox_weekly(context):
     if statistical_extension_records:
         combined_statistical = pd.concat(statistical_extension_records, ignore_index=True)
         logger.info(f"✅ Created {len(combined_statistical)} statistical extension records")
+        logger.info(f"🔍 Statistical extension schema validation passed for {len(statistical_extension_records)} record batches")
 
         filename_statistical = f'{s3_output_path}/output/validated_epi_schema/mpox_weekly_statistical'
         metadata_statistical = store_assets.objectMetadata(
@@ -321,8 +340,147 @@ def measles_weekly(context):
     mpox_df["key"] = mpox_df["label"] + '_' + mpox_df["year"] + '_' + mpox_df["week"] + '_' + mpox_df["location1"]
     mpox_df.dropna(inplace=True, subset=['key']) # if a key is not generate
     mpox_df.drop(columns=["sort_order"], inplace=True)
+
+    logger = get_dagster_logger()
+    epi_processor = ResilientEpiProcessor()
+
+    logger.info(f"🦠 Processing {len(mpox_df)} Measles records with resilient epi schemas")
+
+    # Store original format
     filename = f'{s3_output_path}/output/measles_weekly'
     store_assets.geodataframe_to_s3(mpox_df, filename, s3_resource )
+    logger.info(f"📊 Stored original Measles data: {len(mpox_df)} rows")
+
+    # Ensure proper data types before processing
+    mpox_df['date'] = pd.to_datetime(mpox_df['date'], errors='coerce')
+    mpox_df['current_week'] = pd.to_numeric(mpox_df['current_week'], errors='coerce').fillna(0)
+    mpox_df['previous_52_weeks__max'] = pd.to_numeric(mpox_df['previous_52_weeks__max'], errors='coerce').fillna(0)
+    mpox_df['current_YTD__cummulative'] = pd.to_numeric(mpox_df['current_YTD__cummulative'], errors='coerce').fillna(0)
+    mpox_df['previous_YTD__cummulative'] = pd.to_numeric(mpox_df['previous_YTD__cummulative'], errors='coerce').fillna(0)
+
+    # Remove rows with invalid dates
+    mpox_df = mpox_df.dropna(subset=['date'])
+    logger.info(f"🔧 After type conversion and cleaning: {len(mpox_df)} records")
+
+    # Process through resilient epi schemas by state/location
+    validated_basic_records = []
+    statistical_extension_records = []
+
+    for _, row in mpox_df.iterrows():
+        location = row['location1'] if pd.notna(row['location1']) else 'Unknown'
+        state = row['states'] if pd.notna(row['states']) else 'Unknown'
+
+        # Create proper camel case jurisdiction from state name
+        if state != 'Unknown':
+            # Convert state name to proper camel case (e.g., "OKLAHOMA" -> "Oklahoma", "NEW YORK" -> "NewYork")
+            jurisdiction = ''.join(word.capitalize() for word in state.split())
+        else:
+            jurisdiction = 'Unknown'
+
+        # Determine disease type based on label
+        disease_name = 'Measles'
+        if 'Indigenous' in str(row.get('label', '')):
+            disease_name = 'Measles (Indigenous)'
+        elif 'Imported' in str(row.get('label', '')):
+            disease_name = 'Measles (Imported)'
+
+        try:
+            # Create basic epidemiology record for current week cases
+            if pd.notna(row['current_week']) and row['current_week'] > 0:
+                basic_data = pd.DataFrame({
+                    'Date': [row['date'].strftime('%Y-%m-%d')],
+                    'Count': [int(row['current_week'])]
+                })
+
+                validated_basic = epi_processor.process_basic_epidemiology_data(
+                    basic_data,
+                    jurisdiction=jurisdiction,
+                    validate=True
+                )
+
+                if not validated_basic.empty:
+                    validated_basic['original_location'] = location
+                    validated_basic['original_state'] = state
+                    validated_basic['disease'] = disease_name
+                    validated_basic['disease_label'] = str(row.get('label', ''))
+                    validated_basic_records.append(validated_basic)
+
+            # Create statistical extension records for all metrics
+            date_str = row['date'].strftime('%Y-%m-%d')
+
+            metrics_data = [
+                ('cases', 'current_week', row['current_week']),
+                ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
+                ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
+                ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
+            ]
+
+            for metric_type, observation_prefix, value in metrics_data:
+                if pd.notna(value) and value >= 0:
+                    observation_type = 'actual' if 'current_week' in observation_prefix else 'partial-data estimate'
+
+                    stat_record = create_statistical_extension_record(
+                        jurisdiction=jurisdiction,
+                        date=date_str,
+                        disease=disease_name,
+                        metric=metric_type,
+                        observation_type=observation_type,
+                        count=int(value) if value == int(value) else value
+                    )
+
+                    if not stat_record.empty:
+                        stat_record['original_location'] = location
+                        stat_record['original_state'] = state
+                        stat_record['disease_label'] = str(row.get('label', ''))
+                        stat_record['cdc_week'] = row['week']
+                        stat_record['cdc_year'] = row['year']
+                        stat_record['metric_category'] = observation_prefix
+                        statistical_extension_records.append(stat_record)
+
+        except EpidemiologyValidationError as ve:
+            logger.warning(f"⚠️  Validation error for {jurisdiction} on {row['date']}: {ve}")
+        except Exception as e:
+            logger.error(f"❌ Error processing {jurisdiction} on {row['date']}: {e}")
+
+    # Combine and store validated basic epidemiology data
+    if validated_basic_records:
+        combined_basic = pd.concat(validated_basic_records, ignore_index=True)
+        logger.info(f"✅ Created {len(combined_basic)} validated basic epidemiology records")
+        logger.info(f"🔍 Basic epidemiology schema validation passed for {len(validated_basic_records)} record batches")
+
+        filename_basic = f'{s3_output_path}/output/validated_epi_schema/measles_weekly_basic'
+        metadata_basic = store_assets.objectMetadata(
+            name="measles_weekly_basic_epidemiology",
+            description="CDC Measles weekly data in basic epidemiology schema format",
+            source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
+        )
+        try:
+            gdf_basic = gpd.GeoDataFrame(combined_basic)
+            store_assets.geodataframe_to_s3(gdf_basic, filename_basic, s3_resource, metadata=metadata_basic)
+            logger.info(f"📋 Stored validated basic epidemiology data: {len(combined_basic)} rows")
+        except Exception as e:
+            logger.warning(f"⚠️  Storing as DataFrame instead of GeoDataFrame: {e}")
+            store_assets.dataframe_to_s3(combined_basic, filename_basic, s3_resource, metadata=metadata_basic)
+
+    # Combine and store statistical extension data
+    if statistical_extension_records:
+        combined_statistical = pd.concat(statistical_extension_records, ignore_index=True)
+        logger.info(f"✅ Created {len(combined_statistical)} statistical extension records")
+        logger.info(f"🔍 Statistical extension schema validation passed for {len(statistical_extension_records)} record batches")
+
+        filename_statistical = f'{s3_output_path}/output/validated_epi_schema/measles_weekly_statistical'
+        metadata_statistical = store_assets.objectMetadata(
+            name="measles_weekly_statistical_extension",
+            description="CDC Measles weekly data in statistical extension schema format",
+            source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
+        )
+        try:
+            gdf_statistical = gpd.GeoDataFrame(combined_statistical)
+            store_assets.geodataframe_to_s3(gdf_statistical, filename_statistical, s3_resource, metadata=metadata_statistical)
+            logger.info(f"📊 Stored statistical extension data: {len(combined_statistical)} rows")
+        except Exception as e:
+            logger.warning(f"⚠️  Storing as DataFrame instead of GeoDataFrame: {e}")
+            store_assets.dataframe_to_s3(combined_statistical, filename_statistical, s3_resource, metadata=metadata_statistical)
 
     mpox_df=mpox_df.dropna( subset=["lat", "lon"])
 
