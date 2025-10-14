@@ -25,7 +25,7 @@ from bs4 import BeautifulSoup
 import hashlib
 import json
 
-LLM_MODEL=os.environ.get("LLM_MODEL", "gemma3")
+LLM_MODEL=os.environ.get("OPENAI_BASE_MODEL", "gemma3")
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
 
 baseurl = "https://beachwatch.waterboards.ca.gov/public/"
