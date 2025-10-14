@@ -220,7 +220,7 @@ def sdbeachinfo_clean_data(beachinfo_df) -> gpd.GeoDataFrame:
 @asset(group_name="tijuana", key_prefix="waterquality",
        name="sdbeachinfo_status", required_resource_keys={"s3", "airtable"},
 
-       automation_condition=AutomationCondition.eager()       )
+       automation_condition=AutomationCondition.eager()     )
 def get_sdbeachinfo_status(context) -> gpd.GeoDataFrame:
     '''
     Collects the San Diego Beachinfo Notices on daily schedule
@@ -357,13 +357,16 @@ Maintain the html elements"
     '''
 
     prompt = f'{message } (Note: AI-generated translation.)'
-    resp= openai_client.chat.completions.create(
-        model=model,
-        messages=[ {
-            'role': 'user',
-             "content": f"{instructions}{prompt}"
-                    }]
-    )
+    try:
+        resp= openai_client.chat.completions.create(
+            model=model,
+            messages=[ {
+                'role': 'user',
+                 "content": f"{instructions}{prompt}"
+                        }]
+        )
+    except Exception as e:
+        get_dagster_logger().error(f"translation issue : {e}")
     # resp= openai_client.responses.create(
     #     model=model,
     #     instructions=instructions,
