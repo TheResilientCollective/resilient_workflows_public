@@ -84,6 +84,8 @@ def current(context) -> gpd.GeoDataFrame:
     # filelist = yesterday.append(f'{base_url}{current_file}')
     get_dagster_logger().info(f'current file paths {yesterday} ')
     output_df = process_csv_files(yesterday)
+    if output_df.empty:
+        raise Exception("No data for today")
     #output_csv = output_df.to_csv(index=False)
     # filename= f'{s3_output_path}/current.csv'
     # s3_resource.putFile_text(data=output_csv, path=filename)
@@ -339,6 +341,7 @@ def get_airnow_locations(context, ) -> pd.DataFrame:
     s3_resource = context.resources.s3
     locations_df = pd.read_csv(airnow_station_url, sep='|', on_bad_lines='warn')
     locations_df = locations_df[locations_df['Status'] == 'Active']
+    #SiteName,Latitude,Longitude,AgencyName,geometry
     locations_df = locations_df[['SiteName', 'Latitude', 'Longitude', 'AgencyName']].drop_duplicates(['SiteName'])
     gs = gpd.GeoSeries.from_xy(locations_df['Longitude'], locations_df['Latitude'])
     locations_gdf = gpd.GeoDataFrame(locations_df,
@@ -438,6 +441,12 @@ def process_csv_files(file_paths):
     transformed_data = []
 
     with requests.Session() as s:
+        # Set user agent to identify the Python client and project
+        s.headers.update({
+        #    'User-Agent': 'python-requests/2.28.2 (UCSD-Resilient-Environmental-Monitoring)'
+         #  'User-Agent':  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+           'User-Agent':  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 python-requests/2.28.2 (UCSD-Resilient-Environmental-Monitoring)'
+        })
         for file_path in file_paths:
             # Read the date from the third row
             get_dagster_logger().info(f'get file {file_path}')
@@ -534,7 +543,7 @@ def process_csv_files(file_paths):
                                     'Original Value': result
                                 })
             else:
-                get_dagster_logger().error(f'get file {file_path} {response.status_code}' )
+                get_dagster_logger().error(f'get file {file_path} {response.status_code} {response.text}' )
 
     # Create DataFrame from transformed data
     output_df = pd.DataFrame(transformed_data)
