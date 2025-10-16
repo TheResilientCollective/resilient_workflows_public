@@ -1,6 +1,6 @@
 import logging
 import json
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 import geopandas as gpd
@@ -59,25 +59,54 @@ def raw_to_s3(rawdata, path_w_name, s3_resource:S3Resource
 
 def store_dataframe_to_s3(
     df: pd.DataFrame,
-        path_w_basename, s3_resource: S3Resource,
- metadata=None, dataset_identifier=""
+    path: str,
+    dataset_identifier:str,
+    s3_resource: S3Resource,
+    metadata=None,
+    enable_latest_path: bool = False
 ):
     """
-    Helper function to store a DataFrame to S3, handling GeoDataFrame conversion and metadata.
-    Will output all default formats
+    Helper function to store a DataFrame to S3 in two locations:
+    1. The original asset-defined path
+    2. The latest basepath + asset path (if enable_latest_path is True)
+
+    Handles GeoDataFrame conversion and metadata. Will output all default formats.
     """
     logger = get_dagster_logger()
 
+    def get_latest_basepath() -> str:
+        """Get the LATEST_BASEPATH environment variable with fallback."""
+        return os.environ.get('LATEST_BASEPATH', 'latest/')
+
+    path_w_basename =f"{path}/{dataset_identifier}"
     try:
         import geopandas as gpd
         gdf = gpd.GeoDataFrame(df)
+
+        # Step 1: Store in original asset-defined path
         geodataframe_to_s3(gdf, path_w_basename, s3_resource, metadata=metadata)
         logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
 
+        # Step 2: Store in latest basepath + asset path
+        if enable_latest_path:
+            latest_basepath = get_latest_basepath()
+            latest_path = f"{latest_basepath.rstrip('/')}/{path_w_basename.lstrip('/')}"
+            geodataframe_to_s3(gdf, latest_path, s3_resource, metadata=metadata)
+            logger.info(f"Stored GeoDataFrame for {dataset_identifier} to latest path: s3://{s3_resource.S3_BUCKET}/{latest_path}")
+
     except Exception as geo_error:
         logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
+
+        # Step 1: Store in original asset-defined path
         dataframe_to_s3(df, path_w_basename, s3_resource, metadata=metadata)
         logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
+
+        # Step 2: Store in latest basepath + asset path
+        if enable_latest_path:
+            latest_basepath = get_latest_basepath()
+            latest_path = f"{latest_basepath.rstrip('/')}/{path_w_basename.lstrip('/')}"
+            dataframe_to_s3(df, latest_path, s3_resource, metadata=metadata)
+            logger.info(f"Stored DataFrame for {dataset_identifier} to latest path: s3://{s3_resource.S3_BUCKET}/{latest_path}")
 
 def geodataframe_to_s3(geodataframe, path_w_basename, s3_resource:S3Resource,
                        formats=[
