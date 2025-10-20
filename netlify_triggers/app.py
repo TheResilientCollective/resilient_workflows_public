@@ -447,6 +447,16 @@ def handle_trigger_preview(ack, body, client):
         )
 
 
+@slack_app.event("message")
+def handle_message_events(body, say):
+    """Handle general message events"""
+    # Log the message for debugging but don't respond
+    # This prevents the "unhandled request" error
+    logger.info(f"Received message event: {body.get('event', {}).get('type', 'unknown')}")
+    # Optionally, you can add logic here to respond to specific messages
+    # For now, we just acknowledge the event to prevent errors
+
+
 def run_flask():
     """Run Flask app in a separate thread"""
     logger.info(f"Starting Flask webhook server on port {WEBHOOK_PORT}")
