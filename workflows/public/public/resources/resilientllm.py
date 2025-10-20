@@ -16,7 +16,7 @@ class ResilientLLMResource(ConfigurableResource):
         default_factory=lambda: os.environ.get("RESILIENTLLM_API_TOKEN", ""),
     )
     llm_endpoint: str = Field(description='URL of the ResilientLLM API endpoint.'
-                              , default="http://52.9.168.22/api/agents/client-controlled-history/")
+                              , default="http://52.9.168.22/api/agents/client-controlled-history")
     summary_id: str = Field(
         description=" Report ID fof the summary ",
         default="6893ee37cdbd1d24e5e8b4be",
