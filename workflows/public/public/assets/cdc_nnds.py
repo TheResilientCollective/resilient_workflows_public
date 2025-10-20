@@ -323,6 +323,8 @@ def nndss_weekly(context):
         count_json = response.json()
         count = int(count_json["features"][0]["properties"][f"count_{property}"])
         get_dagster_logger().info(f"count {count} for url :{count_url} ")
+        if count == 0:
+            raise Exception(f"No Data count {count} for url :{count_url} ")
     else:
         raise Exception(f"access failed: {response.status_code} {response.text}")
     limit =1000

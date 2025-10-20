@@ -1,6 +1,15 @@
 using odata
 https://python-odata.readthedocs.io/en/latest/index.html
 
+
+REST API:
+https://dev.socrata.com/
+
+metadata: https://dev.socrata.com/docs/other/metadata#?route=overview
+https://data.cdc.gov/api/views/metadata/v1/x9gk-5huc
+
+maybe think about this library: https://github.com/afeld/sodapy
+
 mpox:
 https://data.cdc.gov/resource/x9gk-5huc.geojson?$query=SELECT%0A%20%20%60states%60%2C%0A%20%20%60year%60%2C%0A%20%20%60week%60%2C%0A%20%20%60label%60%2C%0A%20%20%60m1%60%2C%0A%20%20%60m1_flag%60%2C%0A%20%20%60m2%60%2C%0A%20%20%60m2_flag%60%2C%0A%20%20%60m3%60%2C%0A%20%20%60m3_flag%60%2C%0A%20%20%60m4%60%2C%0A%20%20%60m4_flag%60%2C%0A%20%20%60location1%60%2C%0A%20%20%60location2%60%2C%0A%20%20%60sort_order%60%2C%0A%20%20%60geocode%60%0AWHERE%20caseless_one_of(%60label%60%2C%20%22Mpox%22)%0AORDER%20BY%20%60sort_order%60%20ASC%20NULL%20LAST
 
