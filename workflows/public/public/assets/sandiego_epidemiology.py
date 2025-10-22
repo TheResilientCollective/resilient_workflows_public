@@ -50,8 +50,8 @@ def _store_dataframe_to_s3(
 
     # Create metadata
     metadata = store_assets.objectMetadata(
-        name=f"sandiego_epidemiology_{workbook_name}_{dataset_identifier.replace('/', '_')}", # Replace '/' for metadata name
-        description=f"San Diego epidemiology data from {workbook_name} {dataset_identifier}",
+        name=f"sandiego_epidemiology_{workbook_name}_{dataset_identifier.replace('/', '_')} date:{date_path}" , # Replace '/' for metadata name
+        description=f"San Diego epidemiology data from {workbook_name} {dataset_identifier} on {date_path}",
         source_url=source_url
     )
 
@@ -91,10 +91,11 @@ def sandiego_epidemiology_workbook_download(
     config: TableauWorkbookConfig,
 
 ) -> Dict[str, Any]:
+    date_path = dates3Path()
     """Download Tableau workbook from URL and store in S3"""
-    name = 'sandiego_epidemiology_workbook_download'
-    description = '''
-       San Diego Epidemiology Data from Tableau website
+    name = f'sandiego_epidemiology_workbook_download_{date_path}'
+    description = f'''
+       San Diego Epidemiology Data from Tableau website on {date_path}
        '''
     source_url = config.url
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
@@ -106,7 +107,7 @@ def sandiego_epidemiology_workbook_download(
     workbook_content = processor.download_workbook(config.url)
     workbook_length = len(workbook_content)
     # Store in S3
-    date_path = dates3Path()
+
     s3_key = f"{s3_output_path}raw/{date_path}/workbook.twb"
     store_assets.raw_to_s3(workbook_content, s3_key, s3_resource
                           ,contenttype='application/octet-stream',
@@ -136,13 +137,13 @@ def sandiego_epidemiology_hyper_extraction(
 
 ) -> Dict[str, Any]:
     """Extract Hyper files from workbook and store in S3"""
-
+    date_path = dates3Path()
     logger = get_dagster_logger()
     processor = TableauWorkbookProcessor(logger)
     s3_resource= context.resources.s3
     workbook_name = sandiego_epidemiology_workbook_download["workbook_name"]
     s3_key = sandiego_epidemiology_workbook_download["s3_key"]
-    date_path = dates3Path()
+
     # The 'config' object is available globally due to its initialization outside the asset functions.
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -169,7 +170,7 @@ def sandiego_epidemiology_hyper_extraction(
                 with open(hyper_file_path, 'rb') as f:
                     name = f'sandiego_epidemiology_workbook_data {hyper_file_path.name}'
                     description = f'''
-                         San Diego Epidemiology Data files from Tableau website  {workbook_name} {hyper_file_path.name}
+                         San Diego Epidemiology Data files from Tableau website  {workbook_name} {hyper_file_path.name} on {date_path}
                          '''
                     source_url = config.url
                     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
