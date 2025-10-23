@@ -653,7 +653,7 @@ Starting processing...
     key_prefix="sandiego",
     name="resilientllm_sd_summary",
     required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
-    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
+    deps=[AssetKey([f"sandiego", "resilientllm_sd_update"])],
 automation_condition=AutomationCondition.eager()
 )
 def summary_resilientllm_asset(context):
@@ -714,7 +714,7 @@ def summary_resilientllm_asset(context):
     key_prefix="sandiego",
     name="resilientllm_sd_update",
     required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
-    deps=[AssetKey([f"sandiego", "resilientllm_sd_summary"])],
+    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
 automation_condition=AutomationCondition.eager()
 )
 def update_resilientllm_asset(context):

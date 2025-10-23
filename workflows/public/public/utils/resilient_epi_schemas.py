@@ -246,7 +246,7 @@ class BasicEpidemiologySchema:
 
         # Date columns (create rows first)
         transformed_df['date_week_start'] = df['Date'].dt.strftime('%Y-%m-%d')
-        transformed_df['date_week_end'] = (df['Date'] + pd.Timedelta(days=7)).dt.strftime('%Y-%m-%d')
+        transformed_df['date_week_end'] = (df['Date'] + pd.Timedelta(days=6)).dt.strftime('%Y-%m-%d')
 
         # Week and year calculations
         iso_calendar = df['Date'].dt.isocalendar()

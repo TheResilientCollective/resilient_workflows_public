@@ -332,7 +332,7 @@ def reformatDf(df):
     logger.info(f"🔄 Starting reformatDf with {len(df)} rows")
 
     # Ensure necessary columns exist
-    required_columns = ['FY', 'CDCWk', 'WkStrtActual', 'Disease', 'Metric', 'Count']
+    required_columns = ['FY', 'CDCWk', 'WkStrtActual', 'WkEndActual', 'Disease', 'Metric', 'Count']
     if not all(col in df.columns for col in required_columns):
         logger.error(f"❌ Input DataFrame missing required columns. Expected: {required_columns}, Got: {list(df.columns)}")
         return {}
