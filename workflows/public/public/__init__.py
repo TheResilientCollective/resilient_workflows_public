@@ -76,6 +76,7 @@ resilentsims_config=ResilientSimsResource(
 )
 resilientllm_config = ResilientLLMResource(
     token=EnvVar("RESILIENTLLM_API_TOKEN"),
+
 )
 # SLACK docker env has prefix
 resources ={
