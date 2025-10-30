@@ -46,8 +46,8 @@ FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 
 FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "pathogens/sandiego/sandiego_epidemiology/output")
 FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
-FORECAST_NETILFY_PREVIEW_HOOK=os.environ.get("FORECAST_NETILFY_PREVIEW_HOOK")
-FORECAST_NETILFY_PRODUCTION_HOOK=os.environ.get("FORECAST_NETILFY_PRODUCTION_HOOK")
+FORECAST_NETLIFY_PREVIEW_HOOK=os.environ.get("FORECAST_NETLIFY_PREVIEW_HOOK")
+FORECAST_NETLIFY_PRODUCTION_HOOK=os.environ.get("FORECAST_NETLIFY_PRODUCTION_HOOK")
 FORECAST_NETLIFY_PREVIEW_URL=os.environ.get("FORECAST_NETLIFY_PREVIEW_URL")
 FORECAST_NETLIFY_PRODUCTION_URL=os.environ.get("FORECAST_NETLIFY_PRODUCTION_URL")
 FORECAST_NETLIFY_REJECT_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_MESSAGE","Please edit the prompts in Airtable and trigger a new preview when ready." )
@@ -547,7 +547,7 @@ epidemiology_forecasts_job = define_asset_job(
 @sensor(
     job=epidemiology_forecasts_job,
     name="epidemiology_forecasts_sensor",
-    minimum_interval_seconds=3600,  # Check hourly
+    minimum_interval_seconds=600,  # Check every 10
     required_resource_keys={"s3", "slack"}
 )
 def epidemiology_forecasts_sensor(context: SensorEvaluationContext):
@@ -918,11 +918,11 @@ def triggerDeploy(assetPath=None):
     if assetPath is None:
         assetPath = datetime.today().strftime('%Y%m%d')
     dagster.get_dagster_logger().debug(f"Triggering Netlify  Deploy Workflow")
-    # for local development issues, do not set a FORECAST_NETILFY_PREVIEW_HOOK and slack workflow will not run.
-    if FORECAST_NETILFY_PREVIEW_HOOK is None:
+    # for local development issues, do not set a FORECAST_NETLIFY_PREVIEW_HOOK and slack workflow will not run.
+    if FORECAST_NETLIFY_PREVIEW_HOOK is None:
         dagster.get_dagster_logger().debug(f"No PREVIEW massing FORECAST_NETILFY_PREVIEW_HOOK Triggering Netlify  Deploy Workflow")
         return False
-    response = requests.post(f"{FORECAST_NETILFY_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster")
+    response = requests.post(f"{FORECAST_NETLIFY_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster")
     if response.status_code == 200:
         dagster.get_dagster_logger().info(f'Netlify Preview Hook called successfully')
         dagster.get_dagster_logger().info(f'calling slack workflow: {TRIGGER_PREVIEW_HOOK}')
@@ -930,8 +930,8 @@ def triggerDeploy(assetPath=None):
             data =  {
                 "asset_name": f"sd_epidemiology_forecast {assetPath}",
                 "metadata": "optional-metadata",
-                "preview_hook": FORECAST_NETILFY_PREVIEW_HOOK,
-                "deploy_hook": FORECAST_NETILFY_PRODUCTION_HOOK,
+                "preview_hook": FORECAST_NETLIFY_PREVIEW_HOOK,
+                "deploy_hook": FORECAST_NETLIFY_PRODUCTION_HOOK,
                 "preview_url": FORECAST_NETLIFY_PREVIEW_URL,
                 "deploy_url": FORECAST_NETLIFY_PRODUCTION_URL,
                 "reject_message":FORECAST_NETLIFY_REJECT_MESSAGE
