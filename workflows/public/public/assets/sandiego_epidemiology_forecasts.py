@@ -918,13 +918,14 @@ def triggerDeploy(assetPath=None):
     if assetPath is None:
         assetPath = datetime.today().strftime('%Y%m%d')
     dagster.get_dagster_logger().debug(f"Triggering Netlify  Deploy Workflow")
+    # for local development issues, do not set a FORECAST_NETILFY_PREVIEW_HOOK and slack workflow will not run.
     if FORECAST_NETILFY_PREVIEW_HOOK is None:
-        dagster.get_dagster_logger().debug(f"No FORECAST_NETILFY_PREVIEW_HOOK Triggering Netlify  Deploy Workflow")
+        dagster.get_dagster_logger().debug(f"No PREVIEW massing FORECAST_NETILFY_PREVIEW_HOOK Triggering Netlify  Deploy Workflow")
         return False
     response = requests.post(f"{FORECAST_NETILFY_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster")
     if response.status_code == 200:
         dagster.get_dagster_logger().info(f'Netlify Preview Hook called successfully')
-
+        dagster.get_dagster_logger().info(f'calling slack workflow: {TRIGGER_PREVIEW_HOOK}')
         if TRIGGER_PREVIEW_HOOK is not None:
             data =  {
                 "asset_name": f"sd_epidemiology_forecast {assetPath}",
@@ -935,7 +936,7 @@ def triggerDeploy(assetPath=None):
                 "deploy_url": FORECAST_NETLIFY_PRODUCTION_URL,
                 "reject_message":FORECAST_NETLIFY_REJECT_MESSAGE
                 }
-            response = requests.post(f"{TRIGGER_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster", data=data)
+            response = requests.post(f"{TRIGGER_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster", json=data)
             if response.status_code == 200:
                 dagster.get_dagster_logger().info(f'Slack workflow triggered successfully {TRIGGER_PREVIEW_HOOK}')
             else:
@@ -944,9 +945,7 @@ def triggerDeploy(assetPath=None):
             dagster.get_dagster_logger().error(f'trigger not configured no TRIGGER_PREVIEW_HOOK  environment variable')
 
         return True
-    else:
-        dagster.get_dagster_logger().error(f'Netlify Preview Hook failed  {response.status_code} {response.text}')
-        return False
+
 
 #
 
