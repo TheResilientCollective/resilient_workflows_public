@@ -46,8 +46,8 @@ FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 
 FORECAST_OUTPUT_DIRECTORY =  os.environ.get("FORECAST_OUTPUT_DIRECTORY", "pathogens/sandiego/sandiego_epidemiology/output")
 FORECAST_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", 'resilientseasonal')
-FORECAST_NETILFY_PREVIEW_HOOK=os.environ.get("FORECAST_NETILFY_DEPLOY_TRIGGER")
-FORECAST_NETILFY_PRODUCTION_HOOK=os.environ.get("FORECAST_NETILFY_PRODUCTION_TRIGGER")
+FORECAST_NETILFY_PREVIEW_HOOK=os.environ.get("FORECAST_NETILFY_PREVIEW_HOOK")
+FORECAST_NETILFY_PRODUCTION_HOOK=os.environ.get("FORECAST_NETILFY_PRODUCTION_HOOK")
 FORECAST_NETLIFY_PREVIEW_URL=os.environ.get("FORECAST_NETLIFY_PREVIEW_URL")
 FORECAST_NETLIFY_PRODUCTION_URL=os.environ.get("FORECAST_NETLIFY_PRODUCTION_URL")
 FORECAST_NETLIFY_REJECT_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_MESSAGE","Please edit the prompts in Airtable and trigger a new preview when ready." )
@@ -919,6 +919,7 @@ def triggerDeploy(assetPath=None):
         assetPath = datetime.today().strftime('%Y%m%d')
     dagster.get_dagster_logger().debug(f"Triggering Netlify  Deploy Workflow")
     if FORECAST_NETILFY_PREVIEW_HOOK is None:
+        dagster.get_dagster_logger().debug(f"No FORECAST_NETILFY_PREVIEW_HOOK Triggering Netlify  Deploy Workflow")
         return False
     response = requests.post(f"{FORECAST_NETILFY_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster")
     if response.status_code == 200:
