@@ -8,6 +8,9 @@ from threading import Thread
 from flask import Flask, request, jsonify
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+import boto3
+
+from git import Repo
 
 # Configure logging
 logging.basicConfig(
@@ -50,7 +53,7 @@ def verify_webhook_signature(payload, signature):
 def send_preview_notification(channel, asset_name=None, metadata=None,
                              preview_hook=None, deploy_hook=None,
                              preview_url=None, deploy_url=None,
-                             reject_message=None):
+                             reject_message=None, rt_url: str = None):
     """Send preview deployment notification with approval buttons"""
     try:
         # Use provided values or fall back to environment defaults
@@ -59,6 +62,7 @@ def send_preview_notification(channel, asset_name=None, metadata=None,
         preview_url = preview_url or NETLIFY_PREVIEW_URL
         deploy_url = deploy_url or NETLIFY_PRODUCTION_URL
         reject_message = reject_message or NETLIFY_REJECT_MESSAGE
+        rate_of_transmission_url = rt_url
 
         # Create state object to store in button values
         state = {
@@ -68,7 +72,8 @@ def send_preview_notification(channel, asset_name=None, metadata=None,
             "deploy_hook": deploy_hook,
             "preview_url": preview_url,
             "deploy_url": deploy_url,
-            "reject_message": reject_message
+            "reject_message": reject_message,
+            "rate_of_transmission_url": rate_of_transmission_url
         }
         state_json = json.dumps(state)
 
@@ -277,6 +282,30 @@ def handle_approve_deploy(ack, body, client):
             text=f"❌ Error: {str(e)}",
             thread_ts=message_ts
         )
+
+def copy_rt_to_github(rt_url: str, github_url: str):
+    # --- CONFIG ---
+    bucket_name = "your-bucket"
+    s3_key = "path/to/file.txt"
+    local_repo_path = "/tmp/myrepo"
+    local_file_path = os.path.join(local_repo_path, "file.txt")
+    commit_message = "Add file from S3"
+
+    # --- STEP 1: Download from S3 ---
+    s3 = boto3.client("s3")
+    s3.download_file(bucket_name, s3_key, local_file_path)
+
+    # --- STEP 2: Git operations ---
+    # Repo should already be cloned locally; if not, clone it first
+    # Repo.clone_from("https://github.com/username/repo.git", local_repo_path)
+
+    repo = Repo(local_repo_path)
+    repo.index.add([local_file_path])
+    repo.index.commit(commit_message)
+
+    # --- STEP 3: Push to GitHub ---
+    origin = repo.remote(name="origin")
+    origin.push()
 
 
 @slack_app.action("reject_deploy")
