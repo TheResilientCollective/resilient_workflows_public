@@ -108,7 +108,7 @@ def sandiego_epidemiology_workbook_download(
     workbook_length = len(workbook_content)
     # Store in S3
 
-    s3_key = f"{s3_output_path}raw/{date_path}/workbook.twb"
+    s3_key = f"{s3_output_path}raw/{date_path}/workbook.twbx"
     store_assets.raw_to_s3(workbook_content, s3_key, s3_resource
                           ,contenttype='application/octet-stream',
                           metadata=metadata
@@ -344,9 +344,11 @@ def reformatDf(df):
     if 'WkStrtActual' in df_processed.columns:
         logger.info(f"📅 Processing dates from WkStrtActual column")
         df_processed['epiweek_start'] = df_processed['WkStrtActual'].apply(lambda x: pd.Timestamp(str(x)))
+        df_processed['epiweek_end'] = (df_processed['epiweek_start'] + pd.Timedelta(days=6)).dt.strftime('%Y-%m-%d')
         # WkStrtActual is actually a tableauhyper timestamp
         df_processed['FY'] = df_processed['epiweek_start'].dt.year
         df_processed['epiweek_start'] = df_processed['epiweek_start'].dt.strftime('%Y-%m-%d')
+
     else:
         logger.error("❌ 'WkStrtActual' column not found in DataFrame, cannot derive 'epiweek_start'.")
         return {}
@@ -366,7 +368,7 @@ def reformatDf(df):
 
     # Pivot the DataFrame
     pivoted_df = df_filtered.pivot_table(
-        index=['Disease', 'epiweek_start', 'FY', 'CDCWk'],
+        index=['Disease', 'epiweek_start', 'epiweek_end', 'FY', 'CDCWk'],
         columns='Metric',
         values='Count',
         aggfunc='sum'
@@ -387,7 +389,7 @@ def reformatDf(df):
             pivoted_df[col] = np.nan
 
     # Select and reorder the final columns, keeping 'Disease' for splitting
-    final_output_cols = ['disease_year', 'disease_week', 'epiweek_start', 'cases', 'weekly_admissions', 'deaths', 'Disease']
+    final_output_cols = ['disease_year', 'disease_week', 'epiweek_start', 'epiweek_end','cases', 'weekly_admissions', 'deaths', 'Disease']
     processed_df = pivoted_df[final_output_cols].copy()
 
     # Convert numeric columns to appropriate types, filling NaNs with 0

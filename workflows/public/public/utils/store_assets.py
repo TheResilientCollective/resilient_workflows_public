@@ -49,7 +49,7 @@ def text_to_s3(textdata, path_w_name, s3_resource: S3Resource
 
 def raw_to_s3(rawdata, path_w_name, s3_resource:S3Resource
               ,contenttype='application/octet-stream'
-              , metadata=None):
+              , metadata=None, lastestPath=None):
     '''This will write out objectMetadata to as a file'''
     s3_resource.putFile(data=rawdata, path=f"{path_w_name}"
                              , content_type=contenttype
