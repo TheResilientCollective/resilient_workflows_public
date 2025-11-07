@@ -22,6 +22,7 @@ from ..utils.resilient_epi_schemas import (
     EpidemiologyValidationError,
     transform_to_basic_epidemiology
 )
+from ..utils.store_assets import store_dataframe_to_s3
 
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
 # configure notebook url in utils/tableau_workbook
@@ -40,39 +41,47 @@ def _store_dataframe_to_s3(
     logger,
     base_s3_output_prefix: str, # e.g., "health/sandiego_epidemiology/output"
     source_url: str,
-    date_updated: datetime.datetime = None
+    date_updated: datetime.datetime = None,
+    enable_latest_path = False
 ):
     """
     Helper function to store a DataFrame to S3, handling GeoDataFrame conversion and metadata.
     """
     date_path = dates3Path(date_updated)
-    s3_path = f"{base_s3_output_prefix}/{workbook_name}/{date_path}/{dataset_identifier}"
-
+    #s3_path = f"{base_s3_output_prefix}/{workbook_name}/{date_path}/{dataset_identifier}"
+    s3_path = f"{base_s3_output_prefix}/{workbook_name}/{date_path}/"
+    latestdatasetpath="sandiego_epidemiology"
     # Create metadata
     metadata = store_assets.objectMetadata(
         name=f"sandiego_epidemiology_{workbook_name}_{dataset_identifier.replace('/', '_')} date:{date_path}" , # Replace '/' for metadata name
         description=f"San Diego epidemiology data from {workbook_name} {dataset_identifier} on {date_path}",
         source_url=source_url
     )
-
     try:
-        import geopandas as gpd
-        # Try to convert to GeoDataFrame if geometry columns exist
-        # geo_columns = [col for col in df.columns if
-        #                'geom' in col.lower() or ('lat' in col.lower() and 'lon' in col.lower())]
-
-        # if geo_columns:
-        #     gdf = gpd.GeoDataFrame(df)
-        # else:
-        #     gdf = gpd.GeoDataFrame(df)
-        gdf = gpd.GeoDataFrame(df)
-        store_assets.geodataframe_to_s3(gdf, s3_path, s3_resource, metadata=metadata)
+        store_dataframe_to_s3(df, s3_path, dataset_identifier,  s3_resource, metadata=metadata, enable_latest_path=enable_latest_path, latestdatasetpath=latestdatasetpath)
         logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
-
-    except Exception as geo_error:
-        logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
-        store_assets.dataframe_to_s3(df, s3_path, s3_resource, metadata=metadata)
-        logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+        if enable_latest_path:
+            logger.info(f"Stored GeoDataFrame for {dataset_identifier} to  {latestdatasetpath}{dataset_identifier }")
+    except Exception as df_error:
+        logger.error(f"Could not store DataFrame for {dataset_identifier}: {df_error}")
+    # try:
+    #     import geopandas as gp
+    #     # Try to convert to GeoDataFrame if geometry columns exist
+    #     # geo_columns = [col for col in df.columns if
+    #     #                'geom' in col.lower() or ('lat' in col.lower() and 'lon' in col.lower())]
+    #
+    #     # if geo_columns:
+    #     #     gdf = gpd.GeoDataFrame(df)
+    #     # else:
+    #     #     gdf = gpd.GeoDataFrame(df)
+    #     gdf = gpd.GeoDataFrame(df)
+    #     store_assets.geodataframe_to_s3(gdf, s3_path, s3_resource, metadata=metadata)
+    #     logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+    #
+    # except Exception as geo_error:
+    #     logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
+    #     store_assets.dataframe_to_s3(df, s3_path, s3_resource, metadata=metadata)
+    #     logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
 
 def dates3Path(date=None):
     if date is None:
@@ -222,7 +231,8 @@ def sandiego_epidemiology_hyper_extraction(
                                         dataset_identifier=f"processed_by_disease/{disease_safe_name}",
                                         logger=logger,
                                         base_s3_output_prefix=f"{s3_output_path}output",
-                                        source_url=config.url
+                                        source_url=config.url,
+                                        enable_latest_path=True
                                     )
 
                                     logger.info(f"📊 Stored original format data for {disease}: {len(original_df)} rows")
@@ -239,7 +249,8 @@ def sandiego_epidemiology_hyper_extraction(
                                         dataset_identifier=f"validated_epi_schema/{disease_safe_name}",
                                         logger=logger,
                                         base_s3_output_prefix=f"{s3_output_path}output",
-                                        source_url=config.url
+                                        source_url=config.url,
+                                        enable_latest_path=True
                                     )
 
                                     logger.info(f"✅ Stored validated epidemiology schema for {disease}: {len(validated_df)} rows")
