@@ -94,7 +94,8 @@ def store_dataframe_to_s3(
         latestdatasetpath_basename = f"{get_latest_basepath()}/{latestdatasetpath}/{dataset_identifier}"
         lastest_metadtata = metadata.copy()
         lastest_metadtata.name = f"latest {metadata.name}"
-        lastest_metadtata.alternateName = f"latest {metadata.alternateName}"
+        if lastest_metadtata.alternateName:
+            lastest_metadtata.alternateName = f"latest {metadata.alternateName}"
         lastest_metadtata.description = f"latest {metadata.description}"
 
     try:

@@ -21,6 +21,8 @@ from ..utils.resilient_epi_schemas import (
 
 from workflows.public.public.utils.tableau_workbook import TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
 from ..utils.date import check_missing_weeks
+from ..utils.store_assets import store_dataframe_to_s3
+
 
 # MPOX-specific configuration embedded in the asset file
 class MPOXWorkbookConfig(Config):
@@ -48,13 +50,15 @@ def _store_dataframe_to_s3(
     logger,
     base_s3_output_prefix: str,
     source_url: str,
-    date_updated: datetime.datetime = None
+    date_updated: datetime.datetime = None,
+    enable_latest_path=False
 ):
     """
     Helper function to store a DataFrame to S3, handling GeoDataFrame conversion and metadata.
     """
     date_path = dates3Path(date_updated)
     s3_path = f"{base_s3_output_prefix}/{workbook_name}/{date_path}/{dataset_identifier}"
+    latestdatasetpath = "sandiego_epidemiology_mpox"
 
     # Create metadata
     metadata = store_assets.objectMetadata(
@@ -62,17 +66,23 @@ def _store_dataframe_to_s3(
         description=f"San Diego MPOX epidemiology data from {workbook_name} {dataset_identifier}",
         source_url=source_url
     )
-
     try:
-        import geopandas as gpd
-        gdf = gpd.GeoDataFrame(df)
-        store_assets.geodataframe_to_s3(gdf, s3_path, s3_resource, metadata=metadata)
+        store_dataframe_to_s3(df, s3_path, dataset_identifier,  s3_resource, metadata=metadata, enable_latest_path=enable_latest_path, latestdatasetpath=latestdatasetpath)
         logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
-
-    except Exception as geo_error:
-        logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
-        store_assets.dataframe_to_s3(df, s3_path, s3_resource, metadata=metadata)
-        logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+        if enable_latest_path:
+            logger.info(f"Stored GeoDataFrame for {dataset_identifier} to  {latestdatasetpath}{dataset_identifier }")
+    except Exception as df_error:
+        logger.error(f"Could not store DataFrame for {dataset_identifier}: {df_error}")
+    # try:
+    #     import geopandas as gpd
+    #     gdf = gpd.GeoDataFrame(df)
+    #     store_assets.geodataframe_to_s3(gdf, s3_path, s3_resource, metadata=metadata)
+    #     logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
+    #
+    # except Exception as geo_error:
+    #     logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
+    #     store_assets.dataframe_to_s3(df, s3_path, s3_resource, metadata=metadata)
+    #     logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{s3_path}")
 
 def dates3Path(date=None):
     if date is None:
@@ -320,7 +330,8 @@ def mpox_hyper_extraction(
                                             dataset_identifier="processed/mpxv_disease_summary",
                                             logger=logger,
                                             base_s3_output_prefix=f"{s3_output_path}output",
-                                            source_url=config.url
+                                            source_url=config.url,
+                                enable_latest_path=True
                                         )
                                         logger.info(f"✅ Successfully processed and stored MPXV Disease Summary: {len(transformed_df)} rows")
                                         processed_count += 1
@@ -336,7 +347,8 @@ def mpox_hyper_extraction(
                                             dataset_identifier="raw_fallback/mpxv_disease_summary",
                                             logger=logger,
                                             base_s3_output_prefix=f"{s3_output_path}output",
-                                            source_url=config.url
+                                            source_url=config.url,
+                                enable_latest_path=True
                                         )
 
                                 except Exception as e:

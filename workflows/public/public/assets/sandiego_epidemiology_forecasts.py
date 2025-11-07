@@ -466,8 +466,10 @@ def process_epidemiology_forecasts(context, config: forecastsS3AssetConfig) -> D
                             source_url="ResilientSims_Forecast"
                         )
 
-                        store_assets.dataframe_to_s3(combined_statistical, stat_filename, s3_resource,
-                                                   metadata=stat_metadata, formats=['csv', 'json'])
+                        # store_assets.dataframe_to_s3(combined_statistical, stat_filename, s3_resource,
+                        #                            metadata=stat_metadata, formats=['csv', 'json'])
+                        store_assets.store_dataframe_to_s3(combined_statistical, stat_filename,object_name, s3_resource,
+                                                     metadata=stat_metadata, formats=['csv', 'json'])
                         logger.info(f"📋 Stored validated statistical extension forecast data: {len(combined_statistical)} rows")
                     else:
                         logger.warning(f"⚠️  No valid statistical extension records created from {object_name}")

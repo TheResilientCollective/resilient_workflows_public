@@ -50,7 +50,7 @@ def _store_dataframe_to_s3(
     date_path = dates3Path(date_updated)
     #s3_path = f"{base_s3_output_prefix}/{workbook_name}/{date_path}/{dataset_identifier}"
     s3_path = f"{base_s3_output_prefix}/{workbook_name}/{date_path}/"
-    latestdatasetpath="sandiego_epidemiology"
+    latestdatasetpath="sandiego_epidemiology_ili"
     # Create metadata
     metadata = store_assets.objectMetadata(
         name=f"sandiego_epidemiology_{workbook_name}_{dataset_identifier.replace('/', '_')} date:{date_path}" , # Replace '/' for metadata name
