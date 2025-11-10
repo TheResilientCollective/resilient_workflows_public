@@ -145,7 +145,8 @@ def wahis_upload_sensor(context: SensorEvaluationContext):
             tags={"wahis_uploads_job": lastest_name},
             run_config=RunConfig(
                 ops={
-                    str(AssetKey(["wahis", "wahis_excel"])): {
+                   # str(AssetKey(["wahis", "wahis_excel"])): {
+                    "wahis__wahis_excel":{
                         "config": {
                             "wahis_upload_path": lastest_name
                         }
