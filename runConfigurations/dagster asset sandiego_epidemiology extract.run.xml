@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="dagster asset sandiego/epidemiology extract" type="PythonConfigurationType" factoryName="Python" folderName="sd_ili">
+  <configuration default="false" name="dagster asset sandiego/epidemiology extract" type="PythonConfigurationType" factoryName="Python" folderName="sd_ili_covid_flu">
     <module name="resilient_workflows_public" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />

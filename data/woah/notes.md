@@ -16,19 +16,8 @@ when the metadata is updated Metadata_WeeklyExtraction.xlsx
 example sharpoint download copy link
 https://oieoffice365.sharepoint.com/:x:/r/sites/PeriodicaldataextractionsOIE-WAHIS/Shared%20Documents/Metadata_WeeklyExtraction.xlsx?d=wea5e430f060e4de6bef361042848643b&csf=1&web=1&e=jYb1fF
 
-# Non-exceptional data
-https://wahis.woah.org/#/dashboards/qd-dashboard
 
-There is a iframe with:
-export data frame
-https://dashboard-wahis-prod.woah.org/single/?appid=71b2b371-9ee4-4403-8039-34ddda77d795&sheet=cf908bfd-7f04-408d-bb2e-7968edd0a02b
-
-vizualisation frame
-https://dashboard-wahis-prod.woah.org/single/?appid=71b2b371-9ee4-4403-8039-34ddda77d795&sheet=350185f6-66bf-4a1e-82d7-0bf2312ae1f6
-
-api calls:
-https://dashboard-wahis-prod.woah.org/api/v1/features
-
+Attempts to use scripts in scripts/sharepoint
 
 Coding for sharepoint:
 Office365-REST-Python-Client
