@@ -2,7 +2,8 @@ import tempfile
 import os
 from pathlib import Path
 import pandas as pd
-from dagster import asset, get_dagster_logger, define_asset_job, AssetKey, sensor, RunRequest, SensorEvaluationContext, Config
+from dagster import asset, get_dagster_logger, define_asset_job, AssetKey, sensor, RunRequest, SensorEvaluationContext, \
+    Config, AssetIn
 from typing import Dict, Any, Iterable
 import json
 import numpy as np
@@ -243,7 +244,12 @@ def mpox_workbook_download(
     name="mpox_hyper_extraction",
     deps=[mpox_workbook_download],
     required_resource_keys={"s3"},
-    description="Extract Hyper files from MPOX Tableau workbook and store in S3"
+    description="Extract Hyper files from MPOX Tableau workbook and store in S3",
+    ins={
+        "mpox_workbook_download": AssetIn(
+            key=dg.AssetKey(["sandiego", "mpox_workbook_download"])
+        )
+    },
 )
 def mpox_hyper_extraction(
     context,

@@ -211,14 +211,9 @@ def dataframe_to_s3(dataframe, path_w_basename, s3_resource:S3Resource,
        elif format == 'parquet':
            # https://github.com/aws/aws-sdk-pandas
            # get the url to the minio, somewhere from the client.
-           pass
-           wr.s3.to_parquet(
-               df=dataframe,
-               path="s3://bucket/dataset/",
-               dataset=True,
-               database="my_db",
-               table="my_table"
-           )
+           path = f"{path_w_basename}.parquet"
+           parquet_object = dataframe.to_parquet()
+           object = s3_resource.putFile(data=parquet_object, path=path, content_type='application/vnd.apache.parquet')
            distributions.append(distribution('parquet', object))
     if metadata is not None:
         metadata.distribution = distributions

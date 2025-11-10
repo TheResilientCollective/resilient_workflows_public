@@ -69,6 +69,8 @@ dependencies = [
     "jinja2>=3.1.6",
     "office365-rest-python-client>=2.6.2",
     "sharepoint>=0.4.2",
+    'openpyxl>=3.1.0',
+    "dask>=2025.11.0",
 ]
 
 [dependency-groups]

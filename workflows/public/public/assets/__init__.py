@@ -71,3 +71,8 @@ check_measles_statistical_extension_completeness,
 check_mpox_zero_counts_preserved,
 check_measles_zero_counts_preserved
 )
+from .wahis import (
+process_wahis_excel_file,
+wahis_upload_sensor,
+wahis_uploads_job
+)

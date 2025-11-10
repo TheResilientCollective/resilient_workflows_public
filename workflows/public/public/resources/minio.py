@@ -1,3 +1,4 @@
+import tempfile
 from typing import Iterator, Generator
 
 import minio.datatypes
@@ -70,6 +71,9 @@ class S3Resource(ResourceWithS3Configuration):
 #            Recusrsive=recusrsive
         )
         return result
+    def publicUrl(self, path='test', bucket=None):
+        return f"{self.baseUrl()}/{bucket}/{path}"
+
     def getFile(self, path='test', bucket=None):
         if bucket is None:
             bucket = self.S3_BUCKET
@@ -84,6 +88,49 @@ class S3Resource(ResourceWithS3Configuration):
         except Exception as ex:
             get_dagster_logger().info(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
+    def downloadFile(self, path='test', bucket=None, filename=None):
+        if bucket is None:
+            bucket = self.S3_BUCKET
+        try:
+
+            result =   self.getClient().fget_object(
+                bucket,
+                path,
+                file_path=filename
+                        )
+            get_dagster_logger().info(
+                f"file {filename}" )
+            return  filename
+
+        except Exception as ex:
+            get_dagster_logger().error(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
+
+    def get_stream(self, path='test', bucket=None):
+        """
+        Get a file as a stream object from S3/MinIO without loading entire content into memory.
+
+        Args:
+            path: The S3 object key/path to retrieve
+            bucket: S3 bucket name (uses default if None)
+
+        Returns:
+            A file-like stream object that can be read from
+        """
+        if bucket is None:
+            bucket = self.S3_BUCKET
+        try:
+            result = self.getClient().get_object(
+                bucket,
+                path,
+            )
+            get_dagster_logger().info(
+                f"opened stream for file {path} with status {result.status}"
+            )
+            return result
+        except Exception as ex:
+            get_dagster_logger().info(f"file {path} not found in {bucket} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} not found in {bucket} at {self.S3_ADDRESS} {ex}")
 
 # note metadata is S3 metadata not JSONLD metadata
     def putFile_text(self, data, metadata={}, path='test',content_type='text/plain', bucket=None):

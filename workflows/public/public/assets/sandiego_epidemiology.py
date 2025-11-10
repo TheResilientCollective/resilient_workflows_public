@@ -2,7 +2,8 @@ import tempfile
 import os
 from pathlib import Path
 import pandas as pd
-from dagster import asset, get_dagster_logger, define_asset_job, AssetKey, sensor, RunRequest, SensorEvaluationContext
+from dagster import asset, get_dagster_logger, define_asset_job, AssetKey, sensor, RunRequest, SensorEvaluationContext, \
+    AssetIn
 from typing import Dict, Any, Iterable
 import json
 import numpy as np
@@ -136,9 +137,14 @@ def sandiego_epidemiology_workbook_download(
 @asset( group_name="health",
     key_prefix="sandiego",
     name="sandiego_epidemiology_hyper_extraction",
-    deps=[sandiego_epidemiology_workbook_download],
+    deps=[AssetKey(['sandiego','sandiego_epidemiology_workbook_download'])],
     required_resource_keys={"s3"},
-    description="Extract Hyper files from Tableau workbook and store in S3"
+    description="Extract Hyper files from Tableau workbook and store in S3",
+        ins={
+            "sandiego_epidemiology_workbook_download": AssetIn(
+                key=AssetKey(['sandiego','sandiego_epidemiology_workbook_download'])
+            )
+        },
 )
 def sandiego_epidemiology_hyper_extraction(
     context,

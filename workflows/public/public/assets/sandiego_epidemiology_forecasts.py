@@ -231,6 +231,13 @@ def run_epidemic_simulation(context):
       logger.error(f"config file: {config_config_yaml} ")
       raise e
   config_info = sims.create_configuration(sims.RESILIENTSIMS_SIMULATOR_ID, config_config_yaml)
+  try:
+      runs_path = f'sims/configs/epi2/config_{date_path}.yaml'
+      store_assets.text_to_s3(config_config_yaml,runs_path,s3_resource)
+  except Exception as e:
+      logger.error(f"Error storing forecast_config.yaml to s3: {runs_path} {e} ")
+      logger.error(f"config file: {config_config_yaml} ")
+
   logger.info(f"Created configuration: {config_info.get('id')}")
 
   template_run = jinja.get_template("forecast_run.yaml")
