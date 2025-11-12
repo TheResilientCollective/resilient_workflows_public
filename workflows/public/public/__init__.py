@@ -44,6 +44,8 @@ all_sensors=[slack_on_run_failure,
              assets.sandiego_epidemiology_sensor,
              assets.epidemiology_forecasts_sensor,
              assets.mpox_epidemiology_sensor,
+             assets.wahis_upload_sensor,
+
              ]
 all_jobs=[
     #assets.complaints_daily_job
@@ -76,6 +78,7 @@ resilentsims_config=ResilientSimsResource(
 )
 resilientllm_config = ResilientLLMResource(
     token=EnvVar("RESILIENTLLM_API_TOKEN"),
+
 )
 # SLACK docker env has prefix
 resources ={

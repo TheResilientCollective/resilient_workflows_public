@@ -16,15 +16,12 @@ class ResilientLLMResource(ConfigurableResource):
         default_factory=lambda: os.environ.get("RESILIENTLLM_API_TOKEN", ""),
     )
     llm_endpoint: str = Field(description='URL of the ResilientLLM API endpoint.'
-                              , default="http://52.9.168.22/api/agents/client-controlled-history/")
-    summary_id: str = Field(
-        description=" Report ID fof the summary ",
-        default="6893ee37cdbd1d24e5e8b4be",
+                              ,  default_factory=lambda: os.environ.get("RESILIENTLLM_WEBHOOK", " https://n8n.resilienthub.org/webhook/")
+                              )
+    webhook_uuid: str = Field( description=" Report ID fof the summary ",
+        default_factory=lambda: os.environ.get("RESILIENTLLM_WEBHOOK_UUID", ""),
     )
-    update_id: str = Field(
-        description="Report ID fof the update.",
-        default="688bfa33bb02b97a05ab7a7f",
-    )
+
     def execute(self,report_id ):
         """
         Sends a ping to the ResilientLLM API.
@@ -33,16 +30,20 @@ class ResilientLLMResource(ConfigurableResource):
         if not self.token:
             logger.error("RESILIENTLLM_API_TOKEN is not set.")
             raise Exception("RESILIENTLLM_API_TOKEN is not set.")
+        if not self.llm_endpoint:
+            logger.error("RESILIENTLLM_WEBHOOK is not set.")
+            raise Exception("RESILIENTLLM_WEBHOOK is not set.")
 
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
-        body = {"messages": [{"role": "user", "content": "ping"}]}
+        #body = {"messages": [{"role": "user", "content": "ping"}]}
 
         try:
             endpoint = f"{self.llm_endpoint}/{report_id}"
-            response = requests.post(endpoint, headers=headers, json=body)
+            #response = requests.post(endpoint, headers=headers, json=body)
+            response = requests.get(endpoint, headers=headers,)
             response.raise_for_status()
             logger.info(f"Successfully generated report for {report_id} ResilientLLM API. Response: {response.json()}")
             return response.json()

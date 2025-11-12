@@ -1,6 +1,6 @@
 import logging
 import json
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 import geopandas as gpd
@@ -49,13 +49,80 @@ def text_to_s3(textdata, path_w_name, s3_resource: S3Resource
 
 def raw_to_s3(rawdata, path_w_name, s3_resource:S3Resource
               ,contenttype='application/octet-stream'
-              , metadata=None):
+              , metadata=None, lastestPath=None):
     '''This will write out objectMetadata to as a file'''
     s3_resource.putFile(data=rawdata, path=f"{path_w_name}"
                              , content_type=contenttype
                     )
     if metadata is not None:
         metadata_to_s3(metadata, path_w_name, s3_resource) # just append the metadata.json to the end of the path
+
+'''
+This stores a dataframe or a geodataframe to  s3
+If enable_lastest_path is true, a copy will be stored in the latest path
+
+'''
+def store_dataframe_to_s3(
+    df: pd.DataFrame,
+    path: str,
+    dataset_identifier:str,
+    s3_resource: S3Resource,
+    metadata=None,
+    latestdatasetpath=None,
+    enable_latest_path: bool = False,
+    formats=['csv', 'json']
+
+):
+    """
+    Helper function to store a DataFrame to S3 in two locations:
+    1. The original asset-defined path
+    2. The latest basepath + asset path (if enable_latest_path is True)
+
+    Handles GeoDataFrame conversion and metadata. Will output all default formats.
+    """
+    logger = get_dagster_logger()
+
+    def get_latest_basepath() -> str:
+        """Get the LATEST_BASEPATH environment variable with fallback."""
+        latest= os.environ.get('LATEST_BASEPATH', 'latest')
+        if latest.endswith('/'):
+            latest = latest[:-1]
+        return latest
+
+    path_w_basename =f"{path}{dataset_identifier}"
+    if enable_latest_path:
+        latestdatasetpath_basename = f"{get_latest_basepath()}/{latestdatasetpath}/{dataset_identifier}"
+        lastest_metadtata = metadata.copy()
+        lastest_metadtata.name = f"latest {metadata.name}"
+        if lastest_metadtata.alternateName:
+            lastest_metadtata.alternateName = f"latest {metadata.alternateName}"
+        lastest_metadtata.description = f"latest {metadata.description}"
+
+    try:
+        import geopandas as gpd
+        gdf = gpd.GeoDataFrame(df)
+
+        # Step 1: Store in original asset-defined path
+        geodataframe_to_s3(gdf, path_w_basename, s3_resource, metadata=metadata, formats=formats)
+        logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
+
+        # Step 2: Store in latest basepath + asset path
+        if enable_latest_path:
+
+            geodataframe_to_s3(gdf, latestdatasetpath_basename, s3_resource, metadata=lastest_metadtata, formats=formats)
+            logger.info(f"Stored GeoDataFrame for {dataset_identifier} to latest path: s3://{s3_resource.S3_BUCKET}/{latestdatasetpath_basename}")
+
+    except Exception as geo_error:
+        logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
+
+        # Step 1: Store in original asset-defined path
+        dataframe_to_s3(df, path_w_basename, s3_resource, metadata=metadata, formats=formats)
+        logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
+
+        # Step 2: Store in latest basepath + asset path
+        if enable_latest_path:
+            dataframe_to_s3(df, latestdatasetpath_basename, s3_resource, metadata=lastest_metadtata, formats=formats)
+            logger.info(f"Stored DataFrame for {dataset_identifier} to latest path: s3://{s3_resource.S3_BUCKET}/{latestdatasetpath_basename}")
 
 def geodataframe_to_s3(geodataframe, path_w_basename, s3_resource:S3Resource,
                        formats=[
@@ -144,14 +211,9 @@ def dataframe_to_s3(dataframe, path_w_basename, s3_resource:S3Resource,
        elif format == 'parquet':
            # https://github.com/aws/aws-sdk-pandas
            # get the url to the minio, somewhere from the client.
-           pass
-           wr.s3.to_parquet(
-               df=dataframe,
-               path="s3://bucket/dataset/",
-               dataset=True,
-               database="my_db",
-               table="my_table"
-           )
+           path = f"{path_w_basename}.parquet"
+           parquet_object = dataframe.to_parquet()
+           object = s3_resource.putFile(data=parquet_object, path=path, content_type='application/vnd.apache.parquet')
            distributions.append(distribution('parquet', object))
     if metadata is not None:
         metadata.distribution = distributions
@@ -196,7 +258,10 @@ def series_to_s3(pdseries, path_w_basename, s3_resource:S3Resource,
        #         table="my_table"
        #     )
     if metadata is not None:
-        metadata.distribution = distributions
+        if metadata.distribution is not None and len(metadata.distribution ) >0:
+            metadata.distribution.extend(distributions)
+        else:
+            metadata.distribution = distributions
         metadata_to_s3(metadata, path_w_basename, s3_resource)
 
 #### METADATA

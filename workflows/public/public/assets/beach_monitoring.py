@@ -25,6 +25,7 @@ from bs4 import BeautifulSoup
 import hashlib
 import json
 
+LLM_MODEL=os.environ.get("OPENAI_BASE_MODEL", "gemma3")
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
 
 baseurl = "https://beachwatch.waterboards.ca.gov/public/"
@@ -102,7 +103,7 @@ def beachwatch_clean_data(beach_df) -> gpd.GeoDataFrame:
         beach_gdf = gpd.GeoDataFrame(beach_df,
                                      geometry=gs,
                                      crs='EPSG:4326')
-        beach_gdf.drop(['date', 'time', 'id', 'Station_ID'], axis=1, inplace=True)
+        beach_gdf=beach_gdf.drop(['date', 'time', 'id', 'Station_ID'], axis=1)
         beach_gdf['Icons'] = ICONS['beach']
         return beach_gdf
 
@@ -111,14 +112,14 @@ def beachwatch_closure_clean_data(beach_df) -> gpd.GeoDataFrame:
     # beach_df['date']=  pd.to_datetime(f'{beach_df["SampleDate"]}T{beach_df["SampleTime"]}')#, format='%Y-%m-%d %H:%M:%S')
     beach_df['start'] = pd.to_datetime(beach_df["Start Date"], format='%Y-%m-%d', errors='coerce')
     beach_df['end'] = pd.to_datetime(beach_df["End Date"], format='%Y-%m-%d', errors='coerce')
-    beach_df['end'].fillna(value=datetime.datetime.today(), inplace=True)
+    beach_df['end']=beach_df['end'].fillna(value=datetime.datetime.today())
     beach_df['end'] = beach_df['end'].fillna(value=datetime.datetime.now())
-    beach_df.dropna(subset=['start'], inplace=True)
+    beach_df=beach_df.dropna(subset=['start'])
     gs = gpd.GeoSeries.from_xy(beach_df['Longitude'], beach_df['Latitude'])
     beach_gdf = gpd.GeoDataFrame(beach_df,
                                  geometry=gs,
                                  crs='EPSG:4326')
-    #beach_gdf.drop(['date', 'time', 'id', 'Station_ID'], axis=1, inplace=True)
+    #each_gdf=beach_gdf.drop(['date', 'time', 'id', 'Station_ID'], axis=1)
     beach_gdf['Icons'] = ICONS['beach']
     return beach_gdf
 ''' This is used to parse the Date of the Advisory/Closure notices from the SD Beach Info website'''
@@ -219,7 +220,7 @@ def sdbeachinfo_clean_data(beachinfo_df) -> gpd.GeoDataFrame:
 @asset(group_name="tijuana", key_prefix="waterquality",
        name="sdbeachinfo_status", required_resource_keys={"s3", "airtable"},
 
-       automation_condition=AutomationCondition.eager()       )
+       automation_condition=AutomationCondition.eager()     )
 def get_sdbeachinfo_status(context) -> gpd.GeoDataFrame:
     '''
     Collects the San Diego Beachinfo Notices on daily schedule
@@ -301,7 +302,7 @@ def get_cached_translation(message, language_code, model, s3_resource):
         cache_data = minio_client.get_object(s3_resource.S3_BUCKET, cache_path)
         cache_content = cache_data.read().decode('utf-8')
         cache_json = json.loads(cache_content)
-        
+
         get_dagster_logger().debug(f"Cache hit for translation: {message[:50]}...")
         return cache_json['translated_text']
 
@@ -334,7 +335,7 @@ def cache_translation(message, translation, language_code, model, s3_resource):
     except Exception as e:
         get_dagster_logger().warning(f"Error caching translation: {e}")
 
-def translate(message, openai_client, s3_resource, language_code='es', model='llama3'):
+def translate(message, openai_client, s3_resource, language_code='es', model=LLM_MODEL):
     if message is None or message == '':
         return ''
 
@@ -356,26 +357,47 @@ Maintain the html elements"
     '''
 
     prompt = f'{message } (Note: AI-generated translation.)'
-    resp= openai_client.chat.completions.create(
-        model=model,
-        messages=[ {
-            'role': 'user',
-             "content": f"{instructions}{prompt}"
-                    }]
-    )
+    try:
+        resp= openai_client.chat.completions.create(
+            model=model,
+            messages=[ {
+                'role': 'user',
+                 "content": f"{instructions}{prompt}"
+                        }]
+        )
+    except Exception as e:
+        get_dagster_logger().error(f"translation issue : {e}")
     # resp= openai_client.responses.create(
     #     model=model,
     #     instructions=instructions,
     #     input= prompt
     # )
     #get_dagster_logger().info(f" get beach closure response: {resp}")
-    translation = resp.choices[0].message.content
+    # Handle different response formats from dagster_openai wrapper
+    try:
+        if isinstance(resp, str):
+            # If the response is already a string (processed by dagster wrapper)
+            translation = resp
+        elif hasattr(resp, 'choices') and resp.choices:
+            # Standard OpenAI response format
+            translation = resp.choices[0].message.content
+        elif hasattr(resp, 'content'):
+            # Alternative response format
+            translation = resp.content
+        else:
+            # Fallback - convert to string
+            translation = str(resp)
+            get_dagster_logger().warning(f"Unexpected response format: {type(resp)}")
+    except AttributeError as e:
+        get_dagster_logger().error(f"Error accessing response content: {e}")
+        translation = str(resp)
     get_dagster_logger().debug(f" get beach closure translation: {translation}")
 
     # Cache the result
     cache_translation(message, translation, language_code, model, s3_resource)
 
     return f'{translation}'
+
 @asset(group_name="tijuana", key_prefix="waterquality",
        name="sdbeachinfo_status_translation", required_resource_keys={"s3", "airtable","openai"},
        deps=[AssetKey(['waterquality','sdbeachinfo_status'])],
@@ -409,11 +431,11 @@ def beachwatch_status_translation(context) -> gpd.GeoDataFrame:
     with openai_resource.get_client(context) as client:
         closure_translated = closure_gdf
         #closure_translated = closure_gdf.head(10)
-        closure_translated['Description_es']= closure_translated['Description'].apply(lambda x : translate(x, client, s3_resource, language_code='es', model='llama3'))
-        #closure_translated['Closure_es']= closure_translated['Closure'].apply(lambda x : translate(x, client, language_code='es', model='llama3'))
-        #closure_translated['Advisory_es']= closure_translated['Advisory'].apply(lambda x : translate(x, client, language_code='es', model='llama3'))
+        closure_translated['Description_es']= closure_translated['Description'].apply(lambda x : translate(x, client, s3_resource, language_code='es', model=LLM_MODEL))
+        #closure_translated['Closure_es']= closure_translated['Closure'].apply(lambda x : translate(x, client, language_code='es', model=LLM_MODEL))
+        #closure_translated['Advisory_es']= closure_translated['Advisory'].apply(lambda x : translate(x, client, language_code='es', model=LLM_MODEL))
         closure_translated['StatusNote_es'] = closure_translated['StatusNote'].apply(
-            lambda x: translate(x, client, s3_resource, language_code='es', model='llama3'))
+            lambda x: translate(x, client, s3_resource, language_code='es', model=LLM_MODEL))
 
     filename = f'{s3_output_path}/output/current/sdbeachinfo_status_translated'
     store_assets.geodataframe_to_s3(closure_translated, filename, s3_resource, formats=['json', 'geojson'], metadata=metadata )

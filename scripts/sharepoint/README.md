@@ -1,0 +1,17 @@
+SharePoint File Download with cURL & OAuthThis example provides two shell scripts to authenticate your application using the OAuth 2.0 client credentials flow and then download a file from a SharePoint Online site.⚠️ CRITICAL SECURITY WARNINGNEVER check your client_secret into source control (like Git). A client secret is as sensitive as a password.This solution is now configured to use the safest method: reading the secret from a separate file.Recommended Method (Default): Use a Secret FileThe script 1_get_token.sh is now set up to read your secret from a file named client.secret.Create the file: Run this command in your terminal, pasting your secret in place of the placeholder.echo "your_actual_secret_value" > client.secret
+
+Secure the file: Add this file to your .gitignore immediately to prevent it from ever being committed.echo "client.secret" >> .gitignore
+
+The script will now read this file automatically.Alternative Method: Environment VariablesIf you prefer to use environment variables:Set the variable:export MY_CLIENT_SECRET="your_actual_secret_value"
+
+Modify the script: Open 1_get_token.sh and replace the entire "Read Secret from File" block (lines 28-44) with this single line:CLIENT_SECRET="$MY_CLIENT_SECRET"
+
+PrerequisitesBefore you begin, ensure you have the following:Azure App Registration: Your app must be registered in Azure Active Directory.Credentials: You need your TENANT_ID, CLIENT_ID, and CLIENT_SECRET.API Permissions: In your app registration in Azure AD, you must grant the correct API permissions.Go to: API permissions > Add a permission > Microsoft Graph.Select Application permissions (NOT "Delegated").Add Sites.Read.All (or Sites.ReadWrite.All if you need to write).After adding, you must click the "Grant admin consent for$$ \\ Your Tenant
+$$$$$$" button. This is a very common step to miss.SharePoint Info: You need to know:Your SharePoint hostname (e.g., mytenant.sharepoint.com)The site path (e.g., /sites/MyProjectSite)The path to your file within that site (e.g., /Shared Documents/reports/annual_report.xlsx)How to UseEdit Variables: Open both 1_get_token.sh and 2_download_file.sh and fill in all the placeholder variables at the top of each file.Create Secret File: Run echo "your_secret_here" > client.secret (as described in the warning section).Set Permissions: Make the scripts executable.chmod +x 1_get_token.sh
+chmod +x 2_download_file.sh
+
+Get Token: Run the first script../1_get_token.sh
+
+This will create a file named access_token.txt if successful.Download File: Run the second script../2_download_file.sh
+
+If successful, your file will be downloaded to the OUTPUT_FILE path you specified.Troubleshooting"Error: Client secret file not found":You need to create the client.secret file. Run echo "your_secret_here" > client.secret"Error: Could not get access token":Double-check your TENANT_ID, CLIENT_ID, and the content of your client.secret file.Ensure the CLIENT_SECRET hasn't expired."Error: File download failed":Check Permissions: This is the most common cause. Ensure you granted Sites.Read.All (or a similar permission) and clicked the "Grant admin consent" button in Azure AD.Check Paths: Verify your SHAREPOINT_HOST, SITE_PATH, and FILE_PATH are all correct. A common mistake is in the FILE_PATH (e.g., forgetting /Shared Documents/).Expired Token: Your token only lasts for about an hour. Re-run 1_get_token.sh to get a fresh one.

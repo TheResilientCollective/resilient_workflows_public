@@ -1,5 +1,6 @@
 config: {{ CONFIG_ID }}
 output_template:
+  type: cloud_storage
   provider: s3
   bucket: {{ sims.RESILIENTSIMS_BUCKET }}
   key_prefix: api_run/{timestamp}_run{run_id}

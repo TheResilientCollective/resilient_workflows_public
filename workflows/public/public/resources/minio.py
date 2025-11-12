@@ -1,3 +1,4 @@
+import tempfile
 from typing import Iterator, Generator
 
 import minio.datatypes
@@ -70,6 +71,9 @@ class S3Resource(ResourceWithS3Configuration):
 #            Recusrsive=recusrsive
         )
         return result
+    def publicUrl(self, path='test', bucket=None):
+        return f"{self.baseUrl()}/{bucket}/{path}"
+
     def getFile(self, path='test', bucket=None):
         if bucket is None:
             bucket = self.S3_BUCKET
@@ -84,6 +88,49 @@ class S3Resource(ResourceWithS3Configuration):
         except Exception as ex:
             get_dagster_logger().info(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
+    def downloadFile(self, path='test', bucket=None, filename=None):
+        if bucket is None:
+            bucket = self.S3_BUCKET
+        try:
+
+            result =   self.getClient().fget_object(
+                bucket,
+                path,
+                file_path=filename
+                        )
+            get_dagster_logger().info(
+                f"file {filename}" )
+            return  filename
+
+        except Exception as ex:
+            get_dagster_logger().error(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
+
+    def get_stream(self, path='test', bucket=None):
+        """
+        Get a file as a stream object from S3/MinIO without loading entire content into memory.
+
+        Args:
+            path: The S3 object key/path to retrieve
+            bucket: S3 bucket name (uses default if None)
+
+        Returns:
+            A file-like stream object that can be read from
+        """
+        if bucket is None:
+            bucket = self.S3_BUCKET
+        try:
+            result = self.getClient().get_object(
+                bucket,
+                path,
+            )
+            get_dagster_logger().info(
+                f"opened stream for file {path} with status {result.status}"
+            )
+            return result
+        except Exception as ex:
+            get_dagster_logger().info(f"file {path} not found in {bucket} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} not found in {bucket} at {self.S3_ADDRESS} {ex}")
 
 # note metadata is S3 metadata not JSONLD metadata
     def putFile_text(self, data, metadata={}, path='test',content_type='text/plain', bucket=None):
@@ -108,7 +155,7 @@ class S3Resource(ResourceWithS3Configuration):
             get_dagster_logger().info(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
 
-    def putFile(self, data, metadata={}, path='test', content_type='application/octet-stream', bucket=None):
+    def putFile(self, data, metadata={}, path='test', content_type='application/octet-stream', bucket=None, ):
         if bucket is None:
             bucket = self.S3_BUCKET
         try:
@@ -129,3 +176,39 @@ class S3Resource(ResourceWithS3Configuration):
         except Exception as ex:
             get_dagster_logger().info(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
+
+    def putStream(self, stream, length=-1, metadata={}, path='test', content_type='application/octet-stream', bucket=None):
+        """
+        Upload data from a stream object directly to S3/MinIO.
+
+        Args:
+            stream: A file-like object (e.g., open file, io.BytesIO, etc.)
+            length: The length of the data in bytes. Use -1 for unknown length (default: -1)
+            metadata: Optional metadata dictionary to attach to the object
+            path: The S3 object key/path
+            content_type: MIME type of the content
+            bucket: S3 bucket name (uses default if None)
+
+        Returns:
+            str: The object name that was created
+        """
+        if bucket is None:
+            bucket = self.S3_BUCKET
+        try:
+            result = self.getClient().put_object(
+                bucket, path,
+                data=stream,
+                length=length,
+                content_type=content_type,
+                metadata=metadata
+            )
+            get_dagster_logger().info(
+                "created {0} object; etag: {1}, version-id: {2}".format(
+                    result.object_name, result.etag, result.version_id,
+                ),
+            )
+            get_dagster_logger().info(f"file {result.object_name}")
+            return result.object_name
+        except Exception as ex:
+            get_dagster_logger().info(f"file {path} failed to push to {bucket} at {self.S3_ADDRESS} {ex}")
+            raise Exception(f"file {path} failed to push to {bucket} at {self.S3_ADDRESS} {ex}")
