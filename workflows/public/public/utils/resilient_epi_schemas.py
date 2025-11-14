@@ -5,7 +5,7 @@ This module provides Pandera-based data schemas and validation for epidemiology 
 supporting both basic epidemiology format and statistical extension format
 as specified in the epidemiology data plan.
 """
-
+import numpy as np
 import pandas as pd
 import pandera.pandas as pa
 from pandera.pandas import Column, DataFrameSchema, Check
@@ -424,3 +424,159 @@ def create_statistical_extension_record(jurisdiction: str,
     return StatisticalExtensionSchema.create_record(
         jurisdiction, date, disease, metric, observation_type, **optional_fields
     )
+
+
+def detailed_epidemiology_format(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transform WAHIS parquet data to detailed epidemiology format.
+
+    This function processes WAHIS (World Animal Health Information System) data
+    to create a detailed epidemiology dataset with proper time periods and geography.
+
+    Args:
+        df: DataFrame with WAHIS data containing columns like Report_id,
+            Outbreak_start_date, Location_name, disease_eng, etc.
+
+    Returns:
+        DataFrame in detailed epidemiology format with columns:
+        - Report_id: Links related outbreak reports
+        - date_period_start: Start date of the outbreak period (Outbreak_start_date)
+        - date_period_end: End date of period (next report's start or outbreak end)
+        - jurisdiction: Location name
+        - disease_eng: Disease in English
+        - country, region: Geographic identifiers
+        - Location_aprox: Boolean indicating if location is approximate
+        - reason_of_notification: Categorical notification reason
+        - Species, quantitative_unit: Categorical fields
+        - cases, susceptible, dead, killed_disposed, slaughtered, vaccinated,
+          morbidity, mortality: Numerical outbreak data
+        - Longitude, Latitude: Decimal degree coordinates
+        - geometry: POINT geometry from coordinates
+        - Week_Number, Year, Week_Year: Time-based fields from outbreak start date
+    """
+    import geopandas as gpd
+    from shapely.geometry import Point
+
+    logger = get_dagster_logger()
+
+    if df.empty:
+        logger.warning("Empty DataFrame provided to detailed_epidemiology_format")
+        return pd.DataFrame()
+
+    # Validate required columns
+    required_cols = ['Report_id', 'Outbreak_start_date', 'Location_name', 'disease_eng']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise EpidemiologyValidationError(
+            f"Missing required columns for WAHIS format: {missing_cols}"
+        )
+
+    # Sort by Report_id then Outbreak_start_date as specified
+    df_sorted = df.copy().sort_values(['Report_id', 'Outbreak_start_date'])
+
+    # Initialize result DataFrame
+    result_df = pd.DataFrame()
+
+    # Core identification fields
+    result_df['Report_id'] = df_sorted['Report_id']
+    result_df['date_period_start'] = df_sorted['Outbreak_start_date'].dt.strftime('%Y-%m-%d')
+
+    # Calculate date_period_end: next report's start date or outbreak end date
+    result_df['date_period_end'] = ''
+    for report_id in df_sorted['Report_id'].unique():
+        mask = df_sorted['Report_id'] == report_id
+        report_data = df_sorted[mask].copy()
+
+        if len(report_data) > 1:
+            # Multiple reports: end date is next report's start date
+            for i in range(len(report_data)):
+                idx = report_data.index[i]
+                if i < len(report_data) - 1:
+                    # Not the last report - use next report's start date
+                    next_start = report_data.iloc[i + 1]['Outbreak_start_date']
+                    result_df.loc[df_sorted.index == idx, 'date_period_end'] = next_start.strftime('%Y-%m-%d')
+                else:
+                    # Last report - use outbreak end date
+                    end_date = report_data.iloc[i]['Outbreak_end_date']
+                    if pd.notna(end_date):
+                        result_df.loc[df_sorted.index == idx, 'date_period_end'] = end_date.strftime('%Y-%m-%d')
+                    else:
+                        # If no end date, use start date (single day outbreak)
+                        result_df.loc[df_sorted.index == idx, 'date_period_end'] = report_data.iloc[i]['Outbreak_start_date'].strftime('%Y-%m-%d')
+        else:
+            # Single report: use outbreak end date
+            idx = report_data.index[0]
+            end_date = report_data.iloc[0]['Outbreak_end_date']
+            if pd.notna(end_date):
+                result_df.loc[df_sorted.index == idx, 'date_period_end'] = end_date.strftime('%Y-%m-%d')
+            else:
+                # If no end date, use start date
+                result_df.loc[df_sorted.index == idx, 'date_period_end'] = report_data.iloc[0]['Outbreak_start_date'].strftime('%Y-%m-%d')
+
+    # Geographic and disease information
+    result_df['jurisdiction'] = df_sorted['Location_name']
+    result_df['disease_eng'] = df_sorted['disease_eng']
+
+    # Geographic fields (with default empty values for missing columns)
+    result_df['country'] = df_sorted.get('country', '')
+    result_df['region'] = df_sorted.get('region', '')
+
+    # Location approximation (convert to boolean)
+    if 'Location_aprox' in df_sorted.columns:
+        result_df['Location_aprox'] = df_sorted['Location_aprox'].astype(bool)
+    else:
+        result_df['Location_aprox'] = False
+
+    # Categorical fields
+    result_df['reason_of_notification'] = df_sorted.get('reason of notification', '')
+    result_df['Species'] = df_sorted.get('Species', '')
+    result_df['quantitative_unit'] = df_sorted.get('quantitative_unit', '')
+
+    # Numerical outbreak data columns
+    numerical_cols = ['cases', 'susceptible', 'dead', 'killed_disposed',
+                     'slaughtered', 'vaccinated', 'morbidity', 'mortality']
+    for col in numerical_cols:
+        if col in df_sorted.columns:
+            result_df[col] = pd.to_numeric(df_sorted[col], errors='coerce').fillna(0).astype(int)
+        else:
+            result_df[col] = 0
+
+    # Coordinate fields
+    result_df['Longitude'] = pd.to_numeric(df_sorted.get('Longitude', np.nan), errors='coerce')
+    result_df['Latitude'] = pd.to_numeric(df_sorted.get('Latitude', np.nan), errors='coerce')
+
+    # Create geometry column from coordinates
+    def create_point(row):
+        """Create Point geometry from lon/lat if both are valid"""
+        try:
+            if pd.notna(row['Longitude']) and pd.notna(row['Latitude']):
+                return Point(row['Longitude'], row['Latitude'])
+            return None
+        except Exception:
+            return None
+
+    result_df['geometry'] = result_df.apply(create_point, axis=1)
+
+    # Time-based fields from Outbreak_start_date
+    outbreak_dates = pd.to_datetime(df_sorted['Outbreak_start_date'])
+    iso_calendar = outbreak_dates.dt.isocalendar()
+
+    result_df['Week_Number'] = iso_calendar['week'].astype(int)
+    result_df['Year'] = iso_calendar['year'].astype(int)
+    result_df['Week_Year'] = (
+        result_df['Week_Number'].astype(str) + '-' +
+        result_df['Year'].astype(str)
+    )
+
+    # Convert to GeoDataFrame if geometry column has valid points
+    has_valid_geometry = result_df['geometry'].notna().any()
+    if has_valid_geometry:
+        try:
+            result_gdf = gpd.GeoDataFrame(result_df, geometry='geometry', crs='EPSG:4326')
+            logger.info(f"Created GeoDataFrame with {has_valid_geometry} valid geometries")
+            return result_gdf
+        except Exception as e:
+            logger.warning(f"Failed to create GeoDataFrame: {e}. Returning regular DataFrame.")
+
+    logger.info(f"Processed {len(result_df)} WAHIS records into detailed epidemiology format")
+    return result_df
