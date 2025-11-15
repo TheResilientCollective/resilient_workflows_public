@@ -7,7 +7,8 @@ import io
 import pandas as pd
 import dask.dataframe as dd
 from dagster import SensorEvaluationContext, sensor, get_dagster_logger, RunRequest, RunConfig, asset, Config, \
-    define_asset_job, AssetKey
+    define_asset_job, AssetKey, AssetIn
+from duckdb import duckdb
 
 from workflows.public.public.utils import store_assets
 
@@ -23,7 +24,144 @@ WAHIS_BUCKET=os.environ.get("PUBLIC_BUCKET", 'test')
 class WahisUploadConfig(Config):
     wahis_upload_path: str
 
+def getDuckDb(s3_resource, input_path=None, bucket=WAHIS_BUCKET):
+    if input_path is None:
+        raise ValueError("output_path  for wahis parquest must be provided")
+    file_url = s3_resource.publicUrl(path=input_path, bucket=bucket)
+    db1 = duckdb.sql(f"SELECT * FROM read_parquet('{file_url}') ")
+    return db1
 
+@asset(
+    group_name="health",
+    key_prefix="wahis",
+    name="wahis_excpetional_pathogens",
+    required_resource_keys={"s3"},
+    deps=[AssetKey(['wahis','wahis_excel'])],
+    ins={
+            "wahis_excel": AssetIn(
+                key=AssetKey(['wahis','wahis_excel'])
+            )
+        },
+)
+def outbreak_by_pathogen(context, wahis_excel ):
+    logger = get_dagster_logger()
+    s3_resource = context.resources.s3
+    input_path = f"{wahis_excel['output_path']}.parquet"
+    db1 = getDuckDb(s3_resource, input_path=input_path, bucket=WAHIS_BUCKET)
+    diseases_df = duckdb.sql("""
+                             SELECT DISTINCT disease_id,
+                                             reporting_level,
+                                             strain_eng,
+                                             sero_sub_genotype_eng,
+                                             disease_eng
+                             FROM db1
+                             """).df()
+    metadata = store_assets.objectMetadata(name="WAHIS_outbreak_pathogens",
+                                           description="WAHIS exceptional  pathogens  ")
+    output_path = f"{WAHIS_OUTPUT_PATH}diseases"
+    store_assets.dataframe_to_s3(diseases_df, output_path, s3_resource, formats=[ 'csv'], metadata=metadata)
+
+    for disease_id in diseases_df['disease_id']:
+        name = diseases_df[diseases_df['disease_id'] == disease_id]['disease_eng'].unique()
+        if len(name) == 0:
+            print(f'bad id {disease_id}')
+        else:
+            print(f'disease_id  {disease_id} {len(name)}')
+            print(f'name: {name[0]}')
+        # Filter outbreaks for this disease
+        disease_outbreaks = duckdb.sql(f"""
+               SELECT Report_id,Outbreak_id,
+                      disease_id,
+                      reporting_level,
+                      strain_eng,
+                      sero_sub_genotype_eng,
+                      disease_eng,
+                      country,
+                      region,
+                      "reason of notification",
+                      Species,
+                      quantitative_unit,
+                      Outbreak_start_date        as Outbreak_start_date,
+                      Outbreak_end_date           as Outbreak_end_date,
+                      susceptible    as susceptible,
+                      cases           as cases,
+                      dead           as dead,
+                      killed_disposed as killed_disposed,
+                      slaughtered     as slaughtered,
+                      vaccinated     as vaccinated,
+                      morbidity      as morbidity,
+                      mortality      as mortality
+                      FROM db1
+                      WHERE disease_id = {disease_id}
+                   """).df()
+
+        # Create a safe filename from disease name
+        safe_filename = name[0].replace('/', '_').replace(' ', '_').lower()
+        metadata=store_assets.objectMetadata(name=f"WAHIS_outbreak_by_pathogen_{safe_filename}", description=f"WAHIS exceptional events records for pathogen {name[0]}   ")
+        output_path= f"{WAHIS_OUTPUT_PATH}pathogens/{safe_filename}"
+        store_assets.dataframe_to_s3(disease_outbreaks, output_path, s3_resource, formats=['parquet', 'csv'], metadata=metadata)
+        print(f"Disease: {name} | Records: {len(disease_outbreaks)} | File: {output_path}")
+
+    print(f"\nTotal unique diseases: {len(diseases_df)}")
+
+@asset(
+    group_name="health",
+    key_prefix="wahis",
+    name="wahis_excpetional_summary",
+    required_resource_keys={"s3"},
+    deps=[AssetKey(['wahis','wahis_excel'])],
+    ins={
+            "wahis_excel": AssetIn(
+                key=AssetKey(['wahis','wahis_excel'])
+            )
+        },
+)
+def outbreak_summaries(context, wahis_excel ):
+    logger = get_dagster_logger()
+    s3_resource = context.resources.s3
+    input_path= f"{wahis_excel['output_path']}.parquet"
+    db1= getDuckDb(s3_resource, input_path=input_path, bucket=WAHIS_BUCKET)
+    outbreaks_df = duckdb.sql("""
+                              SELECT epi_event_id,
+                                     Report_id,
+                                     disease_id,
+                                     reporting_level,
+                                     strain_eng,
+                                     sero_sub_genotype_eng,
+                                     disease_eng,
+                                     country,
+                                     region,
+                                     "reason of notification",
+                                     Species,
+                                     quantitative_unit,
+                                     MIN(Outbreak_start_date)          as Outbreak_start_date,
+                                     MAX(Outbreak_end_date)            as Outbreak_end_date,
+                                     SUM(COALESCE(susceptible, 0))     as susceptible,
+                                     SUM(COALESCE(cases, 0))           as cases,
+                                     SUM(COALESCE(dead, 0))            as dead,
+                                     SUM(COALESCE(killed_disposed, 0)) as killed_disposed,
+                                     SUM(COALESCE(slaughtered, 0))     as slaughtered,
+                                     SUM(COALESCE(vaccinated, 0))      as vaccinated,
+                                     SUM(COALESCE(morbidity, 0))       as morbidity,
+                                     SUM(COALESCE(mortality, 0))       as mortality
+                              FROM db1
+
+                              GROUP BY Report_id, epi_event_id,
+                                       disease_id,
+                                       reporting_level,
+                                       strain_eng,
+                                       sero_sub_genotype_eng,
+                                       disease_eng,
+                                       country,
+                                       region,
+                                       "reason of notification",
+                                       Species,
+                                       quantitative_unit
+                            """).df()
+    metadata=store_assets.objectMetadata(name="WAHIS_outbreak_summaries", description="WAHIS exceptional events summary for each event for all pathogens  ")
+    output_path = f"{WAHIS_OUTPUT_PATH}summary"
+    store_assets.dataframe_to_s3(outbreaks_df, output_path, s3_resource, formats=['parquet', 'csv'], metadata=metadata)
+    return outbreaks_df
 
 @asset(
     group_name="health",

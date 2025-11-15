@@ -74,5 +74,7 @@ check_measles_zero_counts_preserved
 from .wahis import (
 process_wahis_excel_file,
 wahis_upload_sensor,
-wahis_uploads_job
+wahis_uploads_job,
+outbreak_summaries,
+outbreak_by_pathogen
 )
