@@ -11,12 +11,17 @@ from dagster import SensorEvaluationContext, sensor, get_dagster_logger, RunRequ
 from duckdb import duckdb
 
 from workflows.public.public.utils import store_assets
+from ..utils.resilient_epi_schemas import (
+    detailed_epidemiology_format,
+
+)
 
 WAHIS_S3_PATH = os.environ.get("WAHIS_PATH", "pathogens/wahis/")
 WAHIS_UPLOAD_PATH = os.environ.get("WAHIS_UPLOAD_PATH", f"{WAHIS_S3_PATH}upload/")
 WAHIS_RAW_PATH = os.environ.get("WAHIS_RAW_PATH", f"{WAHIS_S3_PATH}raw/")
 WAHIS_OUTPUT_PATH = os.environ.get("WAHIS_OUTPUT_PATH", f"{WAHIS_S3_PATH}output/")
 WAHIS_BUCKET=os.environ.get("PUBLIC_BUCKET", 'test')
+LATEST = os.environ.get("WAHIS_LATEST", 'wahis')
 
 
 
@@ -59,7 +64,9 @@ def outbreak_by_pathogen(context, wahis_excel ):
     metadata = store_assets.objectMetadata(name="WAHIS_outbreak_pathogens",
                                            description="WAHIS exceptional  pathogens  ")
     output_path = f"{WAHIS_OUTPUT_PATH}diseases"
-    store_assets.dataframe_to_s3(diseases_df, output_path, s3_resource, formats=[ 'csv'], metadata=metadata)
+    store_assets.store_dataframe_to_s3(diseases_df, output_path,'diseases', s3_resource,
+                                       latestdatasetpath=LATEST,enable_latest_path=True,
+                                       formats=[ 'csv'], metadata=metadata)
 
     for disease_id in diseases_df['disease_id']:
         name = diseases_df[diseases_df['disease_id'] == disease_id]['disease_eng'].unique()
@@ -73,6 +80,7 @@ def outbreak_by_pathogen(context, wahis_excel ):
                SELECT Report_id,Outbreak_id,
                       disease_id,
                       reporting_level,
+                      Location_name,
                       strain_eng,
                       sero_sub_genotype_eng,
                       disease_eng,
@@ -98,9 +106,19 @@ def outbreak_by_pathogen(context, wahis_excel ):
         # Create a safe filename from disease name
         safe_filename = name[0].replace('/', '_').replace(' ', '_').lower()
         metadata=store_assets.objectMetadata(name=f"WAHIS_outbreak_by_pathogen_{safe_filename}", description=f"WAHIS exceptional events records for pathogen {name[0]}   ")
-        output_path= f"{WAHIS_OUTPUT_PATH}pathogens/{safe_filename}"
+        output_path= f"{WAHIS_RAW_PATH}pathogens/{safe_filename}"
         store_assets.dataframe_to_s3(disease_outbreaks, output_path, s3_resource, formats=['parquet', 'csv'], metadata=metadata)
         print(f"Disease: {name} | Records: {len(disease_outbreaks)} | File: {output_path}")
+
+        output_path = f"{WAHIS_OUTPUT_PATH}pathogens/{safe_filename}"
+        latest_path = f"{LATEST}/pathogens"
+        disease_outbreaks_geo=detailed_epidemiology_format(disease_outbreaks)
+        metadata = store_assets.objectMetadata(name=f"WAHIS_outbreak_by_pathogen_{safe_filename}_cleaned",
+                                               description=f"WAHIS exceptional events records for pathogen {name[0]}  in detailed format  ")
+        store_assets.store_dataframe_to_s3(disease_outbreaks_geo, output_path,safe_filename, s3_resource,
+                                           formats=['geojson', 'csv', 'parquet'],
+                                           latestdatasetpath=latest_path,enable_latest_path=True,
+                                 metadata=metadata)
 
     print(f"\nTotal unique diseases: {len(diseases_df)}")
 
@@ -125,6 +143,7 @@ def outbreak_summaries(context, wahis_excel ):
                               SELECT epi_event_id,
                                      Report_id,
                                      disease_id,
+                                  Location_name,
                                      reporting_level,
                                      strain_eng,
                                      sero_sub_genotype_eng,
@@ -149,6 +168,7 @@ def outbreak_summaries(context, wahis_excel ):
                               GROUP BY Report_id, epi_event_id,
                                        disease_id,
                                        reporting_level,
+                                  Location_name,
                                        strain_eng,
                                        sero_sub_genotype_eng,
                                        disease_eng,
@@ -160,7 +180,10 @@ def outbreak_summaries(context, wahis_excel ):
                             """).df()
     metadata=store_assets.objectMetadata(name="WAHIS_outbreak_summaries", description="WAHIS exceptional events summary for each event for all pathogens  ")
     output_path = f"{WAHIS_OUTPUT_PATH}summary"
-    store_assets.dataframe_to_s3(outbreaks_df, output_path, s3_resource, formats=['parquet', 'csv'], metadata=metadata)
+
+    store_assets.store_dataframe_to_s3(outbreaks_df, output_path,'summary', s3_resource,
+                                       latestdatasetpath=LATEST,enable_latest_path=True,
+                                       formats=['parquet', 'csv'], metadata=metadata)
     return outbreaks_df
 
 @asset(
