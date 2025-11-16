@@ -63,7 +63,7 @@ def outbreak_by_pathogen(context, wahis_excel ):
                              """).df()
     metadata = store_assets.objectMetadata(name="WAHIS_outbreak_pathogens",
                                            description="WAHIS exceptional  pathogens  ")
-    output_path = f"{WAHIS_OUTPUT_PATH}diseases"
+    output_path = f"{WAHIS_OUTPUT_PATH}"
     store_assets.store_dataframe_to_s3(diseases_df, output_path,'diseases', s3_resource,
                                        latestdatasetpath=LATEST,enable_latest_path=True,
                                        formats=[ 'csv'], metadata=metadata)
@@ -98,7 +98,9 @@ def outbreak_by_pathogen(context, wahis_excel ):
                       slaughtered     as slaughtered,
                       vaccinated     as vaccinated,
                       morbidity      as morbidity,
-                      mortality      as mortality
+                      mortality      as mortality,
+                      Longitude,	Latitude,	Location_aprox
+                      
                       FROM db1
                       WHERE disease_id = {disease_id}
                    """).df()
@@ -106,11 +108,11 @@ def outbreak_by_pathogen(context, wahis_excel ):
         # Create a safe filename from disease name
         safe_filename = name[0].replace('/', '_').replace(' ', '_').lower()
         metadata=store_assets.objectMetadata(name=f"WAHIS_outbreak_by_pathogen_{safe_filename}", description=f"WAHIS exceptional events records for pathogen {name[0]}   ")
-        output_path= f"{WAHIS_RAW_PATH}pathogens/{safe_filename}"
+        output_path= f"{WAHIS_RAW_PATH}pathogens/"
         store_assets.dataframe_to_s3(disease_outbreaks, output_path, s3_resource, formats=['parquet', 'csv'], metadata=metadata)
         print(f"Disease: {name} | Records: {len(disease_outbreaks)} | File: {output_path}")
 
-        output_path = f"{WAHIS_OUTPUT_PATH}pathogens/{safe_filename}"
+        output_path = f"{WAHIS_OUTPUT_PATH}pathogens/"
         latest_path = f"{LATEST}/pathogens"
         disease_outbreaks_geo=detailed_epidemiology_format(disease_outbreaks)
         metadata = store_assets.objectMetadata(name=f"WAHIS_outbreak_by_pathogen_{safe_filename}_cleaned",
@@ -162,13 +164,15 @@ def outbreak_summaries(context, wahis_excel ):
                                      SUM(COALESCE(slaughtered, 0))     as slaughtered,
                                      SUM(COALESCE(vaccinated, 0))      as vaccinated,
                                      SUM(COALESCE(morbidity, 0))       as morbidity,
-                                     SUM(COALESCE(mortality, 0))       as mortality
+                                     SUM(COALESCE(mortality, 0))       as mortality,
+                                 MIN(Longitude) as Longitude,	MIN(Latitude) as Latitude,	Location_aprox
                               FROM db1
 
                               GROUP BY Report_id, epi_event_id,
                                        disease_id,
                                        reporting_level,
                                   Location_name,
+                                  Location_aprox,
                                        strain_eng,
                                        sero_sub_genotype_eng,
                                        disease_eng,
@@ -179,7 +183,7 @@ def outbreak_summaries(context, wahis_excel ):
                                        quantitative_unit
                             """).df()
     metadata=store_assets.objectMetadata(name="WAHIS_outbreak_summaries", description="WAHIS exceptional events summary for each event for all pathogens  ")
-    output_path = f"{WAHIS_OUTPUT_PATH}summary"
+    output_path = f"{WAHIS_OUTPUT_PATH}"
 
     store_assets.store_dataframe_to_s3(outbreaks_df, output_path,'summary', s3_resource,
                                        latestdatasetpath=LATEST,enable_latest_path=True,
