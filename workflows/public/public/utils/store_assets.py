@@ -98,10 +98,10 @@ def store_dataframe_to_s3(
             lastest_metadtata.alternateName = f"latest {metadata.alternateName}"
         lastest_metadtata.description = f"latest {metadata.description}"
 
-    try:
-        import geopandas as gpd
-        gdf = gpd.GeoDataFrame(df)
-
+    if isinstance(df, gpd.GeoDataFrame):
+        gdf = df
+        logger.info(
+            f"is a GeoDataFrame for {dataset_identifier} ")
         # Step 1: Store in original asset-defined path
         geodataframe_to_s3(gdf, path_w_basename, s3_resource, metadata=metadata, formats=formats)
         logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
@@ -112,8 +112,9 @@ def store_dataframe_to_s3(
             geodataframe_to_s3(gdf, latestdatasetpath_basename, s3_resource, metadata=lastest_metadtata, formats=formats)
             logger.info(f"Stored GeoDataFrame for {dataset_identifier} to latest path: s3://{s3_resource.S3_BUCKET}/{latestdatasetpath_basename}")
 
-    except Exception as geo_error:
-        logger.warning(f"Could not create GeoDataFrame for {dataset_identifier}: {geo_error}. Storing as regular DataFrame.")
+    else:
+        logger.info(
+            f"Normal DataFrame for {dataset_identifier} ")
 
         # Step 1: Store in original asset-defined path
         dataframe_to_s3(df, path_w_basename, s3_resource, metadata=metadata, formats=formats)
@@ -167,15 +168,22 @@ def geodataframe_to_s3(geodataframe, path_w_basename, s3_resource:S3Resource,
        elif format == 'parquet':
            # https://github.com/aws/aws-sdk-pandas
            # get the url to the minio, somewhere from the client.
-           pass
-           object= wr.s3.to_parquet(
-               df=geodataframe,
-               path="s3://bucket/dataset/",
-               dataset=True,
-               database="my_db",
-               table="my_table"
-           )
-           distributions.append(distribution('parquet', object.name))
+           get_dagster_logger().info("geodataframe_to_parquet not implemented")
+           # path = f"{path_w_basename}.parquet"
+           # this wants an output path, aka file so some tempfile work needed
+           # parquet_object = geodataframe.to_parquet(output_path)
+           # object = s3_resource.putFile(data=parquet_object, path=path, content_type='application/vnd.apache.parquet')
+           # distributions.append(distribution('parquet', object))
+
+            # this would be writing a file directly to an Amazon Athena table
+           # object= wr.s3.to_parquet(
+           #     df=geodataframe,
+           #     path="s3://bucket/dataset/",
+           #     dataset=True,
+           #     database="my_db",
+           #     table="my_table"
+           # )
+           #distributions.append(distribution('parquet', object.name))
     if metadata is not None:
         metadata.distribution = distributions
         metadata_to_s3(metadata, path_w_basename, s3_resource)
