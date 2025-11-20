@@ -78,3 +78,7 @@ wahis_uploads_job,
 outbreak_summaries,
 outbreak_by_pathogen
 )
+from .forecasting import (
+    data_for_models,
+    #data_for_hysplit
+)
