@@ -88,7 +88,7 @@ class S3Resource(ResourceWithS3Configuration):
         except Exception as ex:
             get_dagster_logger().info(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} not found  in {bucket} at {self.S3_ADDRESS} {ex}")
-    def downloadFile(self, path='test', bucket=None, filename=None):
+    def downloadFile(self, path=None, bucket='test', filename=None):
         if bucket is None:
             bucket = self.S3_BUCKET
         try:

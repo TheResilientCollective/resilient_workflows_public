@@ -283,29 +283,29 @@ def handle_approve_deploy(ack, body, client):
             thread_ts=message_ts
         )
 
-def copy_rt_to_github(rt_url: str, github_url: str):
-    # --- CONFIG ---
-    bucket_name = "your-bucket"
-    s3_key = "path/to/file.txt"
-    local_repo_path = "/tmp/myrepo"
-    local_file_path = os.path.join(local_repo_path, "file.txt")
-    commit_message = "Add file from S3"
-
-    # --- STEP 1: Download from S3 ---
-    s3 = boto3.client("s3")
-    s3.download_file(bucket_name, s3_key, local_file_path)
-
-    # --- STEP 2: Git operations ---
-    # Repo should already be cloned locally; if not, clone it first
-    # Repo.clone_from("https://github.com/username/repo.git", local_repo_path)
-
-    repo = Repo(local_repo_path)
-    repo.index.add([local_file_path])
-    repo.index.commit(commit_message)
-
-    # --- STEP 3: Push to GitHub ---
-    origin = repo.remote(name="origin")
-    origin.push()
+# def copy_rt_to_github(rt_url: str, github_url: str):
+#     # --- CONFIG ---
+#     bucket_name = "your-bucket"
+#     s3_key = "path/to/file.txt"
+#     local_repo_path = "/tmp/myrepo"
+#     local_file_path = os.path.join(local_repo_path, "file.txt")
+#     commit_message = "Add file from S3"
+#
+#     # --- STEP 1: Download from S3 ---
+#     s3 = boto3.client("s3")
+#     s3.download_file(bucket_name, s3_key, local_file_path)
+#
+#     # --- STEP 2: Git operations ---
+#     # Repo should already be cloned locally; if not, clone it first
+#     # Repo.clone_from("https://github.com/username/repo.git", local_repo_path)
+#
+#     repo = Repo(local_repo_path)
+#     repo.index.add([local_file_path])
+#     repo.index.commit(commit_message)
+#
+#     # --- STEP 3: Push to GitHub ---
+#     origin = repo.remote(name="origin")
+#     origin.push()
 
 
 @slack_app.action("reject_deploy")
