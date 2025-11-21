@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     "dagit>=1.12.2",
     "dagster-postgres>=0.28.2",
-    "dagster >=1.12.2 ",
+    "dagster>=1.12.2",
     "dagster-webserver>=1.12.2",
     "dagster-docker>=0.28.2",
     "dagster-aws >=0.28.2",
@@ -70,6 +70,7 @@ dependencies = [
     "sharepoint>=0.4.2",
     'openpyxl>=3.1.0',
     "dask>=2025.11.0",
+    "dagster-dg-cli>=1.12.2",
 ]
 
 [dependency-groups]

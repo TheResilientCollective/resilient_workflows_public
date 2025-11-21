@@ -56,6 +56,10 @@ epidemiology_forecasts_sensor,
 #update_resilientllm_asset, summary_resilientllm_asset
 resilientllm_asset
 )
+from .hysplit_forecasting import (
+    data_for_models,
+    data_for_hysplit
+)
 from .sandiego_epidemiology_mpox import (
 mpox_workbook_download,
 mpox_hyper_extraction,
@@ -78,7 +82,4 @@ wahis_uploads_job,
 outbreak_summaries,
 outbreak_by_pathogen
 )
-from .forecasting import (
-    data_for_models,
-    #data_for_hysplit
-)
+

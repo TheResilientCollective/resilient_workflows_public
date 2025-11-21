@@ -38,7 +38,7 @@ from ..utils import store_assets
 #             - SLACK_TOKEN=${RESILIENT_SLACK_TOKEN}
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
 
-daily_apcd_partitions = DailyPartitionsDefinition(start_date="2024-01-01")
+daily_apcd_partitions = DailyPartitionsDefinition(start_date="2025-08-01")
 
 airnow_station_url = "https://s3-us-west-1.amazonaws.com//files.airnowtech.org/airnow/today/Monitoring_Site_Locations_V2.dat"
 
