@@ -24,6 +24,7 @@ dependencies = [
     "dagster-embedded-elt",
     "dagster-duckdb",
     "dagster-duckdb-pandas",
+    "duckdb",
     "dagstermill >=0.28.2",
     "pyarrow>=20",
     "tableauhyperapi==0.0.22502",
