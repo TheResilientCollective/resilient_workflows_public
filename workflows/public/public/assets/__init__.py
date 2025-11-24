@@ -25,7 +25,8 @@ from .beach_monitoring import (beachwatch_year, beachwatch_analyses_daily,
                                beachwatch_status_translation,
                                 beachinfo_updated_sensor
                                )
-from .streamflow import tj_boundary, tj_canal, streamflow_all_schedule
+from .streamflow import( tj_boundary, tj_canal, streamflow_all_schedule, streamflow_yearly_schedule,
+                         yearly_assets)
 from .ibwc_spills import (
     spills, spills_last, spills_latest_sensor, spills_reports, spills_all, spills_historic_schedule)
 from .openmeteo import (forecast,
