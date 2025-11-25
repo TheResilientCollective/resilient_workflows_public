@@ -17,7 +17,7 @@ from dagster import ( asset,
 from ..resources import minio
 from ..utils import store_assets
 
-s3_output_path = 'tijuana/weather/'
+s3_output_path = 'tijuana/weather'
 @asset(group_name="tijuana",key_prefix="weather",
        name="openmeteo_forecast", required_resource_keys={"s3", "airtable"}
        ,metadata={
@@ -97,9 +97,10 @@ def forecast(context):
     hourly_dataframe = pd.DataFrame(data=hourly_data)
 
     #hourly_csv = hourly_dataframe.to_csv(index=False)
-    filename = f'{s3_output_path}raw/forecast'
+    filename = f'{s3_output_path}/raw/forecast/'
     #s3_resource.putFile_text(data=hourly_csv, path=filename)
-    store_assets.dataframe_to_s3(hourly_dataframe, filename, s3_resource, metadata=metadata)
+    store_assets.store_dataframe_to_s3(hourly_dataframe, filename,'latest', s3_resource, metadata=metadata,
+                                       enable_latest_path=True, latestdatasetpath=f"{s3_output_path}_forecast")
     return hourly_dataframe
 
 # Define a yearly partition
@@ -196,9 +197,10 @@ def weather_historical(context):
      name = str(context.asset_key.path[-1]) + str(year)
      metadata = store_assets.objectMetadata(name=name, description=description,
                                             source_url=source_url, variableMeasured=variableMeasured)
-     filename = f'{s3_output_path}raw/{year}'
+     filepath = f'{s3_output_path}/raw/yearly/'
+
      #s3_resource.putFile_text(data=hourly_csv, path=filename)
-     store_assets.dataframe_to_s3(hourly_dataframe, filename, s3_resource, metadata=metadata)
+     store_assets.store_dataframe_to_s3(hourly_dataframe, filepath, str(year), s3_resource, metadata=metadata, enable_latest_path=True, latestdatasetpath=s3_output_path)
      return hourly_dataframe
 
 
