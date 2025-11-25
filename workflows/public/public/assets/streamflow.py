@@ -29,10 +29,11 @@ canal_cms="https://waterdata.ibwc.gov/AQWebportal/Export/BulkExport?DateRange=Da
 #export_template_url="https://waterdata.ibwc.gov/AQWebportal/Export/DataSet?DataSet=${dataset}&Calendar=CALENDARYEAR&StartTime=${YEAR}-01-01 00:00:00&EndTime=${YEAR}-12-31 00:00:00&DateRange=Custom&UnitID=128&Conversion=Aggregate&IntervalPoints=Hourly&ApprovalLevels=False&Qualifiers=False&Step=1&ExportFormat=csv&Compressed=true&RoundData=True&GradeCodes=False&InterpolationTypes=False&Timezone=-8&_=1764010032438"
 export_template_url="https://waterdata.ibwc.gov/AQWebportal/Export/DataSet?DataSet=${dataset}&Calendar=CALENDARYEAR&StartTime=${YEAR}-01-01 00:00:00&EndTime=${YEAR}-12-31 00:00:00&DateRange=Custom&UnitID=128&Conversion=Aggregate&IntervalPoints=Hourly&ApprovalLevels=False&Qualifiers=False&Step=1&ExportFormat=csv&Compressed=false&RoundData=True&GradeCodes=False&InterpolationTypes=False&Timezone=-8"
 
-datasets={'border_cms_yearly':'Discharge.Best%20Available%4011013300',
-'canal_cms_yearly':'Discharge.Telemetry-ADS-mgd%4011-TIJUANA-CANAL'}
+datasets={'boundary_cms':'Discharge.Best%20Available%4011013300',
+'canal_cms':'Discharge.Telemetry-ADS-mgd%4011-TIJUANA-CANAL'}
 variableMeasured="streamflow_cms"
 s3_output_path = 'tijuana/streamflow/output'
+s3_latest_path = 'tijuana/streamflow'
 
 @asset(group_name="tijuana",key_prefix="streamflow",
        name="boundary_cms", required_resource_keys={"s3", "airtable"},
@@ -49,14 +50,19 @@ def tj_boundary(context):
     variableMeasured= meta.get("variableMeasured")
     metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url,variableMeasured=variableMeasured)
     s3_resource = context.resources.s3
-    response = requests.get(boundary_cms)
+    year = datetime.now().year
+    dataset_value = datasets['boundary_cms']
+    # Build the URL using the template
+    url = export_template_url.replace('${YEAR}', str(year) ).replace('${dataset}', dataset_value)
+    response = requests.get(url)
     if response.status_code == 200:
         boundary_df = pd.read_csv(StringIO(response.text), skiprows=3, skipfooter=1, header=1, engine='python')
         boundary_df.set_index('Start of Interval (UTC-08:00)', inplace=True)
 
-        filename = f'{s3_output_path}/boundary_cms'
+        filename = f'{s3_output_path}/boundary_cms/'
        # s3_resource.putFile_text(data=boundary_df.to_csv( index=False), path=filename)
-        store_assets.dataframe_to_s3(boundary_df, filename, s3_resource, metadata=metadata)
+        store_assets.store_dataframe_to_s3(boundary_df, filename, 'boundary_cms',s3_resource, metadata=metadata,
+                                           enable_latest_path=True, latestdatasetpath=f'{s3_latest_path}/boundary_cms')
 
         return boundary_df
     else:
@@ -81,14 +87,19 @@ def tj_canal(context):
 
     metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url,variableMeasured=variableMeasured)
     s3_resource = context.resources.s3
-    response = requests.get(canal_cms)
+    year = datetime.now().year
+    dataset_value = datasets['canal_cms']
+    # Build the URL using the template
+    url = export_template_url.replace('${YEAR}', str(year) ).replace('${dataset}', dataset_value)
+    response = requests.get(url)
     if response.status_code == 200:
         boundary_df = pd.read_csv(StringIO(response.text), skiprows=3, skipfooter=1, header=1, engine='python')
         boundary_df.set_index('Start of Interval (UTC-08:00)', inplace=True)
 
-        filename = f'{s3_output_path}/canal_cms'
+        filename = f'{s3_output_path}/canal_cms/'
        # s3_resource.putFile_text(data=boundary_df.to_csv(index=False), path=filename)
-        store_assets.dataframe_to_s3(boundary_df, filename, s3_resource, metadata=metadata)
+        store_assets.store_dataframe_to_s3(boundary_df, filename,'canal_cms', s3_resource, metadata=metadata,
+                                           latestdatasetpath=f'{s3_latest_path}/canal_cms',enable_latest_path=True)
         return boundary_df
     else:
         get_dagster_logger().error(
@@ -108,7 +119,7 @@ def create_streamflow_yearly_asset(dataset_name: str, dataset_value: str):
     """
 
     @asset(
-        name=dataset_name,
+        name=f'{dataset_name}_yearly',
         group_name="tijuana",
         key_prefix="streamflow",
         partitions_def=yearly_partitions,
@@ -164,8 +175,11 @@ def create_streamflow_yearly_asset(dataset_name: str, dataset_value: str):
                     s3_resource.putFile_text(data=response.text, path=f"{raw_filename}.csv")
 
                     # Store as processed CSV file using store_assets
-                    output_filename = f'{s3_output_path}/{dataset_name}_{year}'
-                    store_assets.dataframe_to_s3(df, output_filename, s3_resource, metadata=metadata)
+                    dataset_id= f"{dataset_name}_{year}"
+                    output_path = f'{s3_output_path}/{dataset_name}/'
+                    latest_path=f'{s3_latest_path}/{dataset_name}'
+                    store_assets.store_dataframe_to_s3(df, output_path,dataset_id, s3_resource, metadata=metadata
+                                                       ,enable_latest_path=True, latestdatasetpath=latest_path, formats=['csv','parquet'])
 
                     logger.info(f"Successfully processed {len(df)} records for {dataset_name} year {year}")
                     return df
