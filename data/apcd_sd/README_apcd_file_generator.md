@@ -6,7 +6,7 @@ This directory contains scripts to generate lists of APCD data files from the we
 
 The enhanced script handles the reality that **the latest data may be split** between different locations:
 - **Latest data** (last 30 days) is at the top level: `http://domain/data/yesterday_YYYYMMDD.CSV`
-- **Current year data** may be partially in yearly directories: `http://domain/data/data/YYYY/MMM/yesterday_YYYYMMDD.CSV`
+- **Current year data** may be partially in yearly directories: `http://domain/data/YYYY/MMM/yesterday_YYYYMMDD.CSV`
 - **Historical data** is in yearly/monthly directories
 
 ## Scripts
@@ -70,13 +70,13 @@ http://jtimmer.digitalspacemail17.net/data/yesterday_20251121.CSV
 http://jtimmer.digitalspacemail17.net/data/yesterday_20250823.CSV
 
 # Older current year
-http://jtimmer.digitalspacemail17.net/data/data/2025/Jan/yesterday_20250115.CSV
+http://jtimmer.digitalspacemail17.net/data/2025/Jan/yesterday_20250115.CSV
 ```
 
 ### Historical Files
 ```
-http://jtimmer.digitalspacemail17.net/data/data/2023/Jan/yesterday_20230101.CSV
-http://jtimmer.digitalspacemail17.net/data/data/2024/Dec/yesterday_20241225.CSV
+http://jtimmer.digitalspacemail17.net/data/2023/Jan/yesterday_20230101.CSV
+http://jtimmer.digitalspacemail17.net/data/2024/Dec/yesterday_20241225.CSV
 ```
 
 ## Output Format
@@ -84,7 +84,7 @@ http://jtimmer.digitalspacemail17.net/data/data/2024/Dec/yesterday_20241225.CSV
 ### Basic Output
 ```csv
 Year,Month,filename,url
-2023,Jan,yesterday_20230101.CSV,http://jtimmer.digitalspacemail17.net/data/data/2023/Jan/yesterday_20230101.CSV
+2023,Jan,yesterday_20230101.CSV,http://jtimmer.digitalspacemail17.net/data/2023/Jan/yesterday_20230101.CSV
 2025,Nov,yesterday_20251121.CSV,http://jtimmer.digitalspacemail17.net/data/yesterday_20251121.CSV
 ```
 

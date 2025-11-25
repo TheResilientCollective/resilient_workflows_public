@@ -8,14 +8,15 @@ from datetime import datetime, timedelta
 import pytz
 import requests
 
-from dagster import ( asset, op,
+from dagster import (asset, op,
                      get_dagster_logger,
-                      AssetKey,asset_sensor,
-DailyPartitionsDefinition,
-schedule, RunRequest, define_asset_job, AssetKey, AssetIn,
-AutomationCondition,
-AssetCheckSpec, AssetCheckResult, asset_check, AssetCheckExecutionContext
-                      )
+                     AssetKey, asset_sensor,
+                     DailyPartitionsDefinition,
+                     schedule, RunRequest, define_asset_job, AssetKey, AssetIn,
+                     AutomationCondition,
+                     AssetCheckSpec, AssetCheckResult, asset_check, AssetCheckExecutionContext,
+                     TimeWindowPartitionsDefinition
+                     )
 from ..utils.constants import ICONS
 from ..resources import minio
 
@@ -39,6 +40,10 @@ from ..utils import store_assets
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
 
 daily_apcd_partitions = DailyPartitionsDefinition(start_date="2025-08-01")
+start_date_apcd=datetime(2023,1,1)
+yearly_apcd_partitions = TimeWindowPartitionsDefinition(start=start_date_apcd,fmt='%Y',
+cron_schedule = "@yearly"
+)
 
 airnow_station_url = "https://s3-us-west-1.amazonaws.com//files.airnowtech.org/airnow/today/Monitoring_Site_Locations_V2.dat"
 
@@ -50,7 +55,9 @@ pattern_file = 'yesterday_$filedate.CSV'
 
 #s3_bucket = os.getenv('PUBLIC_BUCKET', 'resilient-public')# defined in s3
 s3_data_path = 'tijuana/sd_apcd_air/source'
+s3_raw_path = 'tijuana/sd_apcd_air/source'
 s3_output_path = 'tijuana/sd_apcd_air/output'
+s3_lastest_key="tijuana/sd_apcd_air"
 
 so2_parameter = '28 SO2 Tr PPB'
 h2s_parameter = '07 H2S PPB'
@@ -547,6 +554,8 @@ def process_csv_files(file_paths):
 
     # Create DataFrame from transformed data
     output_df = pd.DataFrame(transformed_data)
+    output_df["Parameter"] = output_df["Parameter"].astype("category")
+    output_df["Site Name"] = output_df["Site Name"].astype("category")
     output_df['Icons'] = ICONS['beach']
     return output_df
 
@@ -574,6 +583,226 @@ def apcd_all_schedule(context):
 
     return RunRequest(
     )
+
+
+# Yearly aggregation jobs and schedules
+apcd_yearly_job = define_asset_job(
+    "apcd_yearly_aggregation",
+    selection=[
+        AssetKey(["apcd", "yearly_aggregated_all"]),
+        AssetKey(["apcd", "yearly_aggregated_h2s"])
+    ]
+)
+
+# Weekly schedule for yearly aggregation (runs on Sundays at 4 AM)
+@schedule(job=apcd_yearly_job, cron_schedule="0 4 * * 0", name="apcd_yearly_aggregation",
+          execution_timezone="America/Los_Angeles", )
+def apcd_yearly_schedule(context):
+    return RunRequest(
+    )
+
+
+@asset(group_name="tijuana", key_prefix="apcd",
+       name="yearly_aggregated_all", required_resource_keys={"s3"},
+       partitions_def=yearly_apcd_partitions,
+       automation_condition=AutomationCondition.eager()
+       )
+def yearly_aggregated_all(context) -> pd.DataFrame:
+    """
+    Aggregate all APCD files by year from S3 raw data
+
+    Reads all daily files for each year from test/tijuana/sd_apcd_air/raw/YEAR/
+    and creates yearly aggregated files uploaded to tijuana/sd_apcd_air/output/yearly/all/YEAR/
+    """
+    name = 'yearly_aggregated_all'
+    description = '''Yearly aggregated APCD air quality data for all parameters
+
+    Data aggregated from daily San Diego Air Pollution Control District files.
+    Contains all parameters and measurements for the entire year.
+    '''
+    source_url = base_url
+    metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
+
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    # Get the year from partition key
+    partition_key = context.asset_partition_key_for_output()
+    year = int(partition_key)
+
+    logger.info(f"Processing year {year} for aggregation")
+
+    # List all files for the year
+    prefix = f"tijuana/sd_apcd_air/raw/{year}/"
+
+    try:
+        objects = s3_resource.getClient().list_objects(
+            s3_resource.S3_BUCKET,
+            prefix=prefix,
+            recursive=True
+        )
+
+        file_paths = []
+        for obj in objects:
+            if obj.object_name.endswith('.CSV') or obj.object_name.endswith('.csv'):
+                file_paths.append(obj.object_name)
+
+        logger.info(f"Found {len(file_paths)} files for year {year}")
+
+        if not file_paths:
+            logger.warning(f"No files found for year {year}")
+            return pd.DataFrame()
+
+        # Create file URLs that process_csv_files can access
+        # We need to construct accessible URLs for the raw APCD files
+        file_urls = []
+
+        for file_path in sorted(file_paths):
+            # Get the filename from the S3 path
+            filename = file_path.split('/')[-1]
+
+            # Create a signed URL or public URL for the file if possible
+            # For now, we'll try to create a direct URL to the S3 file
+            try:
+                # If your S3 bucket is configured for public access, construct the URL
+                # Otherwise, you might need to create signed URLs
+                if hasattr(s3_resource, 'getFileUrl'):
+                    file_url = s3_resource.getFileUrl(file_path)
+                else:
+                    # Fallback: construct URL based on S3 configuration
+                    # This assumes public access or proper CORS configuration
+                    bucket_name = s3_resource.S3_BUCKET
+                    s3_address = s3_resource.S3_ADDRESS
+
+                    # Handle different S3 endpoint formats
+                    if s3_address.startswith('http'):
+                        file_url = f"{s3_address}/{bucket_name}/{file_path}"
+                    else:
+                        # Use HTTPS by default
+                        protocol = "https" if s3_resource.S3_USE_SSL else "http"
+                        file_url = f"{protocol}://{s3_address}/{bucket_name}/{file_path}"
+
+                file_urls.append(file_url)
+                logger.debug(f"Created URL for {filename}: {file_url}")
+
+            except Exception as e:
+                logger.warning(f"Could not create URL for {file_path}: {e}")
+                continue
+
+        if file_urls:
+            logger.info(f"Processing {len(file_urls)} files for year {year} using process_csv_files")
+
+            # Use the existing process_csv_files function to process the files
+            year_data = process_csv_files(file_urls)
+
+            # Add metadata columns to the processed data
+            year_data['aggregation_year'] = year
+            year_data['date_processed'] = datetime.now().isoformat()
+
+            logger.info(f"Aggregated {len(year_data)} rows for year {year} using process_csv_files")
+
+            # Upload yearly aggregated data
+            output_path = f"tijuana/sd_apcd_air/output/yearly/all/{year}"
+            output_name= f'apcd_all_{year}'
+            # Use store_assets to save in multiple formats
+            store_assets.store_dataframe_to_s3(
+                year_data,
+                output_path,
+                output_name,
+                s3_resource,
+                formats=['csv', 'parquet'],  # Note: parquet not implemented in store_assets yet
+                metadata=metadata
+            )
+
+            logger.info(f"✓ Successfully processed and uploaded data for year {year}")
+            return year_data
+        else:
+            logger.error(f"Failed to read any files for year {year}")
+            return pd.DataFrame()
+
+    except Exception as e:
+        logger.error(f"Failed to process year {year}: {e}")
+        return pd.DataFrame()
+
+
+@asset(group_name="tijuana", key_prefix="apcd",
+       name="yearly_aggregated_h2s", required_resource_keys={"s3"},
+       partitions_def=yearly_apcd_partitions,
+       deps=[AssetKey(["apcd", "yearly_aggregated_all"]), AssetKey(['apcd', 'locations'])],
+       automation_condition=AutomationCondition.eager()
+       )
+def yearly_aggregated_h2s(context) -> pd.DataFrame:
+    """
+    Create yearly H2S-only aggregated files from yearly all data
+
+    Filters the yearly aggregated data to only include H2S measurements
+    and uploads to tijuana/sd_apcd_air/output/yearly/h2s/YEAR/
+    """
+    name = 'yearly_aggregated_h2s'
+    description = '''Yearly aggregated H2S air quality data only
+
+    Data filtered from yearly aggregated APCD data to include only H2S measurements.
+    Contains H2S parameter data and measurements for the entire year.
+    '''
+    source_url = base_url
+    metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
+
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    locations_gdf = context.repository_def.load_asset_value(AssetKey([f"apcd", "locations"]))
+
+    # Get the year from partition key
+    partition_key = context.asset_partition_key_for_output()
+    year = int(partition_key)
+
+    # Get the yearly aggregated data for the specific partition
+    try:
+        # Load the yearly aggregated data from the same partition
+        all_data = context.repository_def.load_asset_value(
+            AssetKey(["apcd", "yearly_aggregated_all"]),
+            partition_key=partition_key
+        )
+
+        if all_data.empty:
+            logger.warning(f"No yearly aggregated data available for year {year}")
+            return pd.DataFrame()
+
+        # Filter for H2S data only
+        h2s_data = all_data[all_data['Parameter'] == h2s_parameter].copy()
+
+        if h2s_data.empty:
+            logger.warning(f"No H2S data found in yearly aggregated data for year {year}")
+            return pd.DataFrame()
+
+        # Add H2S-specific processing
+        h2s_data['level'] = h2s_data['Result'].apply(lambda r: h2s_guidance(r))
+
+        logger.info(f"Filtered to {len(h2s_data)} H2S measurements for year {year}")
+
+
+        h2s_data = locations_gdf.merge(h2s_data, how='inner', left_on='SiteName', right_on='Site Name',
+                                         suffixes=('', '_y'))
+        # Upload yearly H2S data for this specific year
+        output_path = f"tijuana/sd_apcd_air/output/yearly/h2s/{year}/"
+        output_name = f'apcd_h2s_{year}'
+        # Use store_assets to save in multiple formats
+        store_assets.store_dataframe_to_s3(
+            h2s_data,
+            output_path,
+            output_name,
+            s3_resource,
+            formats=['csv', 'parquet'],
+            metadata=metadata
+        )
+
+        logger.info(f"✓ Successfully uploaded H2S data for year {year}")
+
+        return h2s_data
+
+    except Exception as e:
+        logger.error(f"Failed to process H2S yearly aggregation for year {year}: {e}")
+        return pd.DataFrame()
 
 
 def test_current():

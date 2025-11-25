@@ -91,6 +91,9 @@ def determine_file_location(date_obj, base_url, current_year=None):
     """
     Determine where a file should be located based on date and current year logic
 
+    Special case: The first day of each month is actually stored in the previous month's folder
+    For example: yesterday_20230301.CSV (March 1st) is found in 2023/Feb/ folder
+
     Args:
         date_obj (datetime): Date of the file
         base_url (str): Base URL
@@ -104,7 +107,24 @@ def determine_file_location(date_obj, base_url, current_year=None):
 
     date_str = date_obj.strftime('%Y%m%d')
     filename = f"yesterday_{date_str}.CSV"
-    month_name = month_abbr[date_obj.month]
+
+    # Special handling for first day of month - it's stored in previous month's folder
+    if date_obj.day == 1:
+        # Get previous month for folder structure
+        if date_obj.month == 1:
+            # January 1st goes to previous year's December
+            folder_year = date_obj.year - 1
+            folder_month = 12
+        else:
+            # Other months go to previous month
+            folder_year = date_obj.year
+            folder_month = date_obj.month - 1
+
+        folder_month_name = month_abbr[folder_month]
+    else:
+        # Regular days use their own month
+        folder_year = date_obj.year
+        folder_month_name = month_abbr[date_obj.month]
 
     # Logic for where files should be:
     # 1. Recent files (last 30 days) are likely at top level
@@ -123,11 +143,11 @@ def determine_file_location(date_obj, base_url, current_year=None):
             url = f"{base_url}/{filename}"
             location_type = 'top_level'
         else:
-            url = f"{base_url}/data/{date_obj.year}/{month_name}/{filename}"
+            url = f"{base_url}/{folder_year}/{folder_month_name}/{filename}"
             location_type = 'yearly'
     else:
         # Historical data - in yearly/monthly directories
-        url = f"{base_url}/data/{date_obj.year}/{month_name}/{filename}"
+        url = f"{base_url}/{folder_year}/{folder_month_name}/{filename}"
         location_type = 'yearly'
 
     return url, location_type
