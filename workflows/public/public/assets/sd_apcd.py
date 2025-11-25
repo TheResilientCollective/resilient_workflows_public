@@ -793,7 +793,9 @@ def yearly_aggregated_h2s(context) -> pd.DataFrame:
             output_name,
             s3_resource,
             formats=['csv', 'parquet'],
-            metadata=metadata
+            metadata=metadata,
+            latestdatasetpath=f'{s3_lastest_key}/h2s',
+            enable_latest_path=True,
         )
 
         logger.info(f"✓ Successfully uploaded H2S data for year {year}")
