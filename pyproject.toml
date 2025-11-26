@@ -72,6 +72,7 @@ dependencies = [
     'openpyxl>=3.1.0',
     "dask>=2025.11.0",
     "dagster-dg-cli>=1.12.2",
+    "pygithub>=2.8.1",
 ]
 
 [dependency-groups]

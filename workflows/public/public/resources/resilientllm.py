@@ -41,12 +41,17 @@ class ResilientLLMResource(ConfigurableResource):
         #body = {"messages": [{"role": "user", "content": "ping"}]}
 
         try:
-            endpoint = f"{self.llm_endpoint}/{report_id}"
+            endpoint = f"{self.llm_endpoint}{report_id}"
             #response = requests.post(endpoint, headers=headers, json=body)
             response = requests.get(endpoint, headers=headers,)
             response.raise_for_status()
-            logger.info(f"Successfully generated report for {report_id} ResilientLLM API. Response: {response.json()}")
-            return response.json()
+            obj = response.json()
+            logger.info(f"Successfully generated report for {report_id} ResilientLLM API. Response: {obj}")
+            return obj
+        except requests.exceptions.InvalidJSONError as e:
+            logger.error(f"Failed to  generated report for {report_id} ResilientLLM API: Invalid JSON {e}")
+            raise e
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to  generated report for {report_id} ResilientLLM API: {e}")
-            raise
+            raise e

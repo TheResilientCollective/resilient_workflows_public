@@ -45,7 +45,7 @@ from ..utils.resilient_epi_schemas import (
 import boto3
 
 from git import Repo
-
+from github import Github
 # S3 paths
 FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 
@@ -65,6 +65,7 @@ FORECAST_AIRTABLE_WIDGETS_RECORDID=os.environ.get("FORECAST_AIRTABLE_WIDGETS_REC
 
 FORECAST_GITHUB_RT=os.environ.get("FORECAST_GITHUB_RT", 'https://github.com/TheResilientCollective/ResilientDataProducts.git')
 FORECAST_GITHUB_RT_PATH="sandiego_rt"
+FORECAST_GITHUB_RT_TOKEN=os.environ.get("FORECAST_GITHUB_RT_TOKEN")
 
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 s3_output_path='pathogens/sandiego/sandiego_epidemiology/'
@@ -562,52 +563,99 @@ Run: {run_id}
     required_resource_keys={"s3",  "slack"},
     automation_condition=AutomationCondition.eager()
 )
-def copy_rt_to_github(context, config: forecastsS3AssetConfig ):
+def copy_rt_to_github(context, config: forecastsS3AssetConfig):
     s3_resource = context.resources.s3
     slack_resource = context.resources.slack
-    logger=get_dagster_logger()
-    run_runpath: str= config.forecast_run_path
+    logger = get_dagster_logger()
+    run_runpath: str = config.forecast_run_path
     github_url: str = config.github_rt_url
-    # --- CONFIG ---
-    bucket_name = FORECAST_BUCKET
-    s3_key = "path/to/file.txt"
 
-    local_repo_path = "/tmp/myrepo"
-    local_file_path = os.path.join(local_repo_path, "file.txt")
-    commit_message = f"Add files from S3 for run_runpath"
-    # --- STEP 1: find S3 ---
+    # Validate GitHub token
+    try:
+        g = Github(FORECAST_GITHUB_RT_TOKEN)
+        user = g.get_user()
+        logger.info(f"Authenticated as GitHub user: {user.login}")
+    except Exception as e:
+        logger.error(f"Error authenticating to GitHub: {e}")
+        raise Exception("Cannot authenticate to GitHub") from e
+
+    bucket_name = FORECAST_BUCKET
+    commit_message = f"Add files from S3 for {run_runpath}"
+
+    # Find S3 files
     for_airtable_path = f"{run_runpath}ForAirTable/"
     rt_files = s3_resource.listPath(for_airtable_path, bucket=bucket_name)
     csv_files = [f for f in rt_files if f.object_name.endswith('_case_Rt.csv')]
     logger.info(f"Found {len(csv_files)} _case_Rt.csv files")
-    updated_files=[]
+
+    if not csv_files:
+        logger.warning("No CSV files found to push to GitHub")
+        return {"files": [], "message": "No files to push", "github": github_url}
+
+    updated_files = []
+
     with tempfile.TemporaryDirectory() as tempdir:
+        # Configure Git with token for authentication
+        # Use token in clone URL for authentication
+        if github_url.startswith('https://github.com/'):
+            # Insert token into URL for authentication
+            auth_url = github_url.replace('https://github.com/', f'https://{FORECAST_GITHUB_RT_TOKEN}@github.com/')
+        else:
+            raise Exception(f"Unsupported GitHub URL format: {github_url}")
 
-        # --- STEP 2: Git operations ---
-        # Repo should already be cloned locally; if not, clone it first
-        Repo.clone_from(github_url, tempdir)
+        # Clone repository with authentication
+        try:
+            repo = Repo.clone_from(auth_url, tempdir)
+            logger.info(f"Successfully cloned repository to {tempdir}")
+        except Exception as e:
+            logger.error(f"Error cloning repository: {e}")
+            raise Exception(f"Failed to clone repository: {github_url}") from e
 
-        repo = Repo(tempdir)
-        #s3 = boto3.client("s3")
-        #s3.download_file(bucket_name, s3_key, local_file_path)
+        # Ensure target directory exists
+        target_dir = os.path.join(tempdir, FORECAST_GITHUB_RT_PATH)
+        os.makedirs(target_dir, exist_ok=True)
 
+        # Download and add files
         for rt in csv_files:
             object_name = Path(rt.object_name).name
-            local_file_path=os.path.join(tempdir,FORECAST_GITHUB_RT_PATH, object_name)
-            s3_resource.downloadFile(bucket=FORECAST_BUCKET,path=rt.object_name, filename=local_file_path)
-            repo.index.add([local_file_path])
-            updated_files.append(rt.object_name)
+            local_file_path = os.path.join(target_dir, object_name)
 
-        repo.index.commit(commit_message)
-        # needs some checking
-        #repo.create_tag(f"{run_runpath}", message=f"{run_runpath}")
-        # --- STEP 3: Push to GitHub ---
-        origin = repo.remote(name="origin")
-        origin.push()
-    return { "files": updated_files,
-             "message": commit_message,
-             'github': github_url
-             }
+            try:
+                s3_resource.downloadFile(bucket=FORECAST_BUCKET, path=rt.object_name, filename=local_file_path)
+                repo.index.add([local_file_path])
+                updated_files.append(rt.object_name)
+                logger.info(f"Added file to git: {local_file_path}")
+            except Exception as e:
+                logger.error(f"Error downloading/adding file {rt.object_name}: {e}")
+                continue
+
+        if not updated_files:
+            logger.warning("No files were successfully added to repository")
+            return {"files": [], "message": "No files were added", "github": github_url}
+
+        # Check if there are changes to commit
+        if repo.index.diff("HEAD") or repo.untracked_files:
+            try:
+                repo.index.commit(commit_message)
+                logger.info(f"Committed changes: {commit_message}")
+
+                # Push to GitHub
+                origin = repo.remote(name="origin")
+                origin.push()
+                logger.info("Successfully pushed changes to GitHub")
+
+            except Exception as e:
+                logger.error(f"Error committing/pushing to GitHub: {e}")
+                raise Exception("Failed to push changes to GitHub") from e
+        else:
+            logger.info("No changes to commit")
+
+    return {
+        "files": updated_files,
+        "message": commit_message,
+        "github": github_url
+    }
+
 
 @asset(
     group_name="health",
@@ -940,6 +988,8 @@ def resilientllm_asset(context):
 
         airtable_resource = context.resources.airtable
         llm_response =  llm.execute(llm.webhook_uuid)
+        if len(llm_response) < 1:
+            raise Exception('Expected at least one response from ResilientLLM')
         summary = llm_response[0]['summary'].replace('```', '')
         update = llm_response[0]['updates'].replace('```', '')
         try:
