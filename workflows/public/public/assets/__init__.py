@@ -58,7 +58,8 @@ epidemiology_forecasts_job,
 epidemiology_forecasts_sensor,
 #update_resilientllm_asset, summary_resilientllm_asset
 resilientllm_asset,
-copy_rt_to_github
+copy_rt_to_github,
+copy_forecast_latest
 )
 from .hysplit_forecasting import (
     data_for_models,
