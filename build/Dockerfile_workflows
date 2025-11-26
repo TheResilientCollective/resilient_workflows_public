@@ -31,6 +31,7 @@ FROM python:3.12-slim
 
 # Install runtime dependencies (if different from build dependencies)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
     python3-lxml \
     python3-gdal \
     gdal-bin \
