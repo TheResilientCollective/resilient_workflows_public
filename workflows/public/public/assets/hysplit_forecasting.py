@@ -114,6 +114,8 @@ def data_for_models(context):
             ['Original Value', 'Icons', 'level', 'Parameter', 'LongName', 'Site Name', 'Latitude', 'Longitude',
              'AgencyName'], axis=1)
         h2s_sensor_data_all['time'] = pd.to_datetime(h2s_sensor_data_all['Date with time'], utc=True)
+        h2s_sensor_data_all = h2s_sensor_data_all.rename(
+            columns={'SiteName': 'site_name', 'Result': 'H2S', 'Qualifier': 'H2S_qualifier'})
         h2s_sensor_data_all["time"] = h2s_sensor_data_all["time"].dt.tz_convert("America/Los_Angeles")
         h2s_sensor_data_all = h2s_sensor_data_all.rename(columns={'Result': 'H2S', 'Qualifier': 'H2S_qualifier'})
 
