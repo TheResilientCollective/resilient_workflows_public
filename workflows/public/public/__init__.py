@@ -35,6 +35,7 @@ all_schedules = [assets.beach_waterquality_schedule,
                  assets.spills_historic_schedule,
                  assets.cdc_nnds.cdc_nndss_raw_schedule,
                  assets.mpox_counties_weekly_schedule,
+                 assets.streamflow_yearly_schedule
                 # assets.sandiego_epidemiology_schedule # now a sensor
                  ]
 all_sensors=[slack_on_run_failure,
@@ -100,7 +101,7 @@ resources ={
     },
 }
 deployment_name = os.environ.get("DAGSTER_DEPLOYMENT", "local")
-
+all_assets = all_assets + assets.yearly_assets()
 defs = Definitions(
     assets=all_assets,
     asset_checks=asset_checks,
@@ -109,3 +110,4 @@ defs = Definitions(
     sensors=all_sensors,
     jobs=all_jobs,
 )
+

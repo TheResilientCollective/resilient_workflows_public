@@ -8,7 +8,7 @@ import pandas as pd
 import dask.dataframe as dd
 from dagster import SensorEvaluationContext, sensor, get_dagster_logger, RunRequest, RunConfig, asset, Config, \
     define_asset_job, AssetKey, AssetIn
-from duckdb import duckdb
+import duckdb
 
 from workflows.public.public.utils import store_assets
 from ..utils.resilient_epi_schemas import (

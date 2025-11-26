@@ -15,7 +15,9 @@ from .sd_apcd import (
     current, generate_apcd, apcd_all,
     apcd_current_schedule, highh2s, hs2_latest,
     apcd_all_schedule,
-    get_airnow_locations, current_freshness_check)
+    get_airnow_locations, current_freshness_check,
+yearly_aggregated_all, apcd_yearly_schedule,
+yearly_aggregated_h2s, )
 from .beach_monitoring import (beachwatch_year, beachwatch_analyses_daily,
                                beach_waterquality_schedule, get_sdbeachinfo_status,
                                beachwatch_closure_schedule,
@@ -25,7 +27,8 @@ from .beach_monitoring import (beachwatch_year, beachwatch_analyses_daily,
                                beachwatch_status_translation,
                                 beachinfo_updated_sensor
                                )
-from .streamflow import tj_boundary, tj_canal, streamflow_all_schedule
+from .streamflow import( tj_boundary, tj_canal, streamflow_all_schedule, streamflow_yearly_schedule,
+                         yearly_assets)
 from .ibwc_spills import (
     spills, spills_last, spills_latest_sensor, spills_reports, spills_all, spills_historic_schedule)
 from .openmeteo import (forecast,
@@ -57,6 +60,10 @@ epidemiology_forecasts_sensor,
 resilientllm_asset,
 copy_rt_to_github
 )
+from .hysplit_forecasting import (
+    data_for_models,
+    data_for_hysplit
+)
 from .sandiego_epidemiology_mpox import (
 mpox_workbook_download,
 mpox_hyper_extraction,
@@ -79,3 +86,4 @@ wahis_uploads_job,
 outbreak_summaries,
 outbreak_by_pathogen
 )
+

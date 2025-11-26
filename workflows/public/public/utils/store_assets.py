@@ -168,7 +168,13 @@ def geodataframe_to_s3(geodataframe, path_w_basename, s3_resource:S3Resource,
        elif format == 'parquet':
            # https://github.com/aws/aws-sdk-pandas
            # get the url to the minio, somewhere from the client.
-           get_dagster_logger().info("geodataframe_to_parquet not implemented")
+           get_dagster_logger().info("geodataframe_to_parquet removes geometry column")
+           dataframe = geodataframe.drop(columns='geometry')
+           dataframe = pd.DataFrame(dataframe)
+           path = f"{path_w_basename}.parquet"
+           parquet_object = dataframe.to_parquet()
+           object = s3_resource.putFile(data=parquet_object, path=path, content_type='application/vnd.apache.parquet')
+           distributions.append(distribution('parquet', object))
            # path = f"{path_w_basename}.parquet"
            # this wants an output path, aka file so some tempfile work needed
            # parquet_object = geodataframe.to_parquet(output_path)
