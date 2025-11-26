@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime
 import re
+from minio.commonconfig import REPLACE, CopySource
 
 import requests
 import yaml
@@ -608,6 +609,35 @@ def copy_rt_to_github(context, config: forecastsS3AssetConfig ):
              'github': github_url
              }
 
+@asset(
+    group_name="health",
+    key_prefix="sandiego",
+    name="sandiego_epidemiology_forecast_latest",
+    required_resource_keys={"s3",  "slack"},
+    automation_condition=AutomationCondition.eager()
+)
+def copy_forecast_latest(context, config: forecastsS3AssetConfig ):
+    s3_resource = context.resources.s3
+    slack_resource = context.resources.slack
+    logger=get_dagster_logger()
+    run_runpath: str= config.forecast_run_path
+
+    bucket_name = FORECAST_BUCKET
+    s3_latest_path = "latest/sandiego_epidemiology_ili/forecast"
+
+    # --- STEP 1: find S3 ---
+    for_airtable_path = f"{run_runpath}ForAirTable/"
+    rt_files = list(s3_resource.listPath(for_airtable_path, bucket=bucket_name))
+    logger.info(f"Found {len(rt_files)}  files")
+    updated_files=[]
+    s3_client = s3_resource.getClient()
+    for rt in rt_files:
+        source_object =CopySource(bucket_name,rt.object_name)
+        object_name = Path(rt.object_name).name
+        dest_path = f"{s3_latest_path}/{object_name}"
+        s3_client.copy_object(s3_resource.S3_BUCKET,dest_path,source_object )
+    return { "files": updated_files
+             }
 # Define asset job
 epidemiology_forecasts_job = define_asset_job(
     name="epidemiology_forecasts_job",
