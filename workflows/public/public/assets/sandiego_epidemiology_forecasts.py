@@ -641,7 +641,11 @@ def copy_forecast_latest(context, config: forecastsS3AssetConfig ):
 # Define asset job
 epidemiology_forecasts_job = define_asset_job(
     name="epidemiology_forecasts_job",
-    selection=[AssetKey(["sandiego", "sandiego_epidemiology_airtable"])]
+    selection=[
+        AssetKey(["sandiego", "sandiego_epidemiology_airtable"]),
+        AssetKey(["sandiego", "sandiego_epidemiology_github_rt"]),
+        AssetKey(["sandiego", "sandiego_epidemiology_forecast_latest"])
+    ]
 )
 
 
@@ -735,7 +739,8 @@ Starting processing...
                 ops={
                     "sandiego__sandiego_epidemiology_airtable": {
                         "config": {
-                            "forecast_run_path": run_path
+                            "forecast_run_path": run_path,
+                        "github_rt_url": FORECAST_GITHUB_RT
                         }
                     },
                     "sandiego__sandiego_epidemiology_github_rt": {
@@ -743,7 +748,13 @@ Starting processing...
                             "forecast_run_path": run_path,
                             "github_rt_url":FORECAST_GITHUB_RT
                         }
+                    },
+                    "sandiego__sandiego_epidemiology_forecast_latest": {
+                    "config": {
+                        "forecast_run_path": run_path,
+                        "github_rt_url": FORECAST_GITHUB_RT
                     }
+        }
                 }
             )
         )
