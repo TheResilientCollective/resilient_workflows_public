@@ -988,10 +988,9 @@ def resilientllm_asset(context):
 
         airtable_resource = context.resources.airtable
         llm_response =  llm.execute(llm.webhook_uuid)
-        if len(llm_response) < 1:
-            raise Exception('Expected at least one response from ResilientLLM')
-        summary = llm_response[0]['summary'].replace('```', '')
-        update = llm_response[0]['updates'].replace('```', '')
+
+        summary = llm_response['summary'].replace('```', '')
+        update = llm_response['updates'].replace('```', '')
         try:
             update_update_table(airtable_resource, summary, update)
             update_portal_record(airtable_resource, summary)
