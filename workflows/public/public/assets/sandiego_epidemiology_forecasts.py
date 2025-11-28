@@ -681,7 +681,7 @@ def copy_forecast_latest(context, config: forecastsS3AssetConfig ):
     s3_client = s3_resource.getClient()
     for rt in rt_files:
         source_object =CopySource(bucket_name,rt.object_name)
-        object_name = Path(rt.object_name).name
+        object_name = Path(rt.object_name).name.replace("Influenza","FLU")
         dest_path = f"{s3_latest_path}/{object_name}"
         s3_client.copy_object(s3_resource.S3_BUCKET,dest_path,source_object )
     return { "files": updated_files
