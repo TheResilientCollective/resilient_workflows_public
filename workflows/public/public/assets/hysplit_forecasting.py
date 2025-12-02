@@ -23,12 +23,16 @@ CSV_PATTERN='*.csv'
 
 H2S_PATH='latest/tijuana/sd_apcd_air/h2s'
 WEATHER_BASE='latest/tijuana/weather'
+STREAMFLOW_BASE='latest/tijuana/streamflow'
+STREAMFLOW_SITE='boundary_cms'
+#STREAMFLOW_SITES=['boundary_cms']
 
 
 sites_csv = """LongName,site_name,lat,lon,AgencyName
 Berry Elementary School,NESTOR - BES, 32.567097, -117.090656,San Diego APCD
 Imperial Beach Civic Center,IB CIVIC CTR, 32.576139,  -117.115361,San Diego APCD
 El Cajon - Lexington Elementary School,EL CAJON LES, 32.789561,  -116.944222,San Diego APCD
+San Ysidro,SAN YSIDRO,	32.552794,	-117.047286,San Diego APCD	
         """
 
 def duckdb_connection(s3_resource: minio.S3Resource):
@@ -142,7 +146,7 @@ def data_for_models(context):
     try:
         weather_df = duckdb_con.read_csv(weather_files).df()
     except Exception as e:
-        dagster_logger.error(f"Error reading weather csv files {hs2_files} {e}")
+        dagster_logger.error(f"Error reading weather csv files {weather_files} {e}")
         raise e
     try:
         weather_df = weather_df.rename(columns={'date': 'time'})
@@ -163,7 +167,29 @@ def data_for_models(context):
         dagster_logger.error(f"Error merging weather and h2s data {e}")
         raise e
     dagster_logger.info(f"Matched {matched_df.shape[0]} rows")
-
+    # border streamflow
+    try:
+        streamflow_border_files = f"s3://{s3_resource.S3_BUCKET}/{STREAMFLOW_BASE}/{STREAMFLOW_SITE}/{PARQUET_PATTERN}"
+        streamflow_border_df = duckdb_con.read_parquet(streamflow_border_files).df()
+    except Exception as e:
+        dagster_logger.error(f"Error reading streamflow csv files {streamflow_border_files} {e}")
+        raise e
+    try:
+        streamflow_border_df['time'] = pd.to_datetime(streamflow_border_df['End of Interval (UTC-08:00)'], utc=False)
+        streamflow_border_df["time"] = streamflow_border_df["time"].dt.tz_localize("America/Los_Angeles", ambiguous=True,
+                                                                                   nonexistent='shift_forward')
+        streamflow_border_df = streamflow_border_df.rename(columns={'Average (m^3/s)': 'Flow (m^3/s)--Border'})
+        streamflow_border_df = streamflow_border_df.set_index(pd.DatetimeIndex(streamflow_border_df['time']))
+        streamflow_border_df = streamflow_border_df.drop(
+            ['time', 'End of Interval (UTC-08:00)', 'Start of Interval (UTC-08:00)'], axis=1)
+    except Exception as e:
+        dagster_logger.error(f"Error reading streamflow   files {streamflow_border_files} {e}")
+        raise e
+    try:
+        matched_df = pd.merge_asof(matched_df, streamflow_border_df, left_on="time", right_on="time", direction="nearest")
+    except Exception as e:
+        dagster_logger.error(f"Error merging weather and h2s  AND STREAMFLOW data {e}")
+        raise e
     store_assets.store_dataframe_to_s3( matched_df, OUTPUT_PATH,'modeldata_h2s', s3_resource,
                                        latestdatasetpath=LATEST,enable_latest_path=True,
                                        formats=[ 'csv', 'parquet'], metadata=metadata )

@@ -63,7 +63,8 @@ copy_forecast_latest
 )
 from .hysplit_forecasting import (
     data_for_models,
-    data_for_hysplit
+    data_for_hysplit,
+h2s_locations
 )
 from .sandiego_epidemiology_mpox import (
 mpox_workbook_download,

@@ -6,27 +6,31 @@ import requests_cache
 import pandas as pd
 from retry_requests import retry
 
-from dagster import ( asset,
+from dagster import (asset,
                      get_dagster_logger,
-                      define_asset_job,AssetKey,
-                      RunRequest,
-                      schedule,
-                      TimeWindowPartitionsDefinition
-                      )
+                     define_asset_job, AssetKey,
+                     RunRequest,
+                     schedule,
+                     TimeWindowPartitionsDefinition, AssetIn
+                     )
 
 from ..resources import minio
 from ..utils import store_assets
 
 s3_output_path = 'tijuana/weather'
 @asset(group_name="tijuana",key_prefix="weather",
-       name="openmeteo_forecast", required_resource_keys={"s3", "airtable"}
+       name="openmeteo_forecast", required_resource_keys={"s3", "airtable"},
+        deps=[AssetKey(["h2sforecast", "hs2_locations"])],
+         ins={"locations":AssetIn(
+                key=AssetKey(["h2sforecast", "hs2_locations"])
+            )}
        ,metadata={
            "source": "https://api.open-meteo.com/v1/forecast"
        ,"description":"Recent Weather Forecast"
 #,"variableMeasured":variableMeasured
 }
   )
-def forecast(context):
+def forecast(context, locations):
     meta = context.assets_def.metadata_by_key[context.asset_key]
     description = meta["description"]  # -> "value"
     source_url = meta.get("source")  # -> "data-eng"
@@ -35,6 +39,7 @@ def forecast(context):
                                            source_url=source_url, variableMeasured=variableMeasured)
 
     s3_resource = context.resources.s3
+
     # Setup the Open-Meteo API client with cache and retry on error
     cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
     retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
@@ -43,65 +48,87 @@ def forecast(context):
     # Make sure all required weather variables are listed here
     # The order of variables in hourly or daily is important to assign them correctly below
     url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": 32.552794,
-        "longitude": -117.047286,
-        "hourly": ["temperature_2m", "wind_speed_10m",
-                   "wind_direction_10m", "precipitation",
-                   "relative_humidity_2m",'surface_pressure',
-                                   'cloud_cover',
-                   'visibility',
-                   'dewpoint_2m'
-                   ],
-        "past_days": 30
-    }
-    responses = openmeteo.weather_api(url, params=params)
 
-    # Process first location. Add a for-loop for multiple locations or weather models
-    response = responses[0]
-    get_dagster_logger().info(f"Coordinates {response.Latitude()}°N {response.Longitude()}°E")
-    get_dagster_logger().info(f"Elevation {response.Elevation()} m asl")
-    get_dagster_logger().info(f"Timezone {response.Timezone()} {response.TimezoneAbbreviation()}")
-    get_dagster_logger().info(f"Timezone difference to GMT+0 {response.UtcOffsetSeconds()} s")
+    # List to store all forecast dataframes
+    all_forecasts = []
 
-    # Process hourly data. The order of variables needs to be the same as requested.
-    hourly = response.Hourly()
-    hourly_temperature_2m = hourly.Variables(0).ValuesAsNumpy()
-    hourly_wind_speed_10m = hourly.Variables(1).ValuesAsNumpy()
-    hourly_wind_direction_10m = hourly.Variables(2).ValuesAsNumpy()
-    hourly_precipitation = hourly.Variables(3).ValuesAsNumpy()
-    hourly_relative_humidity_2m = hourly.Variables(4).ValuesAsNumpy()
-    hourly_surface_pressure = hourly.Variables(5).ValuesAsNumpy()
-    hourly_cloud_cover = hourly.Variables(6).ValuesAsNumpy()
-    hourly_visibility = hourly.Variables(7).ValuesAsNumpy()
-    hourly_dewpoint_2m = hourly.Variables(8).ValuesAsNumpy()
+    # Loop over each location in the locations dataframe
+    for index, location in locations.iterrows():
+        site_name = location['site_name']
+        lat = location['lat']
+        lon = location['lon']
 
-    hourly_data = {"date": pd.date_range(
-        start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
-        end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
-        freq=pd.Timedelta(seconds=hourly.Interval()),
-       inclusive="left"  # pandas > 2
-       #  closed="left", # pandas > 2
-    )}
+        get_dagster_logger().info(f"Processing forecast for site: {site_name} at {lat}, {lon}")
 
-    hourly_data["temperature_2m"] = hourly_temperature_2m
-    hourly_data["wind_speed_10m"] = hourly_wind_speed_10m
-    hourly_data["wind_direction_10m"] = hourly_wind_direction_10m
-    hourly_data["relative_humidity_2m"] = hourly_relative_humidity_2m
-    hourly_data["precipitation"] = hourly_precipitation
-    hourly_data["surface_pressure"] = hourly_surface_pressure
-    hourly_data["cloud_cover"] = hourly_cloud_cover
-    hourly_data["visibility"] = hourly_visibility
-    hourly_data["dewpoint_2m"] = hourly_dewpoint_2m
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "hourly": ["temperature_2m", "wind_speed_10m",
+                       "wind_direction_10m", "precipitation",
+                       "relative_humidity_2m",'surface_pressure',
+                                       'cloud_cover',
+                       'visibility',
+                       'dewpoint_2m'
+                       ],
+            "past_days": 30
+        }
 
-    hourly_dataframe = pd.DataFrame(data=hourly_data)
+        responses = openmeteo.weather_api(url, params=params)
 
-    #hourly_csv = hourly_dataframe.to_csv(index=False)
+        # Process first location. Add a for-loop for multiple locations or weather models
+        response = responses[0]
+        get_dagster_logger().info(f"Coordinates {response.Latitude()}°N {response.Longitude()}°E")
+        get_dagster_logger().info(f"Elevation {response.Elevation()} m asl")
+        get_dagster_logger().info(f"Timezone {response.Timezone()} {response.TimezoneAbbreviation()}")
+        get_dagster_logger().info(f"Timezone difference to GMT+0 {response.UtcOffsetSeconds()} s")
+
+        # Process hourly data. The order of variables needs to be the same as requested.
+        hourly = response.Hourly()
+        hourly_temperature_2m = hourly.Variables(0).ValuesAsNumpy()
+        hourly_wind_speed_10m = hourly.Variables(1).ValuesAsNumpy()
+        hourly_wind_direction_10m = hourly.Variables(2).ValuesAsNumpy()
+        hourly_precipitation = hourly.Variables(3).ValuesAsNumpy()
+        hourly_relative_humidity_2m = hourly.Variables(4).ValuesAsNumpy()
+        hourly_surface_pressure = hourly.Variables(5).ValuesAsNumpy()
+        hourly_cloud_cover = hourly.Variables(6).ValuesAsNumpy()
+        hourly_visibility = hourly.Variables(7).ValuesAsNumpy()
+        hourly_dewpoint_2m = hourly.Variables(8).ValuesAsNumpy()
+
+        hourly_data = {"date": pd.date_range(
+            start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
+            end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
+            freq=pd.Timedelta(seconds=hourly.Interval()),
+           inclusive="left"  # pandas > 2
+           #  closed="left", # pandas > 2
+        )}
+
+        hourly_data["temperature_2m"] = hourly_temperature_2m
+        hourly_data["wind_speed_10m"] = hourly_wind_speed_10m
+        hourly_data["wind_direction_10m"] = hourly_wind_direction_10m
+        hourly_data["relative_humidity_2m"] = hourly_relative_humidity_2m
+        hourly_data["precipitation"] = hourly_precipitation
+        hourly_data["surface_pressure"] = hourly_surface_pressure
+        hourly_data["cloud_cover"] = hourly_cloud_cover
+        hourly_data["visibility"] = hourly_visibility
+        hourly_data["dewpoint_2m"] = hourly_dewpoint_2m
+
+        # Add site_name to the hourly data
+        hourly_data["site_name"] = site_name
+        #hourly_data["latitude"] = lat
+        #hourly_data["longitude"] = lon
+
+        hourly_dataframe = pd.DataFrame(data=hourly_data)
+        all_forecasts.append(hourly_dataframe)
+
+    # Combine all forecasts into a single dataframe
+    combined_dataframe = pd.concat(all_forecasts, ignore_index=True)
+
+    #hourly_csv = combined_dataframe.to_csv(index=False)
     filename = f'{s3_output_path}/raw/forecast/'
     #s3_resource.putFile_text(data=hourly_csv, path=filename)
-    store_assets.store_dataframe_to_s3(hourly_dataframe, filename,'latest', s3_resource, metadata=metadata,
+    store_assets.store_dataframe_to_s3(combined_dataframe, filename,'latest', s3_resource, metadata=metadata,
                                        enable_latest_path=True, latestdatasetpath=f"{s3_output_path}_forecast")
-    return hourly_dataframe
+    return combined_dataframe
 
 # Define a yearly partition
 start_date_closures=datetime(2015,1,1)
