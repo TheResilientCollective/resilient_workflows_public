@@ -2773,6 +2773,20 @@ wheels = [
 ]
 
 [[package]]
+name = "noaa-coops"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pandas" },
+    { name = "requests" },
+    { name = "zeep" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1b/d1/a0617ae0bd29a3096e8de4134806d755ec83b5e737e85fec8f027acc2eb6/noaa_coops-0.4.0.tar.gz", hash = "sha256:9b7853cd4b2961332e930723dee05b45a8539976cbd5a2550fd3577e3c20841f", size = 14730, upload-time = "2024-08-03T14:39:49.093Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/1c/21121519247ff05b987dc5293d33302aa8fcdf68ab41626162f03becbd81/noaa_coops-0.4.0-py3-none-any.whl", hash = "sha256:d05f00de2f889f3e01a1b4454f57f44268dea35b322ba9cbdc532effe21e8522", size = 13539, upload-time = "2024-08-03T14:39:48.066Z" },
+]
+
+[[package]]
 name = "notebook"
 version = "7.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4249,6 +4263,7 @@ dependencies = [
     { name = "lxml" },
     { name = "matplotlib" },
     { name = "minio" },
+    { name = "noaa-coops" },
     { name = "notebook" },
     { name = "office365-rest-python-client" },
     { name = "openmeteo-requests" },
@@ -4312,6 +4327,7 @@ requires-dist = [
     { name = "lxml" },
     { name = "matplotlib" },
     { name = "minio", specifier = "==7.1.13" },
+    { name = "noaa-coops", specifier = ">=0.4.0" },
     { name = "notebook" },
     { name = "office365-rest-python-client", specifier = ">=2.6.2" },
     { name = "openmeteo-requests" },

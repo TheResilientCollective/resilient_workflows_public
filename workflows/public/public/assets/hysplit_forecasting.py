@@ -26,14 +26,51 @@ WEATHER_BASE='latest/tijuana/weather'
 STREAMFLOW_BASE='latest/tijuana/streamflow'
 STREAMFLOW_SITE='boundary_cms'
 #STREAMFLOW_SITES=['boundary_cms']
+TIDAL_BASE='latest/tijuana/tides/tidal_historic'
 
 
 sites_csv = """LongName,site_name,lat,lon,AgencyName
 Berry Elementary School,NESTOR - BES, 32.567097, -117.090656,San Diego APCD
 Imperial Beach Civic Center,IB CIVIC CTR, 32.576139,  -117.115361,San Diego APCD
 El Cajon - Lexington Elementary School,EL CAJON LES, 32.789561,  -116.944222,San Diego APCD
-San Ysidro,SAN YSIDRO,	32.552794,	-117.047286,San Diego APCD	
+San Ysidro,SAN YSIDRO,	32.552794,	-117.047286,San Diego APCD
         """
+
+def degrees_to_direction(degrees):
+    """
+    Convert wind direction in degrees to categorical text directions.
+
+    Args:
+        degrees: Wind direction in degrees (0-360)
+
+    Returns:
+        str: Cardinal/intercardinal direction (N, NE, E, SE, S, SW, W, NW)
+    """
+    if pd.isna(degrees):
+        return None
+
+    # Normalize degrees to 0-360 range
+    degrees = degrees % 360
+
+    # Define direction ranges (each direction covers 45 degrees, centered on the cardinal direction)
+    directions = [
+        (0, 22.5, "N"),      # 337.5-22.5 degrees
+        (22.5, 67.5, "NE"),  # 22.5-67.5 degrees
+        (67.5, 112.5, "E"),  # 67.5-112.5 degrees
+        (112.5, 157.5, "SE"), # 112.5-157.5 degrees
+        (157.5, 202.5, "S"),  # 157.5-202.5 degrees
+        (202.5, 247.5, "SW"), # 202.5-247.5 degrees
+        (247.5, 292.5, "W"),  # 247.5-292.5 degrees
+        (292.5, 337.5, "NW"), # 292.5-337.5 degrees
+        (337.5, 360, "N")     # 337.5-360 degrees (wrapping to North)
+    ]
+
+    for min_deg, max_deg, direction in directions:
+        if min_deg <= degrees < max_deg:
+            return direction
+
+    return "N"  # Default to North for edge cases
+
 
 def duckdb_connection(s3_resource: minio.S3Resource):
 
@@ -155,6 +192,10 @@ def data_for_models(context):
         weather_df = weather_df.drop(['time'], axis=1)
         weather_df.index = weather_df.index.astype("datetime64[ns, America/Los_Angeles]")
         weather_df = weather_df.sort_index()
+
+        # Convert wind direction from degrees to categorical text
+        if 'wind_direction_10m' in weather_df.columns:
+            weather_df['wind_direction_categorical'] = weather_df['wind_direction_10m'].apply(degrees_to_direction)
     except Exception as e:
         dagster_logger.error(f"Error processing weather data {e}")
         raise e
@@ -190,6 +231,37 @@ def data_for_models(context):
     except Exception as e:
         dagster_logger.error(f"Error merging weather and h2s  AND STREAMFLOW data {e}")
         raise e
+    # add tides
+    try:
+        tidal_files = f"s3://{s3_resource.S3_BUCKET}/{TIDAL_BASE}/{PARQUET_PATTERN}"
+        tidal_df = duckdb_con.read_parquet(tidal_files).df()
+    except Exception as e:
+        dagster_logger.error(f"Error reading tidal_files  files {tidal_files} {e}")
+        raise e
+    try:
+        tidal_df['time'] = pd.to_datetime(tidal_df['time'], utc=False)
+        tidal_df['time'] = tidal_df['time'].dt.tz_localize(None)
+        tidal_df['time'] = tidal_df['time'].astype('datetime64[ns]')
+        tidal_df['time'] = tidal_df['time'].dt.tz_localize("UTC")
+        tidal_df["time"] = tidal_df["time"].dt.tz_convert("America/Los_Angeles")
+
+        tidal_df = tidal_df.set_index(pd.DatetimeIndex(tidal_df['time']))
+        tidal_df = tidal_df.drop(
+            ['time'], axis=1)
+    except Exception as e:
+        dagster_logger.error(f"Error reading tidals   files {tidal_df} {e}")
+        raise e
+    try:
+        matched_df = pd.merge_asof(matched_df, tidal_df, left_on="time", right_on="time", direction="nearest")
+    except Exception as e:
+        dagster_logger.error(f"Error merging weather and h2s  AND tidal files data {e}")
+        raise e
+    if 'date_processed' in matched_df.columns:
+            matched_df = matched_df.drop(columns=['date_processed'])
+    if 'aggregation_year' in matched_df.columns:
+        matched_df = matched_df.drop(columns=['aggregation_year'])
+    if 'H2S_qualifier' in matched_df.columns:
+        matched_df = matched_df.drop(columns=['H2S_qualifier'])
     store_assets.store_dataframe_to_s3( matched_df, OUTPUT_PATH,'modeldata_h2s', s3_resource,
                                        latestdatasetpath=LATEST,enable_latest_path=True,
                                        formats=[ 'csv', 'parquet'], metadata=metadata )
@@ -222,9 +294,16 @@ def data_for_hysplit(context, data_for_models):
     metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url,variableMeasured=variableMeasured)
 
     s3_resource = context.resources.s3
-    h2s_df = data_for_models[['time','site_name','H2S', 'wind_speed_10m', 'wind_direction_10m']]
-    h2s_df.rename(columns={'wind_speed_10m':'wind_speed', 'wind_direction_10m':'wind_direction'} )
+    # Include both numeric and categorical wind direction columns
+    columns_to_select = ['time','site_name','H2S', 'wind_speed_10m', 'wind_direction_10m']
+    if 'wind_direction_categorical' in data_for_models.columns:
+        columns_to_select.append('wind_direction_categorical')
+
+    h2s_df = data_for_models[columns_to_select]
+    h2s_df = h2s_df.rename(columns={'wind_speed_10m':'wind_speed', 'wind_direction_10m':'wind_direction'})
     store_assets.store_dataframe_to_s3( h2s_df, OUTPUT_PATH,'hysplitdata_h2s', s3_resource,
                                        latestdatasetpath=LATEST,enable_latest_path=True,
                                        formats=[ 'csv'], metadata=metadata )
+
+
 

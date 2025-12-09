@@ -88,4 +88,7 @@ wahis_uploads_job,
 outbreak_summaries,
 outbreak_by_pathogen
 )
-
+from .tides import (
+tides_all_job,
+tides_historic
+)
