@@ -88,9 +88,11 @@ def store_dataframe_to_s3(
         if latest.endswith('/'):
             latest = latest[:-1]
         return latest
-    if latestdatasetpath.endswith('/'):
+    if latestdatasetpath and latestdatasetpath.endswith('/'):
         latestdatasetpath = latestdatasetpath[:-1]
-    path_w_basename =f"{path}{dataset_identifier}"
+    if path and path.endswith('/'):
+        path = path[:-1]
+    path_w_basename =f"{path}/{dataset_identifier}"
     if enable_latest_path:
         latestdatasetpath_basename = f"{get_latest_basepath()}/{latestdatasetpath}/{dataset_identifier}"
         lastest_metadtata = metadata.copy()

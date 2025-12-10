@@ -38,8 +38,8 @@ from ..utils import store_assets
 #             - SLACK_CHANNEL=${RESILIENT_SLACK_CHANNEL:-"#test"}
 #             - SLACK_TOKEN=${RESILIENT_SLACK_TOKEN}
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
-
-daily_apcd_partitions = DailyPartitionsDefinition(start_date="2025-08-01")
+earliest=os.environ.get('APCD_EARLIEST',"2025-08-01" )
+daily_apcd_partitions = DailyPartitionsDefinition(start_date=earliest)
 start_date_apcd=datetime(2023,1,1)
 yearly_apcd_partitions = TimeWindowPartitionsDefinition(start=start_date_apcd,fmt='%Y',
 cron_schedule = "@yearly"
@@ -287,24 +287,112 @@ def apcd_all(context, ) -> pd.DataFrame:
                           '''
     source_url = base_url
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
+    # s3_resource = context.resources.s3
+    # #earliest = context.asset_partition_key_for_output()
+    # earliest=os.environ.get('APCD_EARLIEST','2024-10-02' )
+    # earliest_date=datetime.fromisoformat(earliest).replace(tzinfo=timezone(timedelta(hours=-7)))
+    # num_days = datetime.now(tz=ZoneInfo("America/Los_Angeles")) - earliest_date
+    # get_dagster_logger().info(f'days to get from {earliest_date} {num_days.days}' )
+    # file_paths = files_root(num_days=num_days.days)
+    # get_dagster_logger().info(f'file paths {file_paths} ' )
+    # # Process the files
+    # output_df = process_csv_files(file_paths)
+    #
+    # #output_df.to_csv( index=False)
+    # # filename = f'{s3_output_path}/all.csv'
+    # # s3_resource.putFile_text(data=output_df.to_csv( index=False), path=filename)
+    # filename = f'{s3_output_path}/all'
+    # store_assets.geodataframe_to_s3(output_df, filename, s3_resource, metadata=metadata )
+    # return output_df
+
     s3_resource = context.resources.s3
-    #earliest = context.asset_partition_key_for_output()
-    earliest=os.environ.get('APCD_EARLIEST','2024-10-02' )
-    earliest_date=datetime.fromisoformat(earliest).replace(tzinfo=timezone(timedelta(hours=-7)))
-    num_days = datetime.now(tz=ZoneInfo("America/Los_Angeles")) - earliest_date
-    get_dagster_logger().info(f'days to get from {earliest_date} {num_days.days}' )
-    file_paths = files_root(num_days=num_days.days)
-    get_dagster_logger().info(f'file paths {file_paths} ' )
-    # Process the files
-    output_df = process_csv_files(file_paths)
+    logger = get_dagster_logger()
 
-    #output_df.to_csv( index=False)
-    # filename = f'{s3_output_path}/all.csv'
-    # s3_resource.putFile_text(data=output_df.to_csv( index=False), path=filename)
-    filename = f'{s3_output_path}/all'
-    store_assets.geodataframe_to_s3(output_df, filename, s3_resource, metadata=metadata )
-    return output_df
 
+    year = datetime.now().year
+
+    logger.info(f"Processing year {year} for aggregation")
+
+    # List all files for the year
+    prefix = f"tijuana/sd_apcd_air/raw/{year}/"
+    #prefix = f'{s3_output_path}/all'
+    try:
+        objects = s3_resource.getClient().list_objects(
+            s3_resource.S3_BUCKET,
+            prefix=prefix,
+            recursive=True
+        )
+
+        file_paths = []
+        for obj in objects:
+            if obj.object_name.endswith('.CSV') or obj.object_name.endswith('.csv'):
+                file_paths.append(obj.object_name)
+
+        logger.info(f"Found {len(file_paths)} files for year {year}")
+
+        if not file_paths:
+            logger.warning(f"No files found for year {year}")
+            return pd.DataFrame()
+
+        # Create file URLs that process_csv_files can access
+        # We need to construct accessible URLs for the raw APCD files
+        file_urls = []
+
+        for file_path in sorted(file_paths):
+            file_url = s3_resource.publicUrl(file_path,bucket=s3_resource.S3_BUCKET)
+            file_urls.append(file_url)
+
+
+        if file_urls:
+            logger.info(f"Processing {len(file_urls)} files for year {year} using process_csv_files")
+
+            # Use the existing process_csv_files function to process the files
+            year_data = process_csv_files(file_urls)
+
+            # Add metadata columns to the processed data
+            year_data['aggregation_year'] = year
+            year_data['date_processed'] = datetime.now().isoformat()
+
+            logger.info(f"Aggregated {len(year_data)} rows for year {year} using process_csv_files")
+
+            # Upload yearly aggregated data
+            output_path = f"tijuana/sd_apcd_air/output/yearly/all/{year}"
+            output_name= f'apcd_all_{year}'
+            latest=f'apcd_all_{year}'
+            # Use store_assets to save in multiple formats
+            try:
+                store_assets.store_dataframe_to_s3(
+                    year_data,
+                    output_path,
+                    output_name,
+                    s3_resource,
+                    formats=['csv', 'parquet'],
+                    metadata=metadata
+                )
+                prefix = f'{s3_output_path}'
+                output_name= f'all'
+                store_assets.store_dataframe_to_s3(
+                    year_data,
+                    prefix,
+                    output_name,
+                    s3_resource,
+                    formats=['csv', 'parquet'],
+                    metadata=metadata
+                )
+                logger.info(f"✓ Successfully processed and uploaded data for year {year}")
+            except Exception as e:
+                logger.error(f"Failed to upload yearly aggregated data for year {year}: {e}")
+                raise e
+
+
+            return year_data
+        else:
+            logger.error(f"Failed to read any files for year {year}")
+            return pd.DataFrame()
+
+    except Exception as e:
+        logger.error(f"Failed to process year {year}: {e}")
+        return pd.DataFrame()
 
 @asset(group_name="tijuana", key_prefix="apcd",
        name="day", required_resource_keys={"s3", "airtable"},
@@ -327,6 +415,61 @@ def get_oneday(context, ) -> pd.DataFrame:
     s3_resource.putFile_text(data=output_df.to_csv( index=False), path=filename)
 
     return output_df
+
+
+@asset(group_name="tijuana", key_prefix="apcd",
+       name="daily_raw_download", required_resource_keys={"s3"},
+       partitions_def=daily_apcd_partitions,
+       automation_condition=AutomationCondition.eager()
+       )
+def get_daily_raw_csv(context) -> str:
+    """
+    Downloads yesterday's raw CSV file for a specific date partition
+
+    Downloads yesterday_YYYYMMDD.CSV from the base_url for each partition date
+    and stores the raw CSV file to S3 at tijuana/sd_apcd_air/raw/YYYY/
+    """
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    # Get the partition date (YYYY-MM-DD format)
+    partition_date = context.asset_partition_key_for_output()
+
+    # Convert to YYYYMMDD format for the filename
+    date_obj = datetime.fromisoformat(partition_date)
+    filedate = date_obj.strftime('%Y%m%d')
+    year = date_obj.year
+
+    # Construct the filename using the pattern
+    template_string = Template(pattern_file)
+    filename = template_string.safe_substitute(filedate=filedate)
+    file_url = f'{base_url}{filename}'
+
+    logger.info(f'Downloading raw CSV file for date {partition_date}: {file_url}')
+
+    try:
+        headers={
+        #    'User-Agent': 'python-requests/2.28.2 (UCSD-Resilient-Environmental-Monitoring)'
+         #  'User-Agent':  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+           'User-Agent':  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 python-requests/2.28.2 (UCSD-Resilient-Environmental-Monitoring)'
+        }
+        # Download the CSV file
+        response = requests.get(file_url, headers=headers)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+
+        # Store the raw CSV file to S3
+        s3_path = f'tijuana/sd_apcd_air/raw/{year}/{filename}'
+        s3_resource.putFile_text(data=response.text, path=s3_path)
+
+        logger.info(f"✓ Successfully downloaded and stored raw CSV file {filename} to S3 at {s3_path}")
+        return s3_path
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to download file {filename} from {file_url}: {e}")
+        raise e
+    except Exception as e:
+        logger.error(f"Failed to store file {filename} to S3: {e}")
+        raise e
 
 def generateLongName(row):
     get_dagster_logger().debug(f'LongName row: {row}')
@@ -395,16 +538,34 @@ def generate_apcd(context):
 
     # filename = f'{s3_output_path}/h2s.csv'
     # s3_resource.putFile_text(data=h2s.to_csv( index=False), path=filename)
-    filename = f'{s3_output_path}/h2s'
-    store_assets.geodataframe_to_s3(h2s, filename, s3_resource, metadata=metadata )
+
+    store_assets.store_dataframe_to_s3(
+        h2s,
+        s3_output_path,
+        f'apcd_h2s_latest',
+        s3_resource,
+        formats=['csv', 'parquet'],
+        metadata=metadata,
+        enable_latest_path=True,
+        latestdatasetpath='tijuana/sd_apcd_air/h2s'
+    )
+    #store_assets.geodataframe_to_s3(h2s, filename, s3_resource, metadata=metadata )
 
     so2 = output_gdf[output_gdf['Parameter'] == so2_parameter]
     so2.to_csv(index=False)
     # filename = f'{s3_output_path}/s02.csv'
     # s3_resource.putFile_text(data=so2.to_csv(index=False), path=filename)
-    filename = f'{s3_output_path}/s02'
-    store_assets.geodataframe_to_s3(so2, filename, s3_resource, metadata=metadata )
 
+    store_assets.store_dataframe_to_s3(
+        so2,
+        s3_output_path,
+        f's02',
+        s3_resource,
+        formats=['csv', 'parquet'],
+        metadata=metadata,
+        #enable_latest_path=True,
+        #latestdatasetpath='tijuana/sd_apcd_air/'
+    )
     date_30 = (datetime.now() - timedelta(days=interface_days)).isoformat()
     last_30_df=output_gdf[output_gdf['Date with time']>date_30]
 
@@ -549,9 +710,11 @@ def process_csv_files(file_paths):
                                     'Qualifier': '',
                                     'Original Value': result
                                 })
+
             else:
                 get_dagster_logger().error(f'get file {file_path} {response.status_code} {response.text}' )
-
+            response.close()
+    get_dagster_logger().info(f'got {len(transformed_data)} lines')
     # Create DataFrame from transformed data
     output_df = pd.DataFrame(transformed_data)
     output_df["Parameter"] = output_df["Parameter"].astype("category")
@@ -581,6 +744,19 @@ apcd_all_job = define_asset_job(
           execution_timezone="America/Los_Angeles", )
 def apcd_all_schedule(context):
 
+    return RunRequest(
+    )
+
+
+# Daily raw CSV download job and schedule
+apcd_daily_raw_job = define_asset_job(
+    "apcd_daily_raw", selection=[AssetKey(["apcd", "daily_raw_download"])]
+)
+
+# Daily schedule for raw CSV download (runs at 2 AM every day)
+@schedule(job=apcd_daily_raw_job, cron_schedule="0 2 * * *", name="apcd_daily_raw",
+          execution_timezone="America/Los_Angeles", )
+def apcd_daily_raw_schedule(context):
     return RunRequest(
     )
 
