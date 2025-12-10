@@ -63,7 +63,8 @@ copy_forecast_latest
 )
 from .hysplit_forecasting import (
     data_for_models,
-    data_for_hysplit
+    data_for_hysplit,
+h2s_locations
 )
 from .sandiego_epidemiology_mpox import (
 mpox_workbook_download,
@@ -87,4 +88,7 @@ wahis_uploads_job,
 outbreak_summaries,
 outbreak_by_pathogen
 )
-
+from .tides import (
+tides_all_job,
+tides_historic
+)
