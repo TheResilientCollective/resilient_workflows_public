@@ -16,6 +16,7 @@ from ..utils.resilient_epi_schemas import (
 )
 
 s3_output_path = 'pathogens/ca/counties/'
+s3_latest_path = 'mpox/california'
 
 @asset(group_name="pathogens", key_prefix="mpox",
        name="mpox_la_weekly",
@@ -108,15 +109,16 @@ def mpox_la_powerbi(context):
                 validated_basic['disease'] = 'Mpox'
 
                 # Store validated basic epidemiology data
-                filename_basic = f"{s3_output_path}output/validated_epi_schema/mpox_la_weekly_basic"
+                filename_basic = f"{s3_output_path}output/validated_epi_schema"
                 metadata_basic = store_assets.objectMetadata(
                     name="mpox_la_weekly_basic_epidemiology",
                     description="Los Angeles County Mpox weekly data in basic epidemiology schema format",
                     source_url=source_url
                 )
 
-                store_assets.dataframe_to_s3(validated_basic, filename_basic, s3_resource,
-                                           metadata=metadata_basic, formats=['csv', 'json'])
+                store_assets.store_dataframe_to_s3(validated_basic, filename_basic,"mpox_la_weekly_basic", s3_resource,
+                                           metadata=metadata_basic, formats=['csv', 'json'],
+                                             enable_latest_path=True, latestdatasetpath=s3_latest_path)
                 logger.info(f"📋 Stored validated basic epidemiology data for LA County: {len(validated_basic)} rows")
 
                 # Create statistical extension records
@@ -177,8 +179,29 @@ def mpox_sf_weekly(context):
     source_url = 'https://data.sfgov.org/Health-and-Social-Services/Mpox-Cases-Over-Time/vi7r-brsi/about_data'
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
 
-    base_url = "https://data.sfgov.org/resource/vi7r-brsi.csv"
-    mpox_df=pd.read_csv(base_url)
+    count_url = "https://data.sfgov.org/resource/vi7r-brsi.geojson?$select=count(cumulative_cases)"
+    count_response = requests.get(count_url)
+    if count_response.status_code == 200:
+        count_json = count_response.json()
+        count = int(count_json["features"][0]["properties"][f"count_cumulative_cases"])
+        get_dagster_logger().info(f"count {count} for url :{count_url} ")
+    else:
+        get_dagster_logger().info(f"access failed: {count_response.status_code} {count_response.text}")
+        raise Exception(f"access failed: {count_response.status_code} {count_response.text}")
+    limit = 1000
+    offset = 0
+    mpox_df = None
+    for i in range(0, count, limit):
+        mpox_url = f"https://data.sfgov.org/resource/vi7r-brsi.csv?$offset={i}&$limit={limit}"
+        try:
+            this_df = pd.read_csv(mpox_url)
+            if mpox_df is None:
+                mpox_df = this_df
+            else:
+                mpox_df = pd.concat([mpox_df, this_df], ignore_index=True)
+        except Exception as e:
+            print(e)
+            get_dagster_logger().error(f"{i}: access failed:{mpox_url} {e} ")
 
     logger = get_dagster_logger()
     epi_processor = ResilientEpiProcessor()
@@ -220,15 +243,17 @@ def mpox_sf_weekly(context):
                 validated_basic['disease'] = 'Mpox'
 
                 # Store validated basic epidemiology data
-                filename_basic = f"{s3_output_path}output/validated_epi_schema/mpox_sf_weekly_basic"
+                filename_basic = f"{s3_output_path}output/validated_epi_schema"
                 metadata_basic = store_assets.objectMetadata(
                     name="mpox_sf_weekly_basic_epidemiology",
                     description="San Francisco County Mpox weekly data in basic epidemiology schema format",
                     source_url=source_url
                 )
 
-                store_assets.dataframe_to_s3(validated_basic, filename_basic, s3_resource,
-                                           metadata=metadata_basic, formats=['csv', 'json'])
+                store_assets.store_dataframe_to_s3(validated_basic, filename_basic,'mpox_sf_weekly_basic',s3_resource,
+                                           metadata=metadata_basic, formats=['csv', 'json'],
+                                             enable_latest_path=True, latestdatasetpath=s3_latest_path
+                                             )
                 logger.info(f"📋 Stored validated basic epidemiology data for SF County: {len(validated_basic)} rows")
 
                 # Create statistical extension records for both new cases and cumulative cases

@@ -38,6 +38,8 @@ weekly_partitions = WeeklyPartitionsDefinition(
 timezone="America/Los_Angeles",
 )
 s3_output_path = 'pathogens/cdc/nndss'
+s3_latest_mpox = 'mpox/cdc'
+s3_latest_measles = 'measles/cdc'
 
 
 AIRTABLE_TABLE_ID = os.environ.get('AIRTABLE_MPOX_TABLE_ID')
@@ -201,19 +203,17 @@ def mpox_weekly(context):
         logger.info(f"✅ Created {len(combined_basic)} validated basic epidemiology records")
         logger.info(f"🔍 Basic epidemiology schema validation passed for {len(validated_basic_records)} record batches")
 
-        filename_basic = f'{s3_output_path}/output/validated_epi_schema/mpox_weekly_basic'
+        filename_basic = f'{s3_output_path}/output/validated_epi_schema/'
         metadata_basic = store_assets.objectMetadata(
             name="mpox_weekly_basic_epidemiology",
             description="CDC Mpox weekly data in basic epidemiology schema format",
             source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
         )
-        try:
-            gdf_basic = gpd.GeoDataFrame(combined_basic)
-            store_assets.geodataframe_to_s3(gdf_basic, filename_basic, s3_resource, metadata=metadata_basic)
-            logger.info(f"📋 Stored validated basic epidemiology data: {len(combined_basic)} rows")
-        except Exception as e:
-            logger.warning(f"⚠️  Storing as DataFrame instead of GeoDataFrame: {e}")
-            store_assets.dataframe_to_s3(combined_basic, filename_basic, s3_resource, metadata=metadata_basic)
+
+        store_assets.store_dataframe_to_s3(combined_basic, filename_basic, "mpox_weekly_basic", s3_resource,
+                                               metadata=metadata_basic, formats=['csv', 'json'],
+                                               enable_latest_path=True, latestdatasetpath=s3_latest_mpox)
+
 
     # Combine and store statistical extension data
     if statistical_extension_records:
@@ -448,19 +448,15 @@ def measles_weekly(context):
         logger.info(f"✅ Created {len(combined_basic)} validated basic epidemiology records")
         logger.info(f"🔍 Basic epidemiology schema validation passed for {len(validated_basic_records)} record batches")
 
-        filename_basic = f'{s3_output_path}/output/validated_epi_schema/measles_weekly_basic'
+        filename_basic = f'{s3_output_path}/output/validated_epi_schema/'
         metadata_basic = store_assets.objectMetadata(
             name="measles_weekly_basic_epidemiology",
             description="CDC Measles weekly data in basic epidemiology schema format",
             source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
         )
-        try:
-            gdf_basic = gpd.GeoDataFrame(combined_basic)
-            store_assets.geodataframe_to_s3(gdf_basic, filename_basic, s3_resource, metadata=metadata_basic)
-            logger.info(f"📋 Stored validated basic epidemiology data: {len(combined_basic)} rows")
-        except Exception as e:
-            logger.warning(f"⚠️  Storing as DataFrame instead of GeoDataFrame: {e}")
-            store_assets.dataframe_to_s3(combined_basic, filename_basic, s3_resource, metadata=metadata_basic)
+        store_assets.store_dataframe_to_s3(combined_basic, filename_basic, "measles_weekly_basic", s3_resource,
+                                               metadata=metadata_basic, formats=['csv', 'json'],
+                                               enable_latest_path=True, latestdatasetpath=s3_latest_measles)
 
     # Combine and store statistical extension data
     if statistical_extension_records:
