@@ -11,7 +11,7 @@ from threading import Thread
 from flask import Flask, request, jsonify
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-import boto3
+
 
 from git import Repo
 
