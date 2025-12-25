@@ -20,7 +20,7 @@ from ..utils.resilient_epi_schemas import (
     transform_to_basic_epidemiology
 )
 
-from workflows.public.public.utils.tableau_workbook import TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
+from ..utils.tableau_workbook import TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
 from ..utils.date import check_missing_weeks
 from ..utils.store_assets import store_dataframe_to_s3
 

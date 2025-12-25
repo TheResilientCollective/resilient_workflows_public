@@ -10,7 +10,7 @@ from dagster import SensorEvaluationContext, sensor, get_dagster_logger, RunRequ
     define_asset_job, AssetKey, AssetIn
 import duckdb
 
-from workflows.public.public.utils import store_assets
+from ..utils import store_assets
 from ..utils.resilient_epi_schemas import (
     detailed_epidemiology_format,
 
