@@ -12,6 +12,12 @@ from flask import Flask, request, jsonify
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
+# Import OAuth2 email functionality
+try:
+    from email_oauth import send_email_oauth
+    OAUTH_AVAILABLE = True
+except ImportError:
+    OAUTH_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
@@ -148,9 +154,23 @@ def send_preview_notification(channel, asset_name=None, metadata=None,
 
 
 def send_email(subject, body, html_body=None):
-    """Send email notification"""
-    if not EMAIL_ENABLED or not EMAIL_FROM or not EMAIL_PASSWORD or not EMAIL_TO:
+    """Send email notification with OAuth2 support"""
+    if not EMAIL_ENABLED or not EMAIL_FROM or not EMAIL_TO:
         logger.info("Email not configured or disabled, skipping email notification")
+        return False
+
+    # Try OAuth2 first if available and configured
+    if OAUTH_AVAILABLE:
+        logger.info("Attempting to send email via OAuth2...")
+        oauth_success = send_email_oauth(subject, body, html_body)
+        if oauth_success:
+            return True
+        else:
+            logger.info("OAuth2 email failed, falling back to SMTP...")
+
+    # Fall back to SMTP if OAuth2 failed or not available
+    if not EMAIL_PASSWORD:
+        logger.error("Email password not configured and OAuth2 not available/failed")
         return False
 
     try:
@@ -170,17 +190,18 @@ def send_email(subject, body, html_body=None):
         if html_body:
             msg.attach(MIMEText(html_body, 'html'))
 
-        # Send email
+        # Send email via SMTP
+        logger.info("Attempting to send email via SMTP...")
         with smtplib.SMTP(EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT) as server:
             server.starttls()
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
             server.send_message(msg, to_addrs=recipients)
 
-        logger.info(f"Email sent successfully to {', '.join(recipients)}")
+        logger.info(f"Email sent successfully via SMTP to {', '.join(recipients)}")
         return True
 
     except Exception as e:
-        logger.error(f"Error sending email: {str(e)}")
+        logger.error(f"Error sending email via SMTP: {str(e)}")
         return False
 
 
