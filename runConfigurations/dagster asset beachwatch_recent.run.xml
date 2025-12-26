@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="dagster asset beachwatch_recent" type="PythonConfigurationType" factoryName="Python" folderName="public">
+  <configuration default="false" name="dagster asset beachwatch_recent" type="PythonConfigurationType" factoryName="Python" folderName="beaches">
     <module name="resilient_workflows" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
