@@ -374,4 +374,127 @@ def data_for_hysplit(context, data_for_models):
                                        formats=[ 'csv'], metadata=metadata )
 
 
+@asset(
+    group_name="tijuana",
+    key_prefix="h2sforecast",
+    name="h2s_peaks",
+    required_resource_keys={"s3"},
+    deps=[AssetKey(["h2sforecast", 'modeldata_h2s'])],
+    ins={
+        "modeldata_h2s": AssetIn(
+            key=AssetKey(['h2sforecast', 'modeldata_h2s'])
+        )
+    },
+    metadata={
+        "source": "San Diego APCD H2S data analysis"
+        , "description": "Hourly counts of H2S threshold exceedances by day/night periods"
+        , "variableMeasured": ["H2S", "Exceedance Counts"]
+    },
+    automation_condition=AutomationCondition.eager()
+)
+def h2s_peaks_analysis(context, modeldata_h2s):
+    """
+    Create hourly counts of H2S exceedances for day and night periods
+
+    Counts hourly occurrences when H2S exceeds 5 ppb and 30 ppb thresholds,
+    separated by day (6 AM - 6 PM) and night (6 PM - 6 AM) periods.
+    """
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    variableMeasured = meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url, variableMeasured=variableMeasured)
+
+    s3_resource = context.resources.s3
+    dagster_logger = get_dagster_logger()
+
+    try:
+        # Work with the H2S model data
+        h2s_data = modeldata_h2s.copy()
+
+        if h2s_data.empty:
+            dagster_logger.warning("No H2S data available")
+            return pd.DataFrame()
+
+        # Ensure we have the time index and site_name
+        if 'site_name' not in h2s_data.columns:
+            dagster_logger.error("site_name column not found in data")
+            return pd.DataFrame()
+
+        # Reset index to work with datetime as a column
+        h2s_data = h2s_data.reset_index()
+
+        # Ensure datetime column exists
+        if 'time' not in h2s_data.columns:
+            dagster_logger.error("time column not found in data")
+            return pd.DataFrame()
+
+        # Convert time to datetime if it's not already
+        h2s_data['datetime'] = pd.to_datetime(h2s_data['time'])
+
+        # Extract hour for day/night classification
+        h2s_data['hour'] = h2s_data['datetime'].dt.hour
+        h2s_data['date'] = h2s_data['datetime'].dt.date
+
+        # Classify periods: Day = 6 AM to 6 PM, Night = 6 PM to 6 AM
+        h2s_data['period'] = h2s_data['hour'].apply(lambda h: 'day' if 6 <= h < 18 else 'night')
+
+        # Filter for valid H2S measurements only
+        h2s_valid = h2s_data[h2s_data['H2S'].notna()].copy()
+
+        if h2s_valid.empty:
+            dagster_logger.warning("No valid H2S measurements found")
+            return pd.DataFrame()
+
+        # Create threshold exceedance flags
+        h2s_valid['exceeds_5'] = h2s_valid['H2S'] > 5
+        h2s_valid['exceeds_30'] = h2s_valid['H2S'] > 30
+
+        dagster_logger.info(f"Processing {len(h2s_valid)} valid H2S measurements")
+        dagster_logger.info(f"Found {h2s_valid['exceeds_5'].sum()} exceedances > 5 ppb")
+        dagster_logger.info(f"Found {h2s_valid['exceeds_30'].sum()} exceedances > 30 ppb")
+
+        # Calculate daily totals by site and period (no hourly summaries)
+        daily_totals = h2s_valid.groupby(['site_name', 'date', 'period']).agg({
+            'exceeds_5': 'sum',
+            'exceeds_30': 'sum',
+            'H2S': ['count', 'max', 'mean'],
+            'h2s_measured': lambda x: (~x).sum()
+        }).reset_index()
+
+        # Flatten column names for daily totals
+        daily_totals.columns = [
+            'site_name', 'date', 'period',
+            'count_exceeds_5', 'count_exceeds_30',
+            'total_measurements', 'max_h2s', 'mean_h2s', 'count_filled'
+        ]
+
+        daily_totals['summary_type'] = 'daily_by_period'
+        daily_totals['date_processed'] = datetime.now().isoformat()
+
+        dagster_logger.info(f"Generated {len(daily_totals)} daily H2S peak records by period")
+        dagster_logger.info(f"Day period exceedances > 5: {daily_totals[daily_totals['period']=='day']['count_exceeds_5'].sum()}")
+        dagster_logger.info(f"Night period exceedances > 5: {daily_totals[daily_totals['period']=='night']['count_exceeds_5'].sum()}")
+        dagster_logger.info(f"Day period exceedances > 30: {daily_totals[daily_totals['period']=='day']['count_exceeds_30'].sum()}")
+        dagster_logger.info(f"Night period exceedances > 30: {daily_totals[daily_totals['period']=='night']['count_exceeds_30'].sum()}")
+
+        # Store the results
+        store_assets.store_dataframe_to_s3(
+            daily_totals,
+            OUTPUT_PATH,
+            'h2s_peaks',
+            s3_resource,
+            latestdatasetpath=LATEST,
+            enable_latest_path=True,
+            formats=['csv', 'parquet'],
+            metadata=metadata
+        )
+
+        return daily_totals
+
+    except Exception as e:
+        dagster_logger.error(f"Error processing H2S peaks: {e}")
+        raise e
+
+
 
