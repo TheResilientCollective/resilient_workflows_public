@@ -196,6 +196,26 @@ def data_for_models(context):
         # Convert wind direction from degrees to categorical text
         if 'wind_direction_10m' in weather_df.columns:
             weather_df['wind_direction_categorical'] = weather_df['wind_direction_10m'].apply(degrees_to_direction)
+
+        # Add rolling window calculations for wind speed and gusts
+        dagster_logger.info("Calculating rolling wind metrics for 2, 3, and 4 hour windows")
+
+        # Rolling average wind speed for 2, 3, 4 hours
+        if 'wind_speed_10m' in weather_df.columns:
+            weather_df['wind_speed_10m_avg_2h'] = weather_df['wind_speed_10m'].rolling(window=2, min_periods=1).mean()
+            weather_df['wind_speed_10m_avg_3h'] = weather_df['wind_speed_10m'].rolling(window=3, min_periods=1).mean()
+            weather_df['wind_speed_10m_avg_4h'] = weather_df['wind_speed_10m'].rolling(window=4, min_periods=1).mean()
+
+        # Rolling maximum wind gusts for 2, 3, 4 hours
+        if 'wind_gusts_10m' in weather_df.columns:
+            weather_df['wind_gusts_10m_max_2h'] = weather_df['wind_gusts_10m'].rolling(window=2, min_periods=1).max()
+            weather_df['wind_gusts_10m_max_3h'] = weather_df['wind_gusts_10m'].rolling(window=3, min_periods=1).max()
+            weather_df['wind_gusts_10m_max_4h'] = weather_df['wind_gusts_10m'].rolling(window=4, min_periods=1).max()
+            dagster_logger.info("Added wind gust rolling maximums for 2, 3, 4 hour windows")
+        else:
+            dagster_logger.warning("wind_gusts_10m column not found - skipping gust calculations")
+
+        dagster_logger.info("Completed rolling wind calculations")
     except Exception as e:
         dagster_logger.error(f"Error processing weather data {e}")
         raise e
@@ -256,6 +276,54 @@ def data_for_models(context):
     except Exception as e:
         dagster_logger.error(f"Error merging weather and h2s  AND tidal files data {e}")
         raise e
+
+    # Fill missing H2S values for each site_name based on min/max time ranges
+    # and flag filled values
+    dagster_logger.info("Filling missing H2S values for each site_name based on min/max time ranges")
+
+    # Add flag column to track measured vs filled values
+    matched_df['h2s_measured'] = True
+
+    # Process each site separately
+    filled_dfs = []
+    for site_name in matched_df['site_name'].unique():
+        site_df = matched_df[matched_df['site_name'] == site_name].copy()
+
+        # Find min/max time where H2S data exists for this site
+        h2s_valid_mask = site_df['H2S'].notna()
+        if h2s_valid_mask.any():
+            min_time = site_df[h2s_valid_mask].index.min()
+            max_time = site_df[h2s_valid_mask].index.max()
+
+            # Create time range mask for this site
+            time_range_mask = (site_df.index >= min_time) & (site_df.index <= max_time)
+
+            # Find missing H2S values within the time range
+            missing_mask = time_range_mask & site_df['H2S'].isna()
+
+            if missing_mask.any():
+                # Fill missing values using forward fill then backward fill
+                h2s_series = site_df.loc[time_range_mask, 'H2S'].ffill().bfill()
+                site_df.loc[time_range_mask, 'H2S'] = h2s_series
+
+                # Flag the filled values as not measured
+                site_df.loc[site_df[missing_mask].index, 'h2s_measured'] = False
+
+                dagster_logger.info(f"Filled {missing_mask.sum()} missing H2S values for site {site_name} between {min_time} and {max_time}")
+            else:
+                dagster_logger.info(f"No missing H2S values to fill for site {site_name}")
+        else:
+            dagster_logger.warning(f"No valid H2S data found for site {site_name}")
+
+        filled_dfs.append(site_df)
+
+    # Combine all sites back together
+    matched_df = pd.concat(filled_dfs, ignore_index=False).sort_index()
+
+    # Log summary of filling operation
+    total_filled = (~matched_df['h2s_measured']).sum()
+    dagster_logger.info(f"Total H2S values filled across all sites: {total_filled}")
+
     if 'date_processed' in matched_df.columns:
             matched_df = matched_df.drop(columns=['date_processed'])
     if 'aggregation_year' in matched_df.columns:
