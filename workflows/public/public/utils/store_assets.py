@@ -34,27 +34,35 @@ def addLastUpdatedRecords(json_str, date_str) -> str:
     json_obj = json.loads(json_str)
     new_json = {'lastUpdated': date_str, 'data': json_obj}
     return json.dumps(new_json, indent=2)
-
+def get_latest_basepath() -> str:
+    """Get the LATEST_BASEPATH environment variable with fallback."""
+    latest= os.environ.get('LATEST_BASEPATH', 'latest')
+    if latest.endswith('/'):
+        latest = latest[:-1]
+    return latest
 
 def text_to_s3(textdata, path_w_name, s3_resource: S3Resource
               , contenttype='text/plain'
-              , metadata=None):
+              , metadata=None,):
     '''This will write out objectMetadata to as a file'''
-    s3_resource.putFile_text(data=textdata, path=f"{path_w_name}"
+    object= s3_resource.putFile_text(data=textdata, path=f"{path_w_name}"
                         , content_type=contenttype
                         )
     if metadata is not None:
+        metadata.distribution = distribution(contenttype, object)
         metadata_to_s3(metadata, path_w_name, s3_resource)
 
 
 def raw_to_s3(rawdata, path_w_name, s3_resource:S3Resource
               ,contenttype='application/octet-stream'
-              , metadata=None, lastestPath=None):
+              , metadata=None):
+
     '''This will write out objectMetadata to as a file'''
-    s3_resource.putFile(data=rawdata, path=f"{path_w_name}"
+    object =s3_resource.putFile(data=rawdata, path=f"{path_w_name}"
                              , content_type=contenttype
                     )
     if metadata is not None:
+        metadata.distribution = distribution(contenttype, object)
         metadata_to_s3(metadata, path_w_name, s3_resource) # just append the metadata.json to the end of the path
 
 '''
@@ -82,12 +90,7 @@ def store_dataframe_to_s3(
     """
     logger = get_dagster_logger()
 
-    def get_latest_basepath() -> str:
-        """Get the LATEST_BASEPATH environment variable with fallback."""
-        latest= os.environ.get('LATEST_BASEPATH', 'latest')
-        if latest.endswith('/'):
-            latest = latest[:-1]
-        return latest
+
     if latestdatasetpath and latestdatasetpath.endswith('/'):
         latestdatasetpath = latestdatasetpath[:-1]
     if path and path.endswith('/'):

@@ -75,6 +75,8 @@ def get_beachwatch_data(reports_page, exports_page, formdata) -> pd.DataFrame:
         response = requests.get(exports_page, cookies=cookies)
         if response.status_code == 200:
             data = response.text
+            if data is None or len(data) == 0:
+                raise Exception("Empty response when downloading beachwatch data. No data yet for New Year?")
             try:
             #beach_df = pd.read_csv(StringIO(data), sep="\t", parse_dates=['Start Date', 'End Date'], date_format="%Y-%m-%d")
                 beach_df = pd.read_csv(StringIO(data), sep="\t")
