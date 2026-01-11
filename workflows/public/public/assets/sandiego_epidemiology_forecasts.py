@@ -1018,7 +1018,7 @@ def resilientllm_asset(context):
                                   '''
                 metadata = store_assets.objectMetadata(name=name, description=description)
                 disease_s3_key = f"{s3_output_path}output/llm/{date_path}/{disease}.json"
-                disease_s3_latest_key = f"latest/sandiego_epidemiology_ili/llm/{date_path}/{disease}.json"
+                disease_s3_latest_key = f"latest/sandiego_epidemiology_ili/llm/{disease}.json"
                 store_assets.text_to_s3(
                     json.dumps(disease_content, indent=2),
                     disease_s3_key,
