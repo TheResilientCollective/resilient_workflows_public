@@ -339,6 +339,8 @@ def data_for_models(context):
         matched_df = matched_df.drop(columns=['aggregation_year'])
     if 'H2S_qualifier' in matched_df.columns:
         matched_df = matched_df.drop(columns=['H2S_qualifier'])
+    if 'visibility' in matched_df.columns:
+        matched_df = matched_df.drop(columns=['visibility'])
     store_assets.store_dataframe_to_s3( matched_df, OUTPUT_PATH,'modeldata_h2s', s3_resource,
                                        latestdatasetpath=LATEST,enable_latest_path=True,
                                        formats=[ 'csv', 'parquet'], metadata=metadata )
