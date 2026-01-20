@@ -83,10 +83,13 @@ def mpox_weekly(context):
         except Exception as e:
             print(e)
             get_dagster_logger().error(f"{i}: access failed:{ mpox_url} {e} ")
+    # store raw
+    filename = f'{s3_output_path}/raw/mpox/mpox_raw'
+    store_assets.dataframe_to_s3(mpox_df, filename, s3_resource )
 
     mpox_df["lat"] = mpox_df.geometry.y
     mpox_df["lon"] = mpox_df.geometry.x
-    mpox_df['date'] = mpox_df.apply(lambda row: Week(int(row['year']), int(row['week'])).enddate(), axis=1)
+    mpox_df['date'] = mpox_df.apply(lambda row: Week(int(row['year']), int(row['week'])).startdate(), axis=1)
     mpox_df['date'] = pd.to_datetime(mpox_df['date'])
 
     mpox_df.rename(columns={"m1": "current_week",
@@ -318,10 +321,12 @@ def measles_weekly(context):
         except Exception as e:
             print(e)
             get_dagster_logger().error(f"{i}: access failed:{ mpox_url} {e} ")
-
+    # store raw
+    filename = f'{s3_output_path}/raw/measles/measles_raw'
+    store_assets.dataframe_to_s3(mpox_df, filename, s3_resource )
     mpox_df["lat"] = mpox_df.geometry.y
     mpox_df["lon"] = mpox_df.geometry.x
-    mpox_df['date'] = mpox_df.apply(lambda row: Week(int(row['year']), int(row['week'])).enddate(), axis=1)
+    mpox_df['date'] = mpox_df.apply(lambda row: Week(int(row['year']), int(row['week'])).startdate(), axis=1)
     mpox_df['date'] = pd.to_datetime(mpox_df['date'])
 
     mpox_df.rename(columns={"m1": "current_week",

@@ -24,6 +24,7 @@ def getTodayAsIso():
 def fix_col_types(df, date_format=None):
     columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
     for col in columns:
+        get_dagster_logger().debug(f'fixing col {col} to {date_format}')
         df[col] = df[col].apply(lambda x: x.strftime(date_format) if pd.notnull(x) and date_format else x.isoformat() if pd.notnull(x) else None)
     return df
 def addLastUpdatedGeojson(json_str, date_str) -> str:
@@ -215,14 +216,17 @@ def dataframe_to_s3(dataframe, path_w_basename, s3_resource:S3Resource,
     for format in formats:
        if format == 'json':
             if isinstance(dataframe, gpd.GeoDataFrame):
-                get_dagster_logger().info("geodataframe_to_s3, pass format['csv','json','geojson] to get a flat json ")
+                get_dagster_logger().info("dataframe_to_s3, pass format['csv','json','geojson] to get a flat json ")
             df = fix_col_types(dataframe)
-            gdf_json = df.to_json(orient='records')
-            new_json =addLastUpdatedRecords(gdf_json, date)
+            try:
+                gdf_json = df.to_json(orient='records')
+                new_json =addLastUpdatedRecords(gdf_json, date)
 
-            path = f"{path_w_basename}.json"
-            object= s3_resource.putFile_text(data=new_json, path=path)
-            distributions.append(distribution('json', object))
+                path = f"{path_w_basename}.json"
+                object= s3_resource.putFile_text(data=new_json, path=path)
+                distributions.append(distribution('json', object))
+            except Exception as e:
+                get_dagster_logger().info(f"dataframe_to_s3,failed to write json  {e}")
        elif format == 'csv':
            complaints_csv = dataframe.to_csv(index=False, date_format='%Y-%m-%dT%H:%M:%SZ')
            path = f"{path_w_basename}.csv"
