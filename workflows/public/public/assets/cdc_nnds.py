@@ -96,7 +96,7 @@ def mpox_weekly(context):
                             "m2": "previous_52_weeks__max",
                             "m3": "current_YTD__cummulative",
              "m4": "previous_YTD__cummulative",
-                            "m1_flag": "current_week1_flag",
+                            "m1_flag": "current_week__flag",
                              "m2_flag": "previous_52_weeks__max__flag",
                              "m3_flag": "current_YTD__cummulative__flag",
                              "m4_flag": "previous_YTD__cummulative__flag"
@@ -333,7 +333,7 @@ def measles_weekly(context):
                            "m2": "previous_52_weeks__max",
                            "m3": "current_YTD__cummulative",
    "m4": "previous_YTD__cummulative",
-                            "m1_flag": "current_week1_flag",
+                            "m1_flag": "current_week__flag",
                              "m2_flag": "previous_52_weeks__max__flag",
                              "m3_flag": "current_YTD__cummulative__flag",
                              "m4_flag": "previous_YTD__cummulative__flag"

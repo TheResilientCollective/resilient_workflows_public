@@ -12,6 +12,15 @@ from dagster import Config, get_dagster_logger
 from tableauhyperapi import HyperProcess, Telemetry, Connection, CreateMode
 
 
+class TableauWastewaterConfig(Config):
+    # urls from the website
+    # the website at present "https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/DraftRespDash_750/RespDash_750"
+    # the download url from the download button: "Request URL: https://public.tableau.com/workbooks/DraftRespDash_750.twb"
+   # url: str = "https://public.tableau.com/workbooks/DraftRespDash.twb"
+    url: str = "https://public.tableau.com/workbooks/SDPHL_WW_ddPCR.twb"
+    workbook_name: str = "sandiego_wastewater"
+    wb_api_url: str = "https://public.tableau.com/profile/api/single_workbook/SDPHL_WW_ddPCR"
+
 class TableauWorkbookConfig(Config):
     # urls from the website
     # the website at present "https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/DraftRespDash_750/RespDash_750"
@@ -20,7 +29,6 @@ class TableauWorkbookConfig(Config):
     url: str = "https://public.tableau.com/workbooks/DraftRespDash_750.twb"
     workbook_name: str = "sandiego_epidemiology"
     wb_api_url: str = "https://public.tableau.com/profile/api/single_workbook/DraftRespDash_750"
-
 
 
 class TableauWorkbookProcessor:
@@ -55,11 +63,14 @@ class TableauWorkbookProcessor:
 
             # Find hyper files
             hyper_files = list(extract_dir.rglob("*.hyper"))
+            tmp_files = list(extract_dir.rglob("*.tmp"))
 
             return {
                 "extracted_files": file_list,
                 "hyper_files": [str(f.relative_to(extract_dir)) for f in hyper_files],
-                "hyper_count": len(hyper_files)
+                "hyper_count": len(hyper_files),
+                "tmp_files": [str(f.relative_to(extract_dir)) for f in tmp_files],
+                "tmp_count": len(tmp_files)
             }
 
         finally:
