@@ -1008,6 +1008,33 @@ def resilientllm_asset(context):
                                , contenttype='text/markdown',
                                metadata=metadata
                                )
+        # by disease. v2
+        if llm_response.get('diseases'):
+            for disease, disease_content in llm_response['diseases'].items():
+                dagster.get_dagster_logger().info(f"LLM Summary for {disease}")
+                name = f'sandiego_epidemiology_sd_llm_generate_content for {disease} on {date_path}'
+                description = f'''
+                                  San Diego Epidemiology Content Generated from ResilientLLM {disease} on {date_path}
+                                  '''
+                metadata = store_assets.objectMetadata(name=name, description=description)
+                disease_s3_key = f"{s3_output_path}output/llm/{date_path}/{disease}.json"
+                disease_s3_latest_key = f"latest/sandiego_epidemiology_ili/llm/{disease}.json"
+                store_assets.text_to_s3(
+                    json.dumps(disease_content, indent=2),
+                    disease_s3_key,
+                    s3_resource,
+                    contenttype='application/json',
+                    metadata=metadata
+                )
+                store_assets.text_to_s3(
+                    json.dumps(disease_content, indent=2),
+                    disease_s3_latest_key,
+                    s3_resource,
+                    contenttype='application/json',
+                    metadata=metadata
+                )
+
+
         try:
 
 

@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Union, Any
 from datetime import datetime, timedelta
 from dagster import get_dagster_logger
 import re
+from epiweeks import Week, Year
 
 
 class EpidemiologyValidationError(Exception):
@@ -53,7 +54,7 @@ basic_epidemiology_schema = DataFrameSchema({
         checks=[
             Check.in_range(1, 53, include_min=True, include_max=True),
         ],
-        description="ISO week number (1-53)"
+        description="Epi week number (1-53)"
     ),
     "Year": Column(
         int,
@@ -249,9 +250,13 @@ class BasicEpidemiologySchema:
         transformed_df['date_week_end'] = (df['Date'] + pd.Timedelta(days=6)).dt.strftime('%Y-%m-%d')
 
         # Week and year calculations
-        iso_calendar = df['Date'].dt.isocalendar()
-        transformed_df['Week_Number'] = iso_calendar['week'].astype(int)
-        transformed_df['Year'] = iso_calendar['year'].astype(int)
+        #iso_calendar = df['Date'].dt.isocalendar()
+
+        #transformed_df['Week_Number'] = iso_calendar['week'].astype(int)
+        #transformed_df['Year'] = iso_calendar['year'].astype(int)
+        transformed_df['Week_Number'] =  df['Date'].apply(lambda d : Week.fromdate(d, system='cdc').week)
+
+        transformed_df['Year'] =  df['Date'].apply(lambda d : Week.fromdate(d, system='cdc').year)
         transformed_df['Week_Year'] = (
             transformed_df['Week_Number'].astype(str) + '-' +
             transformed_df['Year'].astype(str)

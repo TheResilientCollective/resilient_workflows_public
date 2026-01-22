@@ -24,6 +24,7 @@ def getTodayAsIso():
 def fix_col_types(df, date_format=None):
     columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
     for col in columns:
+        get_dagster_logger().debug(f'fixing col {col} to {date_format}')
         df[col] = df[col].apply(lambda x: x.strftime(date_format) if pd.notnull(x) and date_format else x.isoformat() if pd.notnull(x) else None)
     return df
 def addLastUpdatedGeojson(json_str, date_str) -> str:
@@ -34,27 +35,35 @@ def addLastUpdatedRecords(json_str, date_str) -> str:
     json_obj = json.loads(json_str)
     new_json = {'lastUpdated': date_str, 'data': json_obj}
     return json.dumps(new_json, indent=2)
-
+def get_latest_basepath() -> str:
+    """Get the LATEST_BASEPATH environment variable with fallback."""
+    latest= os.environ.get('LATEST_BASEPATH', 'latest')
+    if latest.endswith('/'):
+        latest = latest[:-1]
+    return latest
 
 def text_to_s3(textdata, path_w_name, s3_resource: S3Resource
               , contenttype='text/plain'
-              , metadata=None):
+              , metadata=None,):
     '''This will write out objectMetadata to as a file'''
-    s3_resource.putFile_text(data=textdata, path=f"{path_w_name}"
+    object= s3_resource.putFile_text(data=textdata, path=f"{path_w_name}"
                         , content_type=contenttype
                         )
     if metadata is not None:
+        metadata.distribution = distribution(contenttype, object)
         metadata_to_s3(metadata, path_w_name, s3_resource)
 
 
 def raw_to_s3(rawdata, path_w_name, s3_resource:S3Resource
               ,contenttype='application/octet-stream'
-              , metadata=None, lastestPath=None):
+              , metadata=None):
+
     '''This will write out objectMetadata to as a file'''
-    s3_resource.putFile(data=rawdata, path=f"{path_w_name}"
+    object =s3_resource.putFile(data=rawdata, path=f"{path_w_name}"
                              , content_type=contenttype
                     )
     if metadata is not None:
+        metadata.distribution = distribution(contenttype, object)
         metadata_to_s3(metadata, path_w_name, s3_resource) # just append the metadata.json to the end of the path
 
 '''
@@ -82,15 +91,12 @@ def store_dataframe_to_s3(
     """
     logger = get_dagster_logger()
 
-    def get_latest_basepath() -> str:
-        """Get the LATEST_BASEPATH environment variable with fallback."""
-        latest= os.environ.get('LATEST_BASEPATH', 'latest')
-        if latest.endswith('/'):
-            latest = latest[:-1]
-        return latest
-    if latestdatasetpath.endswith('/'):
+
+    if latestdatasetpath and latestdatasetpath.endswith('/'):
         latestdatasetpath = latestdatasetpath[:-1]
-    path_w_basename =f"{path}{dataset_identifier}"
+    if path and path.endswith('/'):
+        path = path[:-1]
+    path_w_basename =f"{path}/{dataset_identifier}"
     if enable_latest_path:
         latestdatasetpath_basename = f"{get_latest_basepath()}/{latestdatasetpath}/{dataset_identifier}"
         lastest_metadtata = metadata.copy()
@@ -210,14 +216,17 @@ def dataframe_to_s3(dataframe, path_w_basename, s3_resource:S3Resource,
     for format in formats:
        if format == 'json':
             if isinstance(dataframe, gpd.GeoDataFrame):
-                get_dagster_logger().info("geodataframe_to_s3, pass format['csv','json','geojson] to get a flat json ")
+                get_dagster_logger().info("dataframe_to_s3, pass format['csv','json','geojson] to get a flat json ")
             df = fix_col_types(dataframe)
-            gdf_json = df.to_json(orient='records')
-            new_json =addLastUpdatedRecords(gdf_json, date)
+            try:
+                gdf_json = df.to_json(orient='records')
+                new_json =addLastUpdatedRecords(gdf_json, date)
 
-            path = f"{path_w_basename}.json"
-            object= s3_resource.putFile_text(data=new_json, path=path)
-            distributions.append(distribution('json', object))
+                path = f"{path_w_basename}.json"
+                object= s3_resource.putFile_text(data=new_json, path=path)
+                distributions.append(distribution('json', object))
+            except Exception as e:
+                get_dagster_logger().info(f"dataframe_to_s3,failed to write json  {e}")
        elif format == 'csv':
            complaints_csv = dataframe.to_csv(index=False, date_format='%Y-%m-%dT%H:%M:%SZ')
            path = f"{path_w_basename}.csv"

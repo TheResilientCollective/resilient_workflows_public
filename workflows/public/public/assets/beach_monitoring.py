@@ -75,6 +75,9 @@ def get_beachwatch_data(reports_page, exports_page, formdata) -> pd.DataFrame:
         response = requests.get(exports_page, cookies=cookies)
         if response.status_code == 200:
             data = response.text
+            if data is None or len(data) == 0:
+                get_dagster_logger().info("Empty response when downloading beachwatch data. No data yet for New Year?")
+                return pd.DataFrame()
             try:
             #beach_df = pd.read_csv(StringIO(data), sep="\t", parse_dates=['Start Date', 'End Date'], date_format="%Y-%m-%d")
                 beach_df = pd.read_csv(StringIO(data), sep="\t")
@@ -465,6 +468,9 @@ def beachwatch_analyses_daily(context):
     get_data = formdata.copy()
     get_data['year'] = year
     beach_df = get_beachwatch_data(reports_page, exports_page, get_data)
+    if (len(beach_df)==0 ):
+        get_dagster_logger().info(f'beachwatch_analyses_daily {len(beach_df)} is zero. No file written', )
+        return
     beach_csv = beach_df.to_csv(
         index=False)
     filename = f'{s3_output_path}/raw/current/analyses/current/beachwatch_raw.csv'
