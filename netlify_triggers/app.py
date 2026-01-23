@@ -4,13 +4,20 @@ import requests
 import hmac
 import hashlib
 import json
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from threading import Thread
 from flask import Flask, request, jsonify
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-import boto3
 
-from git import Repo
+# Import OAuth2 email functionality
+try:
+    from email_oauth import send_email_oauth
+    OAUTH_AVAILABLE = True
+except ImportError:
+    OAUTH_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
@@ -34,6 +41,14 @@ NETLIFY_PRODUCTION_HOOK = os.environ.get("NETLIFY_PRODUCTION_HOOK")
 NETLIFY_REJECT_MESSAGE = os.environ.get("NETLIFY_REJECT_MESSAGE", "Please edit the prompts in Airtable and trigger a new preview when ready.")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", 5000))
+
+# Email configuration
+EMAIL_SMTP_SERVER = os.environ.get("EMAIL_SMTP_SERVER", "smtp.gmail.com")
+EMAIL_SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", 587))
+EMAIL_FROM = os.environ.get("EMAIL_FROM")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+EMAIL_TO = os.environ.get("EMAIL_TO")  # Can be comma-separated for multiple recipients
+EMAIL_ENABLED = os.environ.get("EMAIL_ENABLED", "false").lower() == "true"
 
 
 def verify_webhook_signature(payload, signature):
@@ -136,6 +151,58 @@ def send_preview_notification(channel, asset_name=None, metadata=None,
     except Exception as e:
         logger.error(f"Error sending preview notification: {str(e)}")
         raise
+
+
+def send_email(subject, body, html_body=None):
+    """Send email notification with OAuth2 support"""
+    if not EMAIL_ENABLED or not EMAIL_FROM or not EMAIL_TO:
+        logger.info("Email not configured or disabled, skipping email notification")
+        return False
+
+    # Try OAuth2 first if available and configured
+    if OAUTH_AVAILABLE:
+        logger.info("Attempting to send email via OAuth2...")
+        oauth_success = send_email_oauth(subject, body, html_body)
+        if oauth_success:
+            return True
+        else:
+            logger.info("OAuth2 email failed, falling back to SMTP...")
+
+    # Fall back to SMTP if OAuth2 failed or not available
+    if not EMAIL_PASSWORD:
+        logger.error("Email password not configured and OAuth2 not available/failed")
+        return False
+
+    try:
+        # Create message
+        msg = MIMEMultipart('alternative')
+        msg['From'] = EMAIL_FROM
+        msg['Subject'] = subject
+
+        # Handle multiple recipients
+        recipients = [email.strip() for email in EMAIL_TO.split(',')]
+        msg['To'] = ', '.join(recipients)
+
+        # Add text body
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Add HTML body if provided
+        if html_body:
+            msg.attach(MIMEText(html_body, 'html'))
+
+        # Send email via SMTP
+        logger.info("Attempting to send email via SMTP...")
+        with smtplib.SMTP(EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_FROM, EMAIL_PASSWORD)
+            server.send_message(msg, to_addrs=recipients)
+
+        logger.info(f"Email sent successfully via SMTP to {', '.join(recipients)}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error sending email via SMTP: {str(e)}")
+        return False
 
 
 def trigger_netlify_build(hook_url):
@@ -267,6 +334,41 @@ def handle_approve_deploy(ack, body, client):
                     }
                 ]
             )
+
+            # Send email notification about deployment approval
+            email_subject = "Seasonal virus forecast"
+            email_body = f"""Dear all,
+
+Our automated forecast with this week’s numbers is in the simplified portal at {deploy_url}
+
+The production build has been successfully triggered and should be live shortly.
+Best wishes,
+
+Ruy
+
+This is an automated notification from the Resilient Workflows system."""
+
+            email_html = f"""
+<!DOCTYPE html>
+<html>
+<body>
+
+    <p>Dear all,</p>
+<p>Our automated forecast with this week’s numbers is readyt</p>
+   
+    <ul>
+        <li>The simplified portal at <a href="{deploy_url}">{deploy_url}</a></li>
+    </ul>
+
+    <p>Best wishes,.</p>
+ <p>Ruy</p>
+    <hr>
+    <small>This is an automated notification from the Resilient Workflows system.</small>
+</body>
+</html>"""
+
+            # Send email notification
+            send_email(email_subject, email_body, email_html)
         else:
             # Post error message
             client.chat_postMessage(
@@ -283,29 +385,6 @@ def handle_approve_deploy(ack, body, client):
             thread_ts=message_ts
         )
 
-# def copy_rt_to_github(rt_url: str, github_url: str):
-#     # --- CONFIG ---
-#     bucket_name = "your-bucket"
-#     s3_key = "path/to/file.txt"
-#     local_repo_path = "/tmp/myrepo"
-#     local_file_path = os.path.join(local_repo_path, "file.txt")
-#     commit_message = "Add file from S3"
-#
-#     # --- STEP 1: Download from S3 ---
-#     s3 = boto3.client("s3")
-#     s3.download_file(bucket_name, s3_key, local_file_path)
-#
-#     # --- STEP 2: Git operations ---
-#     # Repo should already be cloned locally; if not, clone it first
-#     # Repo.clone_from("https://github.com/username/repo.git", local_repo_path)
-#
-#     repo = Repo(local_repo_path)
-#     repo.index.add([local_file_path])
-#     repo.index.commit(commit_message)
-#
-#     # --- STEP 3: Push to GitHub ---
-#     origin = repo.remote(name="origin")
-#     origin.push()
 
 
 @slack_app.action("reject_deploy")

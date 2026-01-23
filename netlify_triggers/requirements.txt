@@ -2,3 +2,4 @@ slack-bolt
 slack-cli-hooks<1.0.0
 flask
 requests
+boto3
