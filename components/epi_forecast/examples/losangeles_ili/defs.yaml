@@ -1,0 +1,62 @@
+# Los Angeles ILI Forecast Component
+# Example showing the component configured for a different jurisdiction
+
+type: epi_forecast.EpiForecastComponent
+
+attributes:
+  # Component identity - different jurisdiction
+  name: losangeles_ili
+  jurisdiction: LosAngeles
+  jurisdiction_display: Los Angeles County
+
+  # S3 output configuration
+  s3_output_base_path: pathogens/losangeles/losangeles_epidemiology
+  public_bucket: "{{ env.PUBLIC_BUCKET }}"
+
+  # Simulator configuration
+  simulator:
+    simulator_id: 3  # LA-specific simulator
+    server_url: "{{ env.RESILIENTSIMS_SERVER_URL }}"
+    output_bucket: resilient_la
+    check_interval_seconds: 30
+    max_wait_seconds: 3600
+
+  # S3 path monitoring
+  s3_monitor:
+    monitor_path: la_api_run/
+    monitor_bucket: resilient_la
+    file_pattern: "*.csv"
+    subdirectory_pattern: ForAirTable/
+    minimum_interval_seconds: 600
+
+  # Diseases to forecast - only COVID and FLU for LA
+  diseases:
+    - name: COVID
+      display_name: COVID-19
+      input_csv_suffix: COVID
+      enabled: true
+
+    - name: FLU
+      display_name: Influenza
+      input_csv_suffix: FLU
+      enabled: true
+
+    - name: RSV
+      display_name: RSV
+      input_csv_suffix: RSV
+      enabled: false  # RSV not yet enabled for LA
+
+  # Publishing configuration
+  publishing:
+    publish_to_latest: true
+    latest_path_prefix: latest/losangeles_epidemiology
+
+  # Feature flags
+  enable_processing: true
+  enable_github_publishing: false
+
+  # Slack notifications
+  slack_channel: "#la-forecasts"
+
+  # Dagster asset configuration
+  asset_group_name: health

@@ -1,14 +1,15 @@
 # Epidemiology Forecast Component
 
-A reusable Dagster component for epidemiology forecasting pipelines. This component monitors an S3 path for new forecast data and processes it through configurable assets.
+A reusable Dagster component for epidemiology forecasting pipelines. This component can be configured via Python or YAML to create multiple forecast instances with different simulators.
 
 ## Features
 
-- **S3 Path Monitoring**: Configurable sensor that monitors an S3 path for new forecast runs
+- **YAML Configuration**: Define components via `defs.yaml` files (Dagster Components)
+- **Multiple Simulators**: Run different forecasts with different simulator IDs
+- **S3 Path Monitoring**: Configurable sensor that monitors S3 paths for new runs
 - **Configurable Processing**: Process forecast data for any jurisdiction/disease
 - **Multiple Output Formats**: Store data as CSV, JSON, GeoJSON, Parquet
-- **Slack Notifications**: Automatic notifications for new runs and processing status
-- **Schema.org Metadata**: Automatic metadata generation for datasets
+- **Slack Notifications**: Automatic notifications for run detection and processing
 
 ## Installation
 
@@ -19,81 +20,188 @@ pip install -e .
 
 ## Quick Start
 
+### Option 1: YAML Configuration (Dagster Components)
+
+Create a `defs.yaml` file:
+
+```yaml
+type: epi_forecast.EpiForecastComponent
+attributes:
+  name: sandiego_ili
+  jurisdiction: SanDiego
+  jurisdiction_display: San Diego County
+  s3_output_base_path: pathogens/sandiego/epidemiology
+  public_bucket: "{{ env.PUBLIC_BUCKET }}"
+
+  simulator:
+    simulator_id: 1
+    output_bucket: resilientseasonal
+
+  s3_monitor:
+    monitor_path: api_run/
+    monitor_bucket: resilientseasonal
+
+  diseases:
+    - name: COVID
+      display_name: COVID-19
+      input_csv_suffix: COVID
+    - name: FLU
+      display_name: Influenza
+      input_csv_suffix: FLU
+```
+
+### Option 2: Python Configuration
+
 ```python
 from epi_forecast import (
     create_epi_forecast_definitions,
     EpiForecastComponentConfig,
+    SimulatorConfig,
     S3MonitorConfig,
-    PublishingConfig,
+    DiseaseConfig,
 )
 
-# Configure the component
 config = EpiForecastComponentConfig(
+    name="sandiego_ili",
     jurisdiction="SanDiego",
     jurisdiction_display="San Diego County",
     s3_output_base_path="pathogens/sandiego/epidemiology",
     public_bucket="public-data",
+    simulator=SimulatorConfig(
+        simulator_id=1,
+        output_bucket="resilientseasonal",
+    ),
     s3_monitor=S3MonitorConfig(
         monitor_path="api_run/",
-        monitor_bucket="forecast-data",
-        file_pattern="*.csv",
-        subdirectory_pattern="ForAirTable/",
-        minimum_interval_seconds=600,
+        monitor_bucket="resilientseasonal",
     ),
-    publishing=PublishingConfig(
-        github_repo_url="https://github.com/org/repo.git",
-        netlify_preview_hook="https://api.netlify.com/build_hooks/...",
-    ),
-    slack_channel="#forecasts",
+    diseases=[
+        DiseaseConfig(name="COVID", display_name="COVID-19", input_csv_suffix="COVID"),
+        DiseaseConfig(name="FLU", display_name="Influenza", input_csv_suffix="FLU"),
+    ],
 )
 
-# Create Dagster definitions
 defs = create_epi_forecast_definitions(config)
 ```
 
-## Configuration
+## Multiple Simulators Example
 
-### EpiForecastComponentConfig
+Create separate forecast pipelines with different simulators:
 
-Main configuration object for the component:
+### San Diego ILI (defs/sandiego_ili/defs.yaml)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `jurisdiction` | str | Jurisdiction identifier (e.g., "SanDiego") |
-| `jurisdiction_display` | str | Human-readable name (e.g., "San Diego County") |
-| `s3_output_base_path` | str | Base S3 path for output data |
-| `public_bucket` | str | S3 bucket for public data |
-| `s3_monitor` | S3MonitorConfig | S3 monitoring configuration |
-| `publishing` | PublishingConfig | Publishing configuration |
-| `slack_channel` | str | Slack channel for notifications |
+```yaml
+type: epi_forecast.EpiForecastComponent
+attributes:
+  name: sandiego_ili
+  jurisdiction: SanDiego
+  jurisdiction_display: San Diego County
+  simulator:
+    simulator_id: 1
+    output_bucket: resilientseasonal
+  s3_monitor:
+    monitor_path: api_run/
+    monitor_bucket: resilientseasonal
+  diseases:
+    - name: COVID
+      display_name: COVID-19
+      input_csv_suffix: COVID
+    - name: FLU
+      display_name: Influenza
+      input_csv_suffix: FLU
+```
+
+### San Diego MPOX (defs/sandiego_mpox/defs.yaml)
+
+```yaml
+type: epi_forecast.EpiForecastComponent
+attributes:
+  name: sandiego_mpox
+  jurisdiction: SanDiego
+  jurisdiction_display: San Diego County
+  simulator:
+    simulator_id: 2  # Different simulator
+    output_bucket: resilientmpox  # Different bucket
+  s3_monitor:
+    monitor_path: mpox_runs/  # Different path
+    monitor_bucket: resilientmpox
+  diseases:
+    - name: MPOX
+      display_name: Mpox
+      input_csv_suffix: MPOX
+```
+
+## Configuration Reference
+
+### SimulatorConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `simulator_id` | int | - | Unique identifier of the simulator |
+| `server_url` | str | `https://sims.resilientservice.mooo.com` | API server URL |
+| `api_path` | str | `/api/v1` | API path prefix |
+| `output_bucket` | str | - | S3 bucket for simulator output |
+| `username_env_var` | str | `RESILIENTSIMS_USERNAME` | Env var for username |
+| `password_env_var` | str | `RESILIENTSIMS_PASSWORD` | Env var for password |
+| `check_interval_seconds` | int | 30 | Status check interval |
+| `max_wait_seconds` | int | 3600 | Maximum wait time for simulation |
 
 ### S3MonitorConfig
-
-Configuration for the S3 path monitoring sensor:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `monitor_path` | str | - | S3 path to monitor |
 | `monitor_bucket` | str | - | S3 bucket to monitor |
-| `file_pattern` | str | "*.csv" | File pattern to match |
-| `subdirectory_pattern` | str | "ForAirTable/" | Subdirectory to check for files |
+| `file_pattern` | str | `*.csv` | File pattern to match |
+| `subdirectory_pattern` | str | `ForAirTable/` | Subdirectory to check |
 | `minimum_interval_seconds` | int | 600 | Sensor check interval |
 | `run_path_pattern` | str | (regex) | Pattern for valid run directories |
 
+### DiseaseConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | str | - | Disease identifier (e.g., "COVID") |
+| `display_name` | str | - | Human-readable name |
+| `input_csv_suffix` | str | - | Suffix for input CSV files |
+| `report_delays_key` | str | None | S3 key for report delays |
+| `enabled` | bool | True | Whether disease is enabled |
+
 ### PublishingConfig
 
-Configuration for publishing outputs (no Airtable):
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `github_repo_url` | str | None | GitHub repository URL |
+| `github_output_path` | str | `forecast_rt` | Path in GitHub repo |
+| `netlify_preview_hook` | str | None | Netlify preview webhook |
+| `netlify_production_hook` | str | None | Netlify production webhook |
+| `publish_to_latest` | bool | True | Copy to "latest" path |
+| `latest_path_prefix` | str | `latest` | Prefix for latest paths |
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `github_repo_url` | str | GitHub repository for Rt data |
-| `github_output_path` | str | Path within GitHub repo |
-| `netlify_preview_hook` | str | Netlify preview webhook URL |
-| `netlify_production_hook` | str | Netlify production webhook URL |
+### Feature Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `enable_data_extraction` | True | Enable data extraction |
+| `enable_simulation` | True | Enable running simulator |
+| `enable_processing` | True | Enable post-processing |
+| `enable_github_publishing` | False | Enable GitHub publishing |
+| `enable_netlify_deploy` | False | Enable Netlify deploys |
+| `enable_llm_generation` | False | Enable LLM content generation |
+
+## Jinja2 Templating
+
+YAML configurations support Jinja2 templating:
+
+```yaml
+attributes:
+  public_bucket: "{{ env.PUBLIC_BUCKET }}"
+  simulator:
+    output_bucket: "{{ env.RESILIENTSIMS_BUCKET | default('resilientseasonal') }}"
+  slack_channel: "{{ env.SLACK_CHANNEL | default('#forecasts') }}"
+```
 
 ## Environment Variables
-
-The component requires these environment variables:
 
 ```bash
 # S3/MinIO
@@ -103,69 +211,35 @@ S3_PORT=443
 S3_ACCESS_KEY=your_access_key
 S3_SECRET_KEY=your_secret_key
 
+# ResilientSims
+RESILIENTSIMS_USERNAME=your_username
+RESILIENTSIMS_PASSWORD=your_password
+RESILIENTSIMS_BUCKET=resilientseasonal
+
 # Slack
 SLACK_TOKEN=xoxb-...
 
 # GitHub (optional)
 FORECAST_GITHUB_RT_TOKEN=ghp_...
-
-# Netlify (optional)
-FORECAST_NETLIFY_PREVIEW_HOOK=https://api.netlify.com/build_hooks/...
 ```
 
-## Assets
+## Assets & Sensors
 
-The component creates these assets:
+Each component instance creates:
 
-1. **`{jurisdiction}_forecast_processor`**: Processes CSV files from monitored S3 path
-2. **`{jurisdiction}_forecast_latest`**: Copies processed files to "latest" directory
+**Assets:**
+- `{name}__forecast_processor`: Processes files from S3
+- `{name}__forecast_latest`: Copies to "latest" directory
 
-## Sensors
+**Sensors:**
+- `{name}_s3_monitor_sensor`: Monitors S3 path for new runs
 
-- **`{jurisdiction}_s3_monitor_sensor`**: Monitors S3 path for new forecast runs
+**Jobs:**
+- `{name}_forecast_job`: Job containing the assets
 
-## Custom Run Config Builder
+## Examples
 
-You can customize how detected S3 runs trigger assets:
-
-```python
-from dagster import RunConfig
-from epi_forecast import S3RunInfo
-
-def custom_run_config_builder(run_info: S3RunInfo) -> RunConfig:
-    return RunConfig(
-        ops={
-            "sandiego__forecast_processor": {
-                "config": {
-                    "forecast_run_path": run_info.run_path,
-                    # Add custom config here
-                }
-            }
-        }
-    )
-
-defs = create_epi_forecast_definitions(
-    config,
-    run_config_builder=custom_run_config_builder,
-)
-```
-
-## Integrating with Existing Workflows
-
-To merge with existing Dagster definitions:
-
-```python
-from dagster import Definitions
-from epi_forecast import create_epi_forecast_definitions
-
-# Create component definitions
-epi_defs = create_epi_forecast_definitions(config)
-
-# Merge with existing definitions
-defs = Definitions(
-    assets=existing_assets + list(epi_defs.assets),
-    jobs=existing_jobs + list(epi_defs.jobs),
-    sensors=existing_sensors + list(epi_defs.sensors),
-    resources={**existing_resources, **epi_defs.resources},
-)
-```
+See the `examples/` directory for complete configurations:
+- `examples/sandiego_ili/defs.yaml` - San Diego ILI forecast
+- `examples/sandiego_mpox/defs.yaml` - San Diego MPOX forecast
+- `examples/losangeles_ili/defs.yaml` - Los Angeles ILI forecast

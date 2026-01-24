@@ -1,0 +1,59 @@
+# San Diego MPOX Forecast Component
+# This configuration creates a forecast pipeline for MPOX using a different simulator
+
+type: epi_forecast.EpiForecastComponent
+
+attributes:
+  # Component identity
+  name: sandiego_mpox
+  jurisdiction: SanDiego
+  jurisdiction_display: San Diego County
+
+  # S3 output configuration
+  s3_output_base_path: pathogens/sandiego/sandiego_mpox
+  public_bucket: "{{ env.PUBLIC_BUCKET }}"
+
+  # Simulator configuration - DIFFERENT simulator for MPOX
+  simulator:
+    simulator_id: 2  # Different simulator ID
+    server_url: "{{ env.RESILIENTSIMS_SERVER_URL | default('https://sims.resilientservice.mooo.com') }}"
+    output_bucket: resilientmpox  # Different bucket
+    check_interval_seconds: 60
+    max_wait_seconds: 7200  # Longer timeout for MPOX simulations
+
+  # S3 path monitoring - monitors different path
+  s3_monitor:
+    monitor_path: mpox_runs/
+    monitor_bucket: resilientmpox
+    file_pattern: "*.csv"
+    subdirectory_pattern: ForAirTable/
+    minimum_interval_seconds: 900  # Check less frequently
+
+  # Diseases to forecast
+  diseases:
+    - name: MPOX
+      display_name: Mpox
+      input_csv_suffix: MPOX
+      enabled: true
+
+  # Publishing configuration
+  publishing:
+    github_repo_url: "{{ env.FORECAST_GITHUB_MPOX }}"
+    github_output_path: sandiego_mpox_rt
+    publish_to_latest: true
+    latest_path_prefix: latest/sandiego_mpox
+
+  # Feature flags
+  enable_data_extraction: true
+  enable_simulation: true
+  enable_processing: true
+  enable_github_publishing: false
+  enable_netlify_deploy: false
+  enable_llm_generation: false
+
+  # Slack notifications
+  slack_channel: "{{ env.SLACK_MPOX_CHANNEL | default('#mpox-alerts') }}"
+
+  # Dagster asset configuration
+  asset_group_name: health
+  asset_key_prefix: sandiego_mpox  # Explicit prefix to avoid conflicts

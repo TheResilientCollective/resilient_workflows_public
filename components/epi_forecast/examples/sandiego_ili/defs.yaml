@@ -1,0 +1,68 @@
+# San Diego ILI (Influenza-Like Illness) Forecast Component
+# This configuration creates a forecast pipeline for COVID, FLU, and RSV
+
+type: epi_forecast.EpiForecastComponent
+
+attributes:
+  # Component identity
+  name: sandiego_ili
+  jurisdiction: SanDiego
+  jurisdiction_display: San Diego County
+
+  # S3 output configuration
+  s3_output_base_path: pathogens/sandiego/sandiego_epidemiology
+  public_bucket: "{{ env.PUBLIC_BUCKET }}"
+
+  # Simulator configuration
+  simulator:
+    simulator_id: 1
+    server_url: "{{ env.RESILIENTSIMS_SERVER_URL | default('https://sims.resilientservice.mooo.com') }}"
+    output_bucket: "{{ env.RESILIENTSIMS_BUCKET | default('resilientseasonal') }}"
+    check_interval_seconds: 30
+    max_wait_seconds: 3600
+
+  # S3 path monitoring
+  s3_monitor:
+    monitor_path: api_run/
+    monitor_bucket: "{{ env.RESILIENTSIMS_BUCKET | default('resilientseasonal') }}"
+    file_pattern: "*.csv"
+    subdirectory_pattern: ForAirTable/
+    minimum_interval_seconds: 600
+
+  # Diseases to forecast
+  diseases:
+    - name: COVID
+      display_name: COVID-19
+      input_csv_suffix: COVID
+      enabled: true
+
+    - name: FLU
+      display_name: Influenza
+      input_csv_suffix: FLU
+      enabled: true
+
+    - name: RSV
+      display_name: RSV
+      input_csv_suffix: RSV
+      enabled: true
+
+  # Publishing configuration
+  publishing:
+    github_repo_url: "{{ env.FORECAST_GITHUB_RT }}"
+    github_output_path: sandiego_rt
+    publish_to_latest: true
+    latest_path_prefix: latest/sandiego_epidemiology_ili
+
+  # Feature flags
+  enable_data_extraction: true
+  enable_simulation: true
+  enable_processing: true
+  enable_github_publishing: true
+  enable_netlify_deploy: false
+  enable_llm_generation: false
+
+  # Slack notifications
+  slack_channel: "{{ env.SLACK_SIMS_CHANNEL | default('#test') }}"
+
+  # Dagster asset configuration
+  asset_group_name: health
