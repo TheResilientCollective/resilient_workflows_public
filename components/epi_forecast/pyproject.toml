@@ -1,0 +1,34 @@
+[project]
+name = "epi-forecast-component"
+version = "0.1.0"
+description = "Reusable Dagster component for epidemiology forecasting"
+requires-python = ">=3.12"
+
+dependencies = [
+    "dagster>=1.12.2",
+    "dagster-aws>=0.28.2",
+    "dagster-slack>=0.28.2",
+    "pandas>=2.2.0",
+    "pandera[pandas]>=0.18.0",
+    "geopandas>=0.14.0",
+    "minio>=7.1.13",
+    "jinja2>=3.1.6",
+    "pygithub>=2.8.1",
+    "epiweeks>=2.1.0",
+    "pydantic>=2.0.0,<3.0.0",
+    "pydantic-schemaorg>=1.0.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["epi_forecast"]
