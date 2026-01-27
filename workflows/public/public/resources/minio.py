@@ -155,7 +155,7 @@ class S3Resource(ResourceWithS3Configuration):
             get_dagster_logger().info(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
 
-    def putFile(self, data, metadata={}, path='test', content_type='application/octet-stream', bucket=None, ):
+    def putFile(self, data,  path='test', metadata={},content_type='application/octet-stream', bucket=None, ):
         if bucket is None:
             bucket = self.S3_BUCKET
         try:
@@ -177,7 +177,7 @@ class S3Resource(ResourceWithS3Configuration):
             get_dagster_logger().info(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
             raise Exception(f"file {path} failed to push  to {bucket} at {self.S3_ADDRESS} {ex}")
 
-    def putStream(self, stream, length=-1, metadata={}, path='test', content_type='application/octet-stream', bucket=None):
+    def putStream(self, stream, length=-1,  path='test', metadata={},content_type='application/octet-stream', bucket=None):
         """
         Upload data from a stream object directly to S3/MinIO.
 

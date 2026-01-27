@@ -223,6 +223,27 @@ def data_for_models(context):
             dagster_logger.info("Added wind gust rolling maximums for 2, 3, 4 hour windows")
         else:
             dagster_logger.warning("wind_gusts_10m column not found - skipping gust calculations")
+        # Interaction features
+        if 'wind_speed_10m' in weather_df.columns and 'temperature_2m' in weather_df.columns:
+            weather_df['wind_temp_interaction'] = weather_df['wind_speed_10m'] * weather_df['temperature_2m']
+
+        if 'relative_humidity_2m' in weather_df.columns and 'temperature_2m' in weather_df.columns:
+            weather_df['humidity_temp_interaction'] = weather_df['relative_humidity_2m'] * weather_df['temperature_2m']
+
+        # Encode categorical variables using dict lookups (instead of LabelEncoder)
+        if 'wind_direction_categorical' in weather_df.columns:
+            wind_direction_mapping = {
+                'N': 0,
+                'NE': 1,
+                'E': 2,
+                'SE': 3,
+                'S': 4,
+                'SW': 5,
+                'W': 6,
+                'NW': 7
+            }
+            weather_df['wind_direction_categorical_encoded'] = weather_df['wind_direction_categorical'].map(wind_direction_mapping).fillna(-1).astype(int)
+            dagster_logger.info("Encoded wind_direction_categorical to integers (N=0, NE=1, ..., NW=7)")
 
         dagster_logger.info("Completed rolling wind calculations")
     except Exception as e:
@@ -277,6 +298,23 @@ def data_for_models(context):
         tidal_df = tidal_df.set_index(pd.DatetimeIndex(tidal_df['time']))
         tidal_df = tidal_df.drop(
             ['time'], axis=1)
+
+        # Encode tidal states to integers
+        tidal_mapping = {
+            'low': 0,
+            'rising': 1,
+            'high': 2,
+            'falling': 3,
+            'ebb': 3,      # falling/ebb are the same
+            'flood': 1     # rising/flood are the same
+        }
+
+        if 'tidal_state' in tidal_df.columns:
+            tidal_df['tidal_state_encoded'] = tidal_df['tidal_state'].map(tidal_mapping).fillna(-1).astype(int)
+        else:
+            # Default to -1 if column missing (unknown category)
+            tidal_df['tidal_state_encoded'] = -1
+
     except Exception as e:
         dagster_logger.error(f"Error reading tidals   files {tidal_df} {e}")
         raise e
