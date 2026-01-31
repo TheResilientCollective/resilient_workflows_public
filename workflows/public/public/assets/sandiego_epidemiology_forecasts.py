@@ -988,11 +988,11 @@ def resilientllm_asset(context):
 
         airtable_resource = context.resources.airtable
         llm_response =  llm.execute(llm.webhook_uuid)
-
+        shortsummry=  llm_response['short-summary'].replace('```', '')
         summary = llm_response['summary'].replace('```', '')
         update = llm_response['updates'].replace('```', '')
         try:
-            update_update_table(airtable_resource, summary, update)
+            update_update_table(airtable_resource, summary, update,shortsummry)
             update_portal_record(airtable_resource, summary)
         except Exception as e:
             dagster.get_dagster_logger().error(f"Error in resilientllm_asset: {e}")
@@ -1000,6 +1000,7 @@ def resilientllm_asset(context):
         date_path = datetime.today().strftime('%Y%m%d')
         s3_updates_key = f"{s3_output_path}output/llm/{date_path}/updates.md"
         s3_summary_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
+        s3_short_key = f"{s3_output_path}output/llm/{date_path}/summary.short_summary.md"
         store_assets.text_to_s3(update, s3_updates_key, s3_resource
                                , contenttype='text/markdown',
                                metadata=metadata
@@ -1008,9 +1009,121 @@ def resilientllm_asset(context):
                                , contenttype='text/markdown',
                                metadata=metadata
                                )
+        store_assets.text_to_s3(shortsummry, s3_short_key, s3_resource
+                               , contenttype='text/markdown',
+                               metadata=metadata
+                               )
+        # by disease. v2
+        # if llm_response.get('diseases'):
+        #     for disease, disease_content in llm_response['diseases'].items():
+        #         dagster.get_dagster_logger().info(f"LLM Summary for {disease}")
+        #         name = f'sandiego_epidemiology_sd_llm_generate_content for {disease} on {date_path}'
+        #         description = f'''
+        #                           San Diego Epidemiology Content Generated from ResilientLLM {disease} on {date_path}
+        #                           '''
+        #         metadata = store_assets.objectMetadata(name=name, description=description)
+        #         disease_s3_key = f"{s3_output_path}output/llm/{date_path}/{disease}.json"
+        #         disease_s3_latest_key = f"latest/sandiego_epidemiology_ili/llm/{disease}.json"
+        #         store_assets.text_to_s3(
+        #             json.dumps(disease_content, indent=2),
+        #             disease_s3_key,
+        #             s3_resource,
+        #             contenttype='application/json',
+        #             metadata=metadata
+        #         )
+        #         store_assets.text_to_s3(
+        #             json.dumps(disease_content, indent=2),
+        #             disease_s3_latest_key,
+        #             s3_resource,
+        #             contenttype='application/json',
+        #             metadata=metadata
+        #         )
+
+
+        try:
+
+
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                         markdown_text=f"# LLM Update for San Diego : \n {update}")
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                         markdown_text=f"# LLM summary for San Diego : \n {summary}")
+        except:
+            pass
+        triggerDeploy()
+        return summary, update
+    except Exception as e:
+        try:
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                         markdown_text=f"Error in update_resilientllm_asset: {e}")
+        except:
+            pass
+        dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
+        raise e
+@asset(
+    group_name="health",
+    key_prefix="sandiego",
+    name="resilientllm_sd_disease",
+    required_resource_keys={"resilientllm", "slack",  "s3"},
+    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_forecast_latest"])],
+automation_condition=AutomationCondition.eager()
+)
+def resilientllm_by_disease_asset(context):
+    """
+    Calls the ResilientLLM API Forecast Update.
+    """
+    try:
+        slack_resource = context.resources.slack
+        llm = context.resources.resilientllm
+        name = 'sandiego_epidemiology_sd_llm_generate_content_by_disease'
+        description = '''
+                  San Diego Epidemiology Content Generated from ResilientLLM by_disease
+                  '''
+        metadata = store_assets.objectMetadata(name=name, description=description)
+        s3_resource = context.resources.s3
+
+        llm_response =  llm.execute(llm.webhook_uuid)
+        shortsummry = llm_response['short-summary'].replace('```', '')
+        summary = llm_response['summary'].replace('```', '')
+        update = llm_response['updates'].replace('```', '')
+        date_path = datetime.today().strftime('%Y%m%d')
+        s3_updates_key = f"{s3_output_path}output/llm/{date_path}/updates.md"
+        s3_summary_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
+        s3_short_key = f"{s3_output_path}output/llm/{date_path}/summary.short_summary.md"
+        store_assets.text_to_s3(update, s3_updates_key, s3_resource
+                                , contenttype='text/markdown',
+                                metadata=metadata
+                                )
+        store_assets.text_to_s3(summary, s3_summary_key, s3_resource
+                                , contenttype='text/markdown',
+                                metadata=metadata
+                                )
+        store_assets.text_to_s3(shortsummry, s3_short_key, s3_resource
+                                , contenttype='text/markdown',
+                                metadata=metadata
+                                )
         # by disease. v2
         if llm_response.get('diseases'):
+
             for disease, disease_content in llm_response['diseases'].items():
+                shortsummry = llm_response['short-summary'].replace('```', '')
+                summary = llm_response['summary'].replace('```', '')
+                update = llm_response['updates'].replace('```', '')
+                date_path = datetime.today().strftime('%Y%m%d')
+                s3_updates_key = f"{s3_output_path}output/llm/{date_path}/{disease}/updates.md"
+                s3_summary_key = f"{s3_output_path}output/llm/{date_path}/{disease}/summary.md"
+                s3_short_key = f"{s3_output_path}output/llm/{date_path}/{disease}/short_summary.md"
+                store_assets.text_to_s3(update, s3_updates_key, s3_resource
+                                        , contenttype='text/markdown',
+                                        metadata=metadata
+                                        )
+                store_assets.text_to_s3(summary, s3_summary_key, s3_resource
+                                        , contenttype='text/markdown',
+                                        metadata=metadata
+                                        )
+                store_assets.text_to_s3(shortsummry, s3_short_key, s3_resource
+                                        , contenttype='text/markdown',
+                                        metadata=metadata
+                                        )
                 dagster.get_dagster_logger().info(f"LLM Summary for {disease}")
                 name = f'sandiego_epidemiology_sd_llm_generate_content for {disease} on {date_path}'
                 description = f'''
@@ -1070,7 +1183,7 @@ def update_portal_record(airtable_resource, summary ):
         dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
         raise e
 
-def update_update_table(airtable_resource, summary, update,):
+def update_update_table(airtable_resource, summary, update,short_summary):
     try:
         RsvPortalRecordId = FORECAST_AIRTABLE_RSV_PORTAL_RECORDID
         RsvPortalRecordName = FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME
