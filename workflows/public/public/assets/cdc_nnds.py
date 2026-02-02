@@ -28,6 +28,81 @@ from ..utils.resilient_epi_schemas import (
 )
 from epiweeks import Week, Year
 
+
+def calculate_correct_count(df, cumulative_col='current_YTD__cummulative', group_cols=None):
+    """
+    Calculate CorrectCount column by computing the weekly difference from cumulative values.
+
+    For the first week of each year (week 1), the CorrectCount equals the cumulative value.
+    For subsequent weeks, CorrectCount = current_cumulative - previous_week_cumulative.
+
+    Args:
+        df: pandas DataFrame or GeoDataFrame with disease surveillance data
+        cumulative_col: Name of the cumulative count column (default: 'current_YTD__cummulative')
+        group_cols: List of columns to group by (default: ['label', 'location1', 'year'])
+
+    Returns:
+        DataFrame with CorrectCount column added
+
+    Raises:
+        ValueError: If required columns are missing
+    """
+    logger = get_dagster_logger()
+
+    # Set default grouping columns
+    if group_cols is None:
+        group_cols = ['label', 'location1', 'year']
+
+    # Validate required columns exist
+    required_cols = group_cols + ['week', cumulative_col]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+
+    # Ensure cumulative column is numeric
+    df[cumulative_col] = pd.to_numeric(df[cumulative_col], errors='coerce').fillna(0)
+
+    # Create temporary integer columns for sorting to ensure proper chronological order
+    # Critical: year and week must be sorted as integers, not strings
+    df['_sort_year'] = pd.to_numeric(df['year'], errors='coerce').fillna(0).astype(int)
+    df['_sort_week'] = pd.to_numeric(df['week'], errors='coerce').fillna(0).astype(int)
+
+    # Build sort columns: replace 'year' with '_sort_year' in group_cols if present
+    sort_cols = []
+    for col in group_cols:
+        if col == 'year':
+            sort_cols.append('_sort_year')
+        else:
+            sort_cols.append(col)
+    sort_cols.append('_sort_week')
+
+    # Sort by grouping columns and week to ensure proper chronological ordering
+    df = df.sort_values(sort_cols).reset_index(drop=True)
+
+    # Remove temporary sorting columns
+    df = df.drop(columns=['_sort_year', '_sort_week'])
+
+    # Calculate difference within each group (disease, location, year)
+    df['CorrectCount'] = df.groupby(group_cols)[cumulative_col].diff()
+
+    # For the first row of each group (NaN after diff), use the cumulative value
+    df['CorrectCount'] = df['CorrectCount'].fillna(df[cumulative_col])
+
+    # Explicitly set week 1 values to use cumulative (handles edge cases)
+    week_1_mask = df['week'].astype(int) == 1
+    df.loc[week_1_mask, 'CorrectCount'] = df.loc[week_1_mask, cumulative_col]
+
+    # Ensure CorrectCount is non-negative (data quality check)
+    negative_counts = df[df['CorrectCount'] < 0]
+    if len(negative_counts) > 0:
+        logger.warning(f"⚠️  Found {len(negative_counts)} negative CorrectCount values. This may indicate data quality issues.")
+        logger.warning(f"Sample records with negative counts:\n{negative_counts[['label', 'location1', 'year', 'week', cumulative_col, 'CorrectCount']].head()}")
+
+    logger.info(f"✅ Calculated CorrectCount for {len(df)} records")
+
+    return df
+
+
 yearly_partitions = TimeWindowPartitionsDefinition(
     cron_schedule="0 0 1 1 *",
                   start="2022",
@@ -109,6 +184,9 @@ def mpox_weekly(context):
     mpox_df.dropna(inplace=True, subset=['key']) # if a key is not generate
     mpox_df.drop(columns=["sort_order"], inplace=True)
 
+    # Add CorrectCount column using the centralized function
+    mpox_df = calculate_correct_count(mpox_df, cumulative_col='current_YTD__cummulative')
+
     logger = get_dagster_logger()
     epi_processor = ResilientEpiProcessor()
 
@@ -147,10 +225,10 @@ def mpox_weekly(context):
 
         try:
             # Create basic epidemiology record for current week cases (including zero counts)
-            if pd.notna(row['current_week']):
+            if pd.notna(row['CorrectCount']):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
-                    'Count': [int(row['current_week'])]
+                    'Count': [int(row['CorrectCount'])]
                 })
 
                 validated_basic = epi_processor.process_basic_epidemiology_data(
@@ -169,7 +247,7 @@ def mpox_weekly(context):
             date_str = row['date'].strftime('%Y-%m-%d')
 
             metrics_data = [
-                ('cases', 'current_week', row['current_week']),
+                ('cases', 'CorrectCount', row['CorrectCount']),
                 ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
                 ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
                 ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
@@ -177,7 +255,7 @@ def mpox_weekly(context):
 
             for metric_type, observation_prefix, value in metrics_data:
                 if pd.notna(value) and value >= 0:
-                    observation_type = 'actual' if 'current_week' in observation_prefix else 'partial-data estimate'
+                    observation_type = 'actual' if 'CorrectCount' in observation_prefix else 'partial-data estimate'
 
                     stat_record = create_statistical_extension_record(
                         jurisdiction=jurisdiction,
@@ -347,6 +425,9 @@ def measles_weekly(context):
     mpox_df.dropna(inplace=True, subset=['key']) # if a key is not generate
     mpox_df.drop(columns=["sort_order"], inplace=True)
 
+    # Add CorrectCount column using the centralized function
+    mpox_df = calculate_correct_count(mpox_df, cumulative_col='current_YTD__cummulative')
+
     logger = get_dagster_logger()
     epi_processor = ResilientEpiProcessor()
 
@@ -392,10 +473,10 @@ def measles_weekly(context):
 
         try:
             # Create basic epidemiology record for current week cases (including zero counts)
-            if pd.notna(row['current_week']):
+            if pd.notna(row['CorrectCount']):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
-                    'Count': [int(row['current_week'])]
+                    'Count': [int(row['CorrectCount'])]
                 })
 
                 validated_basic = epi_processor.process_basic_epidemiology_data(
@@ -415,7 +496,7 @@ def measles_weekly(context):
             date_str = row['date'].strftime('%Y-%m-%d')
 
             metrics_data = [
-                ('cases', 'current_week', row['current_week']),
+                ('cases', 'CorrectCount', row['CorrectCount']),
                 ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
                 ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
                 ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
@@ -423,7 +504,7 @@ def measles_weekly(context):
 
             for metric_type, observation_prefix, value in metrics_data:
                 if pd.notna(value) and value >= 0:
-                    observation_type = 'actual' if 'current_week' in observation_prefix else 'partial-data estimate'
+                    observation_type = 'actual' if 'CorrectCount' in observation_prefix else 'partial-data estimate'
 
                     stat_record = create_statistical_extension_record(
                         jurisdiction=jurisdiction,
@@ -555,6 +636,9 @@ def nndss_weekly_by_year(context):
     r_df['current_YTD_cummulative'] =  r_df['m3']
     r_df['previous_YTD_cummulative'] =  r_df['m4']
 
+    # Add CorrectCount column using the centralized function
+    r_df = calculate_correct_count(r_df, cumulative_col='current_YTD_cummulative')
+
     filename = f'{s3_output_path}/raw/nndss_weekly_year/nndss_weekly_{filedate}'
     store_assets.geodataframe_to_s3(r_df, filename, s3_resource )
 
@@ -632,6 +716,9 @@ def nndss_weekly(context):
     r_df['previous_52_weeks_max'] =  r_df['m2'].fillna(0)
     r_df['current_YTD_cummulative'] =  r_df['m3'].fillna(0)
     r_df['previous_YTD_cummulative'] =  r_df['m4'].fillna(0)
+
+    # Add CorrectCount column using the centralized function
+    r_df = calculate_correct_count(r_df, cumulative_col='current_YTD_cummulative')
 
     filename = f'{s3_output_path}/raw/nndss_weekly/nndss_weekly_{year}_{week}'
     store_assets.geodataframe_to_s3(r_df, filename, s3_resource )
