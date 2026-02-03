@@ -78,6 +78,15 @@ basic_epidemiology_schema = DataFrameSchema({
         ],
         description="Number of cases (non-negative integer)"
     ),
+    # Normal, Cases_Removed, Correction, Original
+    "Week_Type": Column(
+        str,
+        # checks=[
+        #     Check(lambda s: s.str.match(r'^\d+-\d{4}$').all(),
+        #           error="Week_Year must be in format 'WeekNumber-Year'")
+        # ],
+        description="Normal Data or a Correction if negative"
+    ),
 }, strict=True, description="Basic epidemiology data schema")
 
 
@@ -261,6 +270,8 @@ class BasicEpidemiologySchema:
             transformed_df['Week_Number'].astype(str) + '-' +
             transformed_df['Year'].astype(str)
         )
+        if 'Week_Type' not in df.columns :
+            transformed_df['Week_Type'] = 'Original'
 
         # Cases
         transformed_df['Cases'] = pd.to_numeric(df['Count'], errors='coerce').fillna(0).astype(int)
@@ -269,7 +280,7 @@ class BasicEpidemiologySchema:
         transformed_df['Jurisdiction'] = jurisdiction.replace(' ', '')
 
         # Reorder columns to match specification: Jurisdiction, date_week_start, date_week_end, Week_Number, Year, Week_Year, Cases
-        column_order = ['Jurisdiction', 'date_week_start', 'date_week_end', 'Week_Number', 'Year', 'Week_Year', 'Cases']
+        column_order = ['Jurisdiction', 'date_week_start', 'date_week_end', 'Week_Number', 'Year', 'Week_Year', 'Cases', 'Week_Type']
         transformed_df = transformed_df[column_order]
 
         return cls.validate(transformed_df)
