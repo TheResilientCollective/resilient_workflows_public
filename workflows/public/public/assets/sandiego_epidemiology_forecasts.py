@@ -1071,6 +1071,20 @@ def resilientllm_by_disease_asset(context):
     """
     Calls the ResilientLLM API Forecast Update.
     """
+    diseases_config={ "COVID": [
+    { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_case_reports.csv", "description": "reported cases" },
+     { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_hosp_reports.csv", "description": "hospitalizations" },
+     { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_hosp_Rt.csv", "description": "Rt for hospitalizations" }
+     ], "Influenza": [
+      { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/FLU_case_reports.csv", "description": "reported cases" },
+       { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/FLU_hosp_reports.csv", "description": "hospitalizations" },
+        { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/FLU_hosp_Rt.csv", "description": "Rt for hospitalizations" }
+        ], "RSV": [
+        { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_case_reports.csv", "description": "reported cases" },
+         { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_hosp_reports.csv", "description": "hospitalizations" },
+          { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_hosp_Rt.csv", "description": "Rt for hospitalizations" }
+          ] }
+
     try:
         slack_resource = context.resources.slack
         llm = context.resources.resilientllm
@@ -1101,62 +1115,129 @@ def resilientllm_by_disease_asset(context):
                                 , contenttype='text/markdown',
                                 metadata=metadata
                                 )
-        # by disease. v2
-        if llm_response.get('diseases'):
 
-            for disease, disease_content in llm_response['diseases'].items():
-                shortsummry = llm_response['short-summary'].replace('```', '')
-                summary = llm_response['summary'].replace('```', '')
-                update = llm_response['updates'].replace('```', '')
-                date_path = datetime.today().strftime('%Y%m%d')
-                s3_updates_key = f"{s3_output_path}output/llm/{date_path}/{disease}/updates.md"
-                s3_summary_key = f"{s3_output_path}output/llm/{date_path}/{disease}/summary.md"
-                s3_short_key = f"{s3_output_path}output/llm/{date_path}/{disease}/short_summary.md"
-                store_assets.text_to_s3(update, s3_updates_key, s3_resource
-                                        , contenttype='text/markdown',
-                                        metadata=metadata
-                                        )
-                store_assets.text_to_s3(summary, s3_summary_key, s3_resource
-                                        , contenttype='text/markdown',
-                                        metadata=metadata
-                                        )
-                store_assets.text_to_s3(shortsummry, s3_short_key, s3_resource
-                                        , contenttype='text/markdown',
-                                        metadata=metadata
-                                        )
-                dagster.get_dagster_logger().info(f"LLM Summary for {disease}")
-                name = f'sandiego_epidemiology_sd_llm_generate_content for {disease} on {date_path}'
-                description = f'''
-                                  San Diego Epidemiology Content Generated from ResilientLLM {disease} on {date_path}
-                                  '''
-                metadata = store_assets.objectMetadata(name=name, description=description)
-                disease_s3_key = f"{s3_output_path}output/llm/{date_path}/{disease}.json"
-                disease_s3_latest_key = f"latest/sandiego_epidemiology_ili/llm/{disease}.json"
-                store_assets.text_to_s3(
-                    json.dumps(disease_content, indent=2),
-                    disease_s3_key,
-                    s3_resource,
-                    contenttype='application/json',
-                    metadata=metadata
-                )
-                store_assets.text_to_s3(
-                    json.dumps(disease_content, indent=2),
-                    disease_s3_latest_key,
-                    s3_resource,
-                    contenttype='application/json',
-                    metadata=metadata
-                )
+        # NEW: Process each disease with separate POST calls
+        logger = get_dagster_logger()
+        all_disease_responses = {}
 
+        for disease_name, disease_urls in diseases_config.items():
+            logger.info(f"Processing {disease_name} with LLM")
 
+            try:
+                # Create disease data block in the format: {"DISEASE_NAME": [...]}
+                disease_data = {disease_name: disease_urls}
+
+                # Call LLM with POST webhook
+                llm_response_disease = llm.execute_with_data(llm.webhook_uuid, disease_data)
+
+                # Store response for this disease
+                all_disease_responses[disease_name] = llm_response_disease[0]
+                logger.info(f"Successfully processed {disease_name}")
+
+            except Exception as e:
+                # Log error but continue processing other diseases
+                logger.error(f"Failed to process {disease_name}: {e}")
+                logger.warning(f"Continuing with remaining diseases...")
+                continue
+
+        # Store each disease's response in S3
+        for disease_name, llm_response_disease in all_disease_responses.items():
+            # Extract response fields
+            short_summary = llm_response_disease.get('short-summary', '').replace('```', '')
+            summary_text = llm_response_disease.get('summary', '').replace('```', '')
+            updates = llm_response_disease.get('updates', '').replace('```', '')
+
+            # Store in date-stamped folder
+            base_path = f'{s3_output_path}output/llm/{date_path}/{disease_name}'
+            store_assets.text_to_s3(
+                updates,
+                f'{base_path}/updates.md',
+                s3_resource,
+                contenttype='text/markdown'
+            )
+            store_assets.text_to_s3(
+                summary_text,
+                f'{base_path}/summary.md',
+                s3_resource,
+                contenttype='text/markdown'
+            )
+            store_assets.text_to_s3(
+                short_summary,
+                f'{base_path}/short_summary.md',
+                s3_resource,
+                contenttype='text/markdown'
+            )
+
+            # Store in latest folder
+            latest_path = f'latest/sandiego_epidemiology_ili/llm/{disease_name}'
+            store_assets.text_to_s3(
+                updates,
+                f'{latest_path}/updates.md',
+                s3_resource,
+                contenttype='text/markdown'
+            )
+            store_assets.text_to_s3(
+                summary_text,
+                f'{latest_path}/summary.md',
+                s3_resource,
+                contenttype='text/markdown'
+            )
+            store_assets.text_to_s3(
+                short_summary,
+                f'{latest_path}/short_summary.md',
+                s3_resource,
+                contenttype='text/markdown'
+            )
+
+            # Store JSON representation
+            disease_json = {
+                'disease': disease_name,
+                'date': date_path,
+                'short_summary': short_summary,
+                'summary': summary_text,
+                'updates': updates,
+                'source_data': disease_urls
+            }
+            store_assets.text_to_s3(
+                json.dumps(disease_json, indent=2),
+                f'{s3_output_path}output/llm/{date_path}/{disease_name}.json',
+                s3_resource,
+                contenttype='application/json'
+            )
+            store_assets.text_to_s3(
+                json.dumps(disease_json, indent=2),
+                f'{latest_path}/{disease_name}.json',
+                s3_resource,
+                contenttype='application/json'
+            )
+
+            logger.info(f"Stored LLM outputs for {disease_name} in S3")
+
+        # Post aggregate Slack notification (keep for backward compatibility)
         try:
-
-
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
                                                          markdown_text=f"# LLM Update for San Diego : \n {update}")
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
                                                          markdown_text=f"# LLM summary for San Diego : \n {summary}")
         except:
             pass
+
+        # Post separate Slack message for each disease
+        for disease_name, llm_response_disease in all_disease_responses.items():
+            try:
+                updates_text = llm_response_disease.get('updates', '').replace('```', '')
+                summary_text = llm_response_disease.get('summary', '').replace('```', '')
+
+                message = f"## {disease_name} Update\n\n{updates_text}\n\n---\n\n{summary_text}"
+
+                slack_resource.get_client().chat_postMessage(
+                    channel=SLACK_CHANNEL,
+                    markdown_text=message
+                )
+                logger.info(f"Posted {disease_name} update to Slack")
+            except Exception as e:
+                logger.error(f"Failed to post {disease_name} to Slack: {e}")
+
         triggerDeploy()
         return summary, update
     except Exception as e:
