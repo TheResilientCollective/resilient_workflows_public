@@ -98,8 +98,8 @@ def calculate_correct_count(df, cumulative_col='current_YTD__cummulative', group
     df['Cases_Added'] = df['Raw_Difference'].clip(lower=0)  # Use this for case counts!
     df['Cases_Removed'] = df['Raw_Difference'].clip(upper=0)  # Track corrections
     df['Week_Type'] = 'Normal'
-    df.loc[df['Cases_Added'] != df['current_week'], 'Week_Type'] = 'Correction'
-    df.loc[df['Cases_Removed'] < 0, 'Week_Type'] = 'Cases_Removed'
+    df.loc[df['Cases_Added'] != df['current_week'], 'Week_Type'] = 'Adjustment'
+    df.loc[df['Cases_Removed'] < 0, 'Week_Type'] = 'Adjustment_Cases_Removed'
 
     # Ensure CorrectCount is non-negative (data quality check)
     negative_counts = df[df['Raw_Difference'] < 0]
@@ -234,10 +234,10 @@ def mpox_weekly(context):
 
         try:
             # Create basic epidemiology record for current week cases (including zero counts)
-            if pd.notna(row['cases_added']):
+            if pd.notna(row['Cases_Added']):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
-                    'Count': [int(row['cases_added'])],
+                    'Count': [int(row['Cases_Added'])],
                     'Week_Type': [int(row['Week_Type'])]
                 })
 
