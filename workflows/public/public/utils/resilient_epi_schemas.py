@@ -81,11 +81,12 @@ basic_epidemiology_schema = DataFrameSchema({
     # Normal, Cases_Removed, Correction, Original
     "Week_Type": Column(
         str,
-        # checks=[
-        #     Check(lambda s: s.str.match(r'^\d+-\d{4}$').all(),
-        #           error="Week_Year must be in format 'WeekNumber-Year'")
-        # ],
-        description="Normal Data or a Correction if negative"
+        default='Original',
+        checks=[
+            Check(lambda s: s.str.len() > 0,
+                  error="Week_Type cannot be empty")
+        ],
+        description="Normal if current_week and cummulative YTD calculation matched. Adjustment if corrected, Adjustment_Cases_Removed if negative"
     ),
 }, strict=True, description="Basic epidemiology data schema")
 
@@ -270,9 +271,10 @@ class BasicEpidemiologySchema:
             transformed_df['Week_Number'].astype(str) + '-' +
             transformed_df['Year'].astype(str)
         )
-        if 'Week_Type' not in df.columns :
+        if 'Week_Type' in df.columns:
+            transformed_df['Week_Type'] = df['Week_Type'].fillna('Original')
+        else:
             transformed_df['Week_Type'] = 'Original'
-
         # Cases
         transformed_df['Cases'] = pd.to_numeric(df['Count'], errors='coerce').fillna(0).astype(int)
 

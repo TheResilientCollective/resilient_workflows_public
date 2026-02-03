@@ -1131,7 +1131,7 @@ def resilientllm_by_disease_asset(context):
                 llm_response_disease = llm.execute_with_data(llm.webhook_uuid, disease_data)
 
                 # Store response for this disease
-                all_disease_responses[disease_name] = llm_response_disease[0]
+                all_disease_responses[disease_name] = llm_response_disease
                 logger.info(f"Successfully processed {disease_name}")
 
             except Exception as e:
