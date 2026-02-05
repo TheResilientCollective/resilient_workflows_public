@@ -69,7 +69,7 @@ FORECAST_GITHUB_RT_TOKEN=os.environ.get("FORECAST_GITHUB_RT_TOKEN")
 
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 s3_output_path='pathogens/sandiego/sandiego_epidemiology/'
-
+s3_latest_path='latest/sandiego_epidemiology_ili/llm'
 # File to Airtable table mapping - update these UUIDs with actual Airtable table IDs
 #AIRTABLE_EPI_DISEASE_TABLE_ID=tblgC8jeTS4c6LPTO
 #AIRTABLE_EPI_REPORTS_TABLE_ID=
@@ -1084,7 +1084,10 @@ def resilientllm_by_disease_asset(context):
          { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_hosp_reports.csv", "description": "hospitalizations" },
           { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_hosp_Rt.csv", "description": "Rt for hospitalizations" }
           ] }
-
+    diseases_key='diseases'
+    toplevel_keys=['super-short-summary', 'short-summary', 'summary','super-short-summary-no-forecast'
+        , 'updates', ]
+    disease_level_keys=['summary','trend','generated','timestamp','summary-public-forecast','summary-public-nowcast','summary-public health office-forecast']
     try:
         slack_resource = context.resources.slack
         llm = context.resources.resilientllm
@@ -1095,14 +1098,26 @@ def resilientllm_by_disease_asset(context):
         metadata = store_assets.objectMetadata(name=name, description=description)
         s3_resource = context.resources.s3
 
-        llm_response =  llm.execute(llm.webhook_uuid)
+        # llm_response =  llm.execute(llm.webhook_uuid)
+        llm_response = llm.execute_with_data(llm.webhook_uuid, diseases_config)
+        llm_response_json=json.dumps(llm_response, indent=2)
         shortsummry = llm_response['short-summary'].replace('```', '')
         summary = llm_response['summary'].replace('```', '')
         update = llm_response['updates'].replace('```', '')
         date_path = datetime.today().strftime('%Y%m%d')
+        s3_json_key = f"{s3_output_path}output/llm/{date_path}/forecast_summary.json"
+        s3_json_latest_key = f"{s3_latest_path}/forecast_summary.json"
         s3_updates_key = f"{s3_output_path}output/llm/{date_path}/updates.md"
         s3_summary_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
-        s3_short_key = f"{s3_output_path}output/llm/{date_path}/summary.short_summary.md"
+        s3_short_key = f"{s3_output_path}output/llm/{date_path}/short_summary.md"
+        store_assets.text_to_s3(llm_response_json, s3_json_key, s3_resource
+                                , contenttype='application/json',
+                                metadata=metadata
+                                )
+        store_assets.text_to_s3(llm_response_json, s3_json_latest_key, s3_resource
+                                , contenttype='application/json',
+                                metadata=metadata
+                                )
         store_assets.text_to_s3(update, s3_updates_key, s3_resource
                                 , contenttype='text/markdown',
                                 metadata=metadata
@@ -1120,38 +1135,20 @@ def resilientllm_by_disease_asset(context):
         logger = get_dagster_logger()
         all_disease_responses = {}
 
-        for disease_name, disease_urls in diseases_config.items():
-            logger.info(f"Processing {disease_name} with LLM")
-
-            try:
-                # Create disease data block in the format: {"DISEASE_NAME": [...]}
-                disease_data = {disease_name: disease_urls}
-
-                # Call LLM with POST webhook
-                llm_response_disease = llm.execute_with_data(llm.webhook_uuid, disease_data)
-
-                # Store response for this disease
-                all_disease_responses[disease_name] = llm_response_disease
-                logger.info(f"Successfully processed {disease_name}")
-
-            except Exception as e:
-                # Log error but continue processing other diseases
-                logger.error(f"Failed to process {disease_name}: {e}")
-                logger.warning(f"Continuing with remaining diseases...")
-                continue
-
         # Store each disease's response in S3
-        for disease_name, llm_response_disease in all_disease_responses.items():
+        for disease_name in llm_response.get(diseases_key, []):
             # Extract response fields
-            short_summary = llm_response_disease.get('short-summary', '').replace('```', '')
+            llm_response_disease= llm_response[diseases_key].get(disease_name)
+            short_summary = llm_response_disease.get('summary-public-forecast', '').replace('```', '')
             summary_text = llm_response_disease.get('summary', '').replace('```', '')
-            updates = llm_response_disease.get('updates', '').replace('```', '')
-
+            updates = llm_response_disease.get('summary-public-nowcast', '').replace('```', '')
+            llm_response_json = json.dumps(llm_response_disease)
             # Store in date-stamped folder
             base_path = f'{s3_output_path}output/llm/{date_path}/{disease_name}'
+
             store_assets.text_to_s3(
                 updates,
-                f'{base_path}/updates.md',
+                f'{base_path}/summary-public-forecast.md',
                 s3_resource,
                 contenttype='text/markdown'
             )
@@ -1163,16 +1160,16 @@ def resilientllm_by_disease_asset(context):
             )
             store_assets.text_to_s3(
                 short_summary,
-                f'{base_path}/short_summary.md',
+                f'{base_path}/summary-public-nowcast.md',
                 s3_resource,
                 contenttype='text/markdown'
             )
 
             # Store in latest folder
-            latest_path = f'latest/sandiego_epidemiology_ili/llm/{disease_name}'
+            latest_path = f'{s3_latest_path}/{disease_name}'
             store_assets.text_to_s3(
                 updates,
-                f'{latest_path}/updates.md',
+                f'{latest_path}/summary-public-forecast.md',
                 s3_resource,
                 contenttype='text/markdown'
             )
@@ -1184,7 +1181,7 @@ def resilientllm_by_disease_asset(context):
             )
             store_assets.text_to_s3(
                 short_summary,
-                f'{latest_path}/short_summary.md',
+                f'{latest_path}/summary-public-nowcast.md',
                 s3_resource,
                 contenttype='text/markdown'
             )
@@ -1193,10 +1190,10 @@ def resilientllm_by_disease_asset(context):
             disease_json = {
                 'disease': disease_name,
                 'date': date_path,
-                'short_summary': short_summary,
+                'summary-public-forecast': short_summary,
                 'summary': summary_text,
-                'updates': updates,
-                'source_data': disease_urls
+                'summary-public-nowcast': updates,
+                'source_data': diseases_config.get(disease_name, [])
             }
             store_assets.text_to_s3(
                 json.dumps(disease_json, indent=2),
