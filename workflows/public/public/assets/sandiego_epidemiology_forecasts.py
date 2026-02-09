@@ -980,7 +980,7 @@ def resilientllm_by_disease_asset(context):
         # Create deployment configuration and trigger deploy
         deploy_config = DeployConfig(
             asset_name="resilientllm_sd_disease",
-            metadata=metadata,
+            #metadata=metadata,
             preview_hook=FORECAST_NETLIFY_PREVIEW_2_HOOK,
             deploy_hook=FORECAST_NETLIFY_PRODUCTION_2_HOOK,
             preview_url=FORECAST_NETLIFY_PREVIEW_2_URL,
