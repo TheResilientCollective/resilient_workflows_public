@@ -1235,7 +1235,7 @@ def resilientllm_by_disease_asset(context):
             except Exception as e:
                 logger.error(f"Failed to post {disease_name} to Slack: {e}")
 
-        triggerDeploy()
+        #triggerDeploy()
         return summary, update
     except Exception as e:
         try:
