@@ -65,6 +65,15 @@ from .sandiego_epidemiology_forecasts import (
     copy_forecast_latest
 
 )
+from .guam_forecast import (
+    guam_run_epidemic_simulation,
+    guam_process_epidemiology_forecasts,
+    guam_copy_rt_to_github,
+    guam_copy_forecast_latest,
+    guam_forecasts_job,
+    guam_forecasts_sensor,
+    guam_resilientllm_by_disease_asset,
+)
 from .hysplit_forecasting import (
     data_for_models,
     data_for_hysplit,

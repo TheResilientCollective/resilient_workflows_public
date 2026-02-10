@@ -46,7 +46,7 @@ all_sensors=[slack_on_run_failure,
              assets.epidemiology_forecasts_sensor,
              assets.mpox_epidemiology_sensor,
              assets.wahis_upload_sensor,
-
+             assets.guam_forecasts_sensor,
              ]
 all_jobs=[
     #assets.complaints_daily_job

@@ -263,7 +263,7 @@ def run_epidemic_simulation(context):
   config_info = sims.create_configuration(sims.RESILIENTSIMS_SIMULATOR_ID, config_config_yaml)
   try:
       runs_path = f'sims/configs/epi2/config_{date_path}.yaml'
-      store_assets.text_to_s3(config_config_yaml,runs_path,s3_resource)
+      store_assets.text_to_s3(json.dumps(config_info, indent=2),runs_path,s3_resource)
   except Exception as e:
       logger.error(f"Error storing forecast_config.yaml to s3: {runs_path} {e} ")
       logger.error(f"config file: {config_config_yaml} ")

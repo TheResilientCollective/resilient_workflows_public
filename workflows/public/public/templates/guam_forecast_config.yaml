@@ -1,0 +1,13 @@
+name: "EpiNow2 Guam ILI Forecasting - {{ DATE }}"
+description: "Weekly forecasting input for Influenza using Guam surveillance data updated {{ LONG_DATE }}"
+content:
+  "CurrentData/FLU.csv":
+    type: "cloud_storage"
+    provider: "s3"
+    bucket: "{{ PUBLIC_BUCKET }}"
+    key: "pathogens/guam/FLU_Guam_26NOV2025_epi_schema.csv"
+  "ReportDelays/report-delays-Influenza.RDS":
+    type: "cloud_storage"
+    provider: "s3"
+    bucket: "{{  sims.RESILIENTSIMS_BUCKET }}"
+    key: "report_delays/report-delays-Influenza.RDS"
