@@ -63,6 +63,8 @@ FORECAST_NETLIFY_PRODUCTION_2_HOOK=os.environ.get("FORECAST_NETLIFY_PRODUCTION_2
 FORECAST_NETLIFY_PREVIEW_2_URL=os.environ.get("FORECAST_NETLIFY_PREVIEW_2_URL")
 FORECAST_NETLIFY_PRODUCTION_2_URL=os.environ.get("FORECAST_NETLIFY_PRODUCTION_2_URL")
 FORECAST_NETLIFY_REJECT_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_MESSAGE","Please edit the prompts in Airtable and trigger a new preview when ready." )
+FORECAST_NETLIFY_REJECT_2_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_2_MESSAGE","Editing interface is being worked on." )
+
 TRIGGER_PREVIEW_HOOK=os.environ.get("TRIGGER_PREVIEW_HOOK")
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDID=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDID","rec4NITTQNAONirhd")
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME","CoSD-ILI-Report")
@@ -985,7 +987,7 @@ def resilientllm_by_disease_asset(context):
             deploy_hook=FORECAST_NETLIFY_PRODUCTION_2_HOOK,
             preview_url=FORECAST_NETLIFY_PREVIEW_2_URL,
             deploy_url=FORECAST_NETLIFY_PRODUCTION_2_URL,
-            reject_message=FORECAST_NETLIFY_REJECT_MESSAGE
+            reject_message=FORECAST_NETLIFY_REJECT_2_MESSAGE
          )
         trigger_deploy(deploy_config)
         asset_metadata={'date':date_path, 'diseases': list(diseases_config.keys())}
