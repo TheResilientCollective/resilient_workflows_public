@@ -185,10 +185,12 @@ def mpox_weekly(context):
                              "m3_flag": "current_YTD__cummulative__flag",
                              "m4_flag": "previous_YTD__cummulative__flag"
     }, inplace=True)
-    mpox_df['current_week']= mpox_df['current_week'].fillna(0)
-    mpox_df['previous_52_weeks__max']=mpox_df['previous_52_weeks__max'].fillna(0)
-    mpox_df['current_YTD__cummulative']=mpox_df['current_YTD__cummulative'].fillna(0)
-    mpox_df['previous_YTD__cummulative']=mpox_df['previous_YTD__cummulative'].fillna(0)
+    # Convert to numeric BEFORE calculate_correct_count (needed for Week_Type comparison)
+    mpox_df['current_week'] = pd.to_numeric(mpox_df['current_week'], errors='coerce').fillna(0)
+    mpox_df['previous_52_weeks__max'] = pd.to_numeric(mpox_df['previous_52_weeks__max'], errors='coerce').fillna(0)
+    mpox_df['current_YTD__cummulative'] = pd.to_numeric(mpox_df['current_YTD__cummulative'], errors='coerce').fillna(0)
+    mpox_df['previous_YTD__cummulative'] = pd.to_numeric(mpox_df['previous_YTD__cummulative'], errors='coerce').fillna(0)
+
     mpox_df["key"] = mpox_df["label"] + '_' + mpox_df["year"] + '_' + mpox_df["week"] + '_' + mpox_df["location1"]
     mpox_df.dropna(inplace=True, subset=['key']) # if a key is not generate
     mpox_df.drop(columns=["sort_order"], inplace=True)
@@ -208,10 +210,7 @@ def mpox_weekly(context):
 
     # Ensure proper data types before processing
     mpox_df['date'] = pd.to_datetime(mpox_df['date'], errors='coerce')
-    mpox_df['current_week'] = pd.to_numeric(mpox_df['current_week'], errors='coerce').fillna(0)
-    mpox_df['previous_52_weeks__max'] = pd.to_numeric(mpox_df['previous_52_weeks__max'], errors='coerce').fillna(0)
-    mpox_df['current_YTD__cummulative'] = pd.to_numeric(mpox_df['current_YTD__cummulative'], errors='coerce').fillna(0)
-    mpox_df['previous_YTD__cummulative'] = pd.to_numeric(mpox_df['previous_YTD__cummulative'], errors='coerce').fillna(0)
+    # Note: Numeric conversions already done before calculate_correct_count() call
 
     # Remove rows with invalid dates
     mpox_df = mpox_df.dropna(subset=['date'])
@@ -238,7 +237,7 @@ def mpox_weekly(context):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
                     'Count': [int(row['Cases_Added'])],
-                    'Week_Type': [int(row['Week_Type'])]
+                    'Week_Type': [row['Week_Type']]
                 })
 
                 validated_basic = epi_processor.process_basic_epidemiology_data(
@@ -261,7 +260,6 @@ def mpox_weekly(context):
                 ('cases', 'net_cases', row['Raw_Difference']),
                 ('cases', 'cases_added', row['Cases_Added']),
                 ('cases', 'cases_removed', row['Cases_Removed']),
-
                 ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
                 ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
                 ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
@@ -431,10 +429,12 @@ def measles_weekly(context):
                              "m4_flag": "previous_YTD__cummulative__flag"
     }, inplace=True)
 
-    mpox_df['current_week']= mpox_df['current_week'].fillna(0)
-    mpox_df['previous_52_weeks__max']=mpox_df['previous_52_weeks__max'].fillna(0)
-    mpox_df['current_YTD__cummulative']=mpox_df['current_YTD__cummulative'].fillna(0)
-    mpox_df['previous_YTD__cummulative']=mpox_df['previous_YTD__cummulative'].fillna(0)
+    # Convert to numeric BEFORE calculate_correct_count (needed for Week_Type comparison)
+    mpox_df['current_week'] = pd.to_numeric(mpox_df['current_week'], errors='coerce').fillna(0)
+    mpox_df['previous_52_weeks__max'] = pd.to_numeric(mpox_df['previous_52_weeks__max'], errors='coerce').fillna(0)
+    mpox_df['current_YTD__cummulative'] = pd.to_numeric(mpox_df['current_YTD__cummulative'], errors='coerce').fillna(0)
+    mpox_df['previous_YTD__cummulative'] = pd.to_numeric(mpox_df['previous_YTD__cummulative'], errors='coerce').fillna(0)
+
     mpox_df["key"] = mpox_df["label"] + '_' + mpox_df["year"] + '_' + mpox_df["week"] + '_' + mpox_df["location1"]
     mpox_df.dropna(inplace=True, subset=['key']) # if a key is not generate
     mpox_df.drop(columns=["sort_order"], inplace=True)
@@ -454,10 +454,7 @@ def measles_weekly(context):
 
     # Ensure proper data types before processing
     mpox_df['date'] = pd.to_datetime(mpox_df['date'], errors='coerce')
-    mpox_df['current_week'] = pd.to_numeric(mpox_df['current_week'], errors='coerce').fillna(0)
-    mpox_df['previous_52_weeks__max'] = pd.to_numeric(mpox_df['previous_52_weeks__max'], errors='coerce').fillna(0)
-    mpox_df['current_YTD__cummulative'] = pd.to_numeric(mpox_df['current_YTD__cummulative'], errors='coerce').fillna(0)
-    mpox_df['previous_YTD__cummulative'] = pd.to_numeric(mpox_df['previous_YTD__cummulative'], errors='coerce').fillna(0)
+    # Note: Numeric conversions already done before calculate_correct_count() call
 
     # Remove rows with invalid dates
     mpox_df = mpox_df.dropna(subset=['date'])
@@ -491,7 +488,7 @@ def measles_weekly(context):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
                     'Count': [int(row['cases_added'])],
-                    'Week_Type': [int(row['Week_Type'])]
+                    'Week_Type': [str(row['Week_Type'])]
                 })
 
                 validated_basic = epi_processor.process_basic_epidemiology_data(
