@@ -261,7 +261,7 @@ def mpox_weekly(context):
                 ('cases', 'net_cases', row['Raw_Difference']),
                 ('cases', 'cases_added', row['Cases_Added']),
                 ('cases', 'cases_removed', row['Cases_Removed']),
-                ('cases', 'week_type', row['Week_Type']),
+
                 ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
                 ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
                 ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
@@ -515,7 +515,7 @@ def measles_weekly(context):
                 ('cases', 'net_cases', row['Raw_Difference']),
                 ('cases', 'cases_added', row['Cases_Added']),
                 ('cases', 'cases_removed', row['Cases_Removed']),
-                ('cases', 'week_type', row['Week_Type']),
+
                 ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
                 ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
                 ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
