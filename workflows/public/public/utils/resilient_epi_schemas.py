@@ -72,7 +72,7 @@ basic_epidemiology_schema = DataFrameSchema({
         description="Combined week-year identifier (WeekNumber-Year)"
     ),
     "Cases": Column(
-        int,
+        float,  # was int, can be float split if epimodel data is split over a week
         checks=[
             Check.greater_than_or_equal_to(0),
         ],
@@ -130,7 +130,7 @@ statistical_extension_schema_base = DataFrameSchema({
 # Dictionary of optional column definitions for validation when present
 OPTIONAL_COLUMNS = {
     "mean": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "count": Column(int, checks=[Check.greater_than_or_equal_to(0)]),
+    "count": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
     "rate": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
     "median": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
     "lower_ci": Column(float, checks=[Check.greater_than_or_equal_to(0)]),

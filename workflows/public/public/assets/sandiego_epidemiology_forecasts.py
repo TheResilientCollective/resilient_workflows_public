@@ -712,6 +712,7 @@ epidemiology_forecasts_job = define_asset_job(
     name="epidemiology_forecasts_job",
     selection=[
         AssetKey(["sandiego", "sandiego_epidemiology_airtable"]),
+
         AssetKey(["sandiego", "sandiego_epidemiology_github_rt"]),
         AssetKey(["sandiego", "sandiego_epidemiology_forecast_latest"])
     ]
@@ -842,7 +843,7 @@ Starting processing...
     key_prefix="sandiego",
     name="resilientllm_sd",
     required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
-    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
+    deps=[AssetKey([f"sandiego", "resilientllm_sd_disease"])],
 automation_condition=AutomationCondition.eager()
 )
 def resilientllm_asset(context):
@@ -860,7 +861,9 @@ def resilientllm_asset(context):
         s3_resource = context.resources.s3
 
         airtable_resource = context.resources.airtable
-        llm_response =  llm.execute(llm.webhook_uuid)
+        #llm_response =  llm.execute(llm.webhook_uuid)
+        llm_response_all = context.repository_def.load_asset_value(AssetKey([f"sandiego", "resilientllm_sd_disease"]))
+        llm_response = llm_response_all['en']
         shortsummry=  llm_response['short-summary'].replace('```', '')
         summary = llm_response['summary'].replace('```', '')
         update = llm_response['updates'].replace('```', '')
