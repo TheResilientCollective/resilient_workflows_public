@@ -862,13 +862,14 @@ def resilientllm_asset(context):
 
         airtable_resource = context.resources.airtable
         #llm_response =  llm.execute(llm.webhook_uuid)
-        llm_response_all = context.repository_def.load_asset_value(AssetKey([f"sandiego", "resilientllm_sd_disease"]))
+        llm_response_all = json.loads(context.repository_def.load_asset_value(AssetKey([f"sandiego", "resilientllm_sd_disease"])))
         llm_response = llm_response_all['en']
-        shortsummry=  llm_response['short-summary'].replace('```', '')
+        shortsummry=  llm_response['summary-short'].replace('```', '')
         summary = llm_response['summary'].replace('```', '')
         update = llm_response['updates'].replace('```', '')
         try:
-            update_update_table(airtable_resource, summary, update,shortsummry)
+            # the update is now a long volume. just use the summary
+            update_update_table(airtable_resource, summary, summary,shortsummry)
             update_portal_record(airtable_resource, summary)
         except Exception as e:
             dagster.get_dagster_logger().error(f"Error in resilientllm_asset: {e}")
@@ -876,7 +877,7 @@ def resilientllm_asset(context):
         date_path = datetime.today().strftime('%Y%m%d')
         s3_updates_key = f"{s3_output_path}output/llm/{date_path}/updates.md"
         s3_summary_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
-        s3_short_key = f"{s3_output_path}output/llm/{date_path}/summary.short_summary.md"
+        s3_short_key = f"{s3_output_path}output/llm/{date_path}/summary-short.md"
         store_assets.text_to_s3(update, s3_updates_key, s3_resource
                                , contenttype='text/markdown',
                                metadata=metadata
@@ -894,18 +895,26 @@ def resilientllm_asset(context):
 
         try:
 
-
+            # update is now long. Do not slack it
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                         markdown_text=f"# LLM Update for San Diego : \n {update}")
+                                                         markdown_text=f"# LLM summary-short for San Diego : \n {shortsummry}")
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
                                                          markdown_text=f"# LLM summary for San Diego : \n {summary}")
         except:
             pass
 
         # Create deployment configuration and trigger deploy
-        deploy_config = create_deploy_config(
-            asset_name=f"sd_epidemiology_forecast {date_path}"
-        )
+
+        deploy_config = DeployConfig(
+            asset_name=f"sd_epidemiology_forecast original {date_path}",
+            #metadata=metadata,
+            preview_hook=FORECAST_NETLIFY_PREVIEW_HOOK,
+            deploy_hook=FORECAST_NETLIFY_PRODUCTION_HOOK,
+            preview_url=FORECAST_NETLIFY_PREVIEW_URL,
+            deploy_url=FORECAST_NETLIFY_PRODUCTION_URL,
+            reject_message=FORECAST_NETLIFY_REJECT_MESSAGE
+         )
+
         trigger_deploy(deploy_config)
 
         return summary, update
@@ -984,7 +993,7 @@ def resilientllm_by_disease_asset(context):
 
         # Create deployment configuration and trigger deploy
         deploy_config = DeployConfig(
-            asset_name="resilientllm_sd_disease",
+            asset_name=f"resilientllm_sd_disease new layout {date_path}",
             #metadata=metadata,
             preview_hook=FORECAST_NETLIFY_PREVIEW_2_HOOK,
             deploy_hook=FORECAST_NETLIFY_PRODUCTION_2_HOOK,
@@ -992,7 +1001,16 @@ def resilientllm_by_disease_asset(context):
             deploy_url=FORECAST_NETLIFY_PRODUCTION_2_URL,
             reject_message=FORECAST_NETLIFY_REJECT_2_MESSAGE
          )
-        trigger_deploy(deploy_config)
+        try:
+            trigger_deploy(deploy_config)
+        except Exception as e:
+            get_dagster_logger().error(f"Slack Workflow trigger Failed: {e}")
+            try:
+                slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                             markdown_text=f"Processing ok, but Slack Workflow trigger Failed in update_resilientllm_asset: {e}")
+            except:
+                pass
+
         asset_metadata={'date':date_path, 'diseases': list(diseases_config.keys())}
         return Output(llm_response_json, metadata=asset_metadata)
     except Exception as e:
