@@ -55,3 +55,39 @@ class ResilientLLMResource(ConfigurableResource):
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to  generated report for {report_id} ResilientLLM API: {e}")
             raise e
+
+    def execute_with_data(self, report_id: str, data: dict) -> dict:
+        """
+        Sends a POST request to the ResilientLLM API with a JSON body containing disease data.
+
+        Args:
+            report_id: The webhook UUID/report identifier
+            data: Dictionary containing disease-specific data to send to LLM
+
+        Returns:
+            Parsed JSON response from the API
+
+        Raises:
+            requests.exceptions.InvalidJSONError: If response is not valid JSON
+            requests.exceptions.RequestException: For HTTP errors
+        """
+        logger = get_dagster_logger()
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            endpoint = f"{self.llm_endpoint}{report_id}"
+            response = requests.post(endpoint, headers=headers, json=data)
+            response.raise_for_status()
+            obj = response.json()
+            logger.info(f"Successfully posted data to {report_id} ResilientLLM API. Response: {obj}")
+            return obj
+        except requests.exceptions.InvalidJSONError as e:
+            logger.error(f"Failed to post to {report_id} ResilientLLM API: Invalid JSON {e}")
+            raise e
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to post to {report_id} ResilientLLM API: {e}")
+            raise e

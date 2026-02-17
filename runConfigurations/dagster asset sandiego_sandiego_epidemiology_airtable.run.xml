@@ -23,11 +23,13 @@
       <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
       <ENTRIES>
         <ENTRY IS_ENABLED="true" PARSER="runconfig" IS_EXECUTABLE="false" />
-        <ENTRY IS_ENABLED="true" PARSER="env" IS_EXECUTABLE="false" PATH="workflows/.env" />
+        <ENTRY IS_ENABLED="false" PARSER="env" IS_EXECUTABLE="false" PATH="workflows/.env" />
+        <ENTRY IS_ENABLED="true" PARSER="env" IS_EXECUTABLE="false" PATH="workflows/.env.prod" />
       </ENTRIES>
     </EXTENSION>
+    <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="asset materialize --select sandiego/sandiego_epidemiology_airtable -m public --config-json {\&quot;ops\&quot;:{\&quot;sandiego__sandiego_epidemiology_airtable\&quot;:{\&quot;config\&quot;:{\&quot;forecast_run_path\&quot;:\&quot;api_run/2025-10-30T18-50-01_run114/\&quot;}}}}" />
+    <option name="PARAMETERS" value="asset materialize --select sandiego/sandiego_epidemiology_airtable -m public --config-json {\&quot;ops\&quot;:{\&quot;sandiego__sandiego_epidemiology_airtable\&quot;:{\&quot;config\&quot;:{\&quot;forecast_run_path\&quot;:\&quot;api_run/2026-02-12T19-06-33_run33/\&quot;,\&quot;github_rt_url\&quot;:\&quot;\&quot;}}}}" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />

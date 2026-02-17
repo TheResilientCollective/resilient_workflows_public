@@ -272,7 +272,8 @@ class AirtableResource( ResourceWithAirtableConfiguration):
                 df_clean[col] = df_clean[col].fillna(0)
                 # Convert numpy types to native Python types
                 if pd.api.types.is_integer_dtype(df_clean[col]):
-                    df_clean[col] = df_clean[col].astype('Int64').fillna(0)
+                    #df_clean[col] = df_clean[col].astype('Int64').fillna(0)
+                    df_clean[col] = df_clean[col].astype(float).fillna(0)
                 else:
                     df_clean[col] = df_clean[col].astype(float).fillna(0.0)
 
