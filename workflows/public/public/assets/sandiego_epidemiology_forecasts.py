@@ -869,7 +869,8 @@ def resilientllm_asset(context):
         update = llm_response['updates'].replace('```', '')
         try:
             # the update is now a long volume. just use the summary
-            update_update_table(airtable_resource, summary, shortsummry,shortsummry)
+            #update_update_table(airtable_resource, summary, update,shortsummry)
+            update_update_table(airtable_resource, summary, summary, shortsummry)
             update_portal_record(airtable_resource, summary)
         except Exception as e:
             dagster.get_dagster_logger().error(f"Error in resilientllm_asset: {e}")
