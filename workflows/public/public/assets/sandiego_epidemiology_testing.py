@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import pandas as pd
 from dagster import asset, get_dagster_logger, define_asset_job, AssetKey, sensor, RunRequest, SensorEvaluationContext, \
-    AssetIn
+    AssetIn, AutomationCondition
 from typing import Dict, Any, Iterable
 import json
 import numpy as np
@@ -49,7 +49,8 @@ def dates3Path(date=None):
     key_prefix="sandiego",
     name="sandiego_epidemiology_testing_workbook_download",
     required_resource_keys={"s3"},
-    description="Download San Diego epidemiology Testing Tableau workbook and store in S3"
+    description="Download San Diego epidemiology Testing Tableau workbook and store in S3",
+       automation_condition=AutomationCondition.eager()
 )
 def sandiego_epidemiology_testing_workbook_download(
     context,
@@ -98,6 +99,7 @@ def sandiego_epidemiology_testing_workbook_download(
                 key=AssetKey(['sandiego','sandiego_epidemiology_testing_workbook_download'])
             )
         },
+       automation_condition=AutomationCondition.eager()
 )
 
 def sandiego_epidemiology_testing_hyper_extraction(
@@ -365,48 +367,7 @@ def reformatDf(df):
     logger.info(f"✅ Completed reformatDf processing for {len(processed_dfs_by_disease)} diseases")
     return processed_dfs_by_disease
 
-# @dg.multi_asset_check(
-#     # Map checks to targeted assets
-#     #ins=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
-# ins={
-#             "sandiego_epidemiology_hyper_extraction": dg.AssetIn(key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']))
-#         },
-#     specs=[
-#         dg.AssetCheckSpec(name="sde_timeseries_has_no_nulls", asset=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction'])),
-#         dg.AssetCheckSpec(name="sde_timeseries_has_allweeks", asset=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction'])),
-#     ],
-#     required_resource_keys={"s3"}
-# )
-# def sde_timeseries_checks(context,sandiego_epidemiology_hyper_extraction)-> Iterable[dg.AssetCheckResult]:
-#     s3_resource = context.resources.s3
-#     workbook_name = sandiego_epidemiology_hyper_extraction["workbook_name"]
-#     processed_datasets = sandiego_epidemiology_hyper_extraction["processed_datasets"]
-#     s3_path= f'{processed_datasets[TimeSeriesTablePrefix]["s3_path"]}.csv'
-#     ts_content = s3_resource.getFile(s3_path)
-#     timeseries_dataframe = pd.read_csv(StringIO(ts_content.decode('utf-8')))
-#     fields_checked = ['FY','CDCWk', 'WkNum', 'WkStart', 'Disease', 'Metric']
-#     num_null_rows = timeseries_dataframe[fields_checked].isna().any(axis=1).sum()
-#
-#
-#     # Return the result of the check
-#     yield dg.AssetCheckResult(
-#         check_name="sde_timeseries_has_no_nulls",
-#         passed=bool(num_null_rows == 0),
-#         metadata={"null_row_count": int(num_null_rows),
-#                   'fields_checked':fields_checked},
-#         asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
-#     )
-#     issues = check_missing_weeks(timeseries_dataframe,  date_column='WkStrtActual')
-#
-#     # check weeks
-#     yield dg.AssetCheckResult(
-#         check_name="sde_timeseries_has_allweeks",
-#         passed=bool(issues['missing_weeks_count'] == 0),
-#         metadata={"missing_weeks_count":issues['missing_weeks_count'],
-#                   "missing_weeks": str(issues['missing_weeks']),
-#                   "issues":str(issues)},
-#         asset_key=dg.AssetKey(['sandiego', 'sandiego_epidemiology_hyper_extraction']),
-#     )
+
 
 TESTING_DISEASES = {
     'COVID': {'tests': 'COVID Tests Performed', 'pct': 'COVID % Positive'},
@@ -427,6 +388,7 @@ TESTING_DISEASES = {
             key=AssetKey(['sandiego', 'sandiego_epidemiology_testing_hyper_extraction'])
         )
     },
+       automation_condition=AutomationCondition.eager()
 )
 def sd_testing(context, sandiego_epidemiology_testing_hyper_extraction: Dict[str, Any]) -> Dict[str, Any]:
     """Read the allpositivity CSV from S3, reshape per disease, and output basic + validated epi schema formats."""
