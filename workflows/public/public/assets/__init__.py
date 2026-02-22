@@ -79,6 +79,13 @@ from .sandiego_epidemiology_mpox import (
     mpox_epidemiology_job,
     mpox_epidemiology_sensor
 )
+from .sandiego_epidemiology_testing import (
+    sandiego_epidemiology_testing_workbook_download,
+    sandiego_epidemiology_testing_hyper_extraction,
+    sd_testing,
+    #sde_timeseries_checks,
+    sandiego_epidemiology_testing_job, sandiego_epidemiology_testing_sensor
+)
 from .cdc_data_quality_checks import (
     check_mpox_weekly_completeness,
     check_measles_weekly_completeness,
