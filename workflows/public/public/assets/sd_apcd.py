@@ -366,7 +366,7 @@ def apcd_all(context, ) -> pd.DataFrame:
                     output_path,
                     output_name,
                     s3_resource,
-                    formats=['csv', 'parquet'],
+                    formats=['csv', 'parquet', 'geojson'],
                     metadata=metadata
                 )
                 prefix = f'{s3_output_path}'
@@ -376,7 +376,7 @@ def apcd_all(context, ) -> pd.DataFrame:
                     prefix,
                     output_name,
                     s3_resource,
-                    formats=['csv', 'parquet'],
+                    formats=['csv', 'parquet', 'geojson'],
                     metadata=metadata
                 )
                 logger.info(f"✓ Successfully processed and uploaded data for year {year}")
@@ -544,7 +544,7 @@ def generate_apcd(context):
         s3_output_path,
         f'apcd_h2s_latest',
         s3_resource,
-        formats=['csv', 'parquet'],
+        formats=['csv', 'parquet', 'geojson'],
         metadata=metadata,
         enable_latest_path=True,
         latestdatasetpath='tijuana/sd_apcd_air/h2s'
@@ -561,7 +561,7 @@ def generate_apcd(context):
         s3_output_path,
         f's02',
         s3_resource,
-        formats=['csv', 'parquet'],
+        formats=['csv', 'parquet', 'geojson'],
         metadata=metadata,
         #enable_latest_path=True,
         #latestdatasetpath='tijuana/sd_apcd_air/'
@@ -766,7 +766,8 @@ apcd_yearly_job = define_asset_job(
     "apcd_yearly_aggregation",
     selection=[
         AssetKey(["apcd", "yearly_aggregated_all"]),
-        AssetKey(["apcd", "yearly_aggregated_h2s"])
+        AssetKey(["apcd", "yearly_aggregated_h2s"]),
+        AssetKey(["apcd", "h2s_all"])
     ]
 )
 
@@ -968,7 +969,7 @@ def yearly_aggregated_h2s(context) -> pd.DataFrame:
             output_path,
             output_name,
             s3_resource,
-            formats=['csv', 'parquet'],
+            formats=['csv', 'parquet', 'geojson'],
             metadata=metadata,
             latestdatasetpath=f'{s3_lastest_key}/h2s',
             enable_latest_path=True,
@@ -980,6 +981,92 @@ def yearly_aggregated_h2s(context) -> pd.DataFrame:
 
     except Exception as e:
         logger.error(f"Failed to process H2S yearly aggregation for year {year}: {e}")
+        return pd.DataFrame()
+
+
+@asset(group_name="tijuana", key_prefix="apcd",
+       name="h2s_all", required_resource_keys={"s3"},
+       deps=[AssetKey(["apcd", "yearly_aggregated_h2s"])],
+       automation_condition=AutomationCondition.eager(),
+       )
+def h2s_all(context) -> pd.DataFrame:
+    """
+    Combines all yearly H2S CSV files from S3 into a single consolidated dataset.
+
+    Reads all yearly H2S CSVs from tijuana/sd_apcd_air/output/yearly/h2s/
+    and concatenates them into one file sorted by date.
+    """
+    name = 'h2s_all'
+    description = '''All H2S air quality data combined across all years
+
+    Consolidated H2S measurements from all yearly aggregated APCD data.
+    '''
+    source_url = base_url
+    metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
+
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    prefix = "tijuana/sd_apcd_air/output/yearly/h2s/"
+
+    try:
+        objects = s3_resource.getClient().list_objects(
+            s3_resource.S3_BUCKET,
+            prefix=prefix,
+            recursive=True
+        )
+
+        csv_paths = []
+        for obj in objects:
+            if obj.object_name.endswith('.csv'):
+                csv_paths.append(obj.object_name)
+
+        logger.info(f"Found {len(csv_paths)} yearly H2S CSV files")
+
+        if not csv_paths:
+            logger.warning("No yearly H2S CSV files found")
+            return pd.DataFrame()
+
+        all_dfs = []
+        for csv_path in sorted(csv_paths):
+            try:
+                file_content = s3_resource.getFile(csv_path)
+                if isinstance(file_content, bytes):
+                    file_content = file_content.decode('utf-8')
+                df = pd.read_csv(StringIO(file_content))
+                all_dfs.append(df)
+                logger.info(f"Read {len(df)} rows from {csv_path}")
+            except Exception as e:
+                logger.warning(f"Failed to read {csv_path}: {e}")
+                continue
+
+        if not all_dfs:
+            logger.warning("No data read from any yearly H2S files")
+            return pd.DataFrame()
+
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df.sort_values(by='Date with time', inplace=True)
+        combined_df.reset_index(drop=True, inplace=True)
+
+        logger.info(f"Combined {len(combined_df)} total H2S rows across {len(all_dfs)} years")
+
+        output_path = f"{s3_output_path}/h2s_all"
+        store_assets.store_dataframe_to_s3(
+            combined_df,
+            output_path,
+            'h2s_all',
+            s3_resource,
+            formats=['csv', 'parquet', 'geojson'],
+            metadata=metadata,
+            enable_latest_path=True,
+            latestdatasetpath='tijuana/sd_apcd_air/h2s_all'
+        )
+
+        logger.info("Successfully stored combined H2S data")
+        return combined_df
+
+    except Exception as e:
+        logger.error(f"Failed to combine yearly H2S data: {e}")
         return pd.DataFrame()
 
 

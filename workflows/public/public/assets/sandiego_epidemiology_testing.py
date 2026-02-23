@@ -419,7 +419,8 @@ def sd_testing(context, sandiego_epidemiology_testing_hyper_extraction: Dict[str
     logger.info(f"Loaded positivity data: {len(df)} rows, columns: {list(df.columns)}")
 
     # Parse Week Ending as datetime
-    df['Week Ending'] = pd.to_datetime(df['Week Ending'])
+   # df['Week Ending'] = pd.to_datetime(df['Week Ending'])
+    # conversion mucks up the epi schema
 
     results = {}
 
@@ -443,24 +444,34 @@ def sd_testing(context, sandiego_epidemiology_testing_hyper_extraction: Dict[str
         name = f'sd_testing_{disease}_{date_path}'
         description = f'San Diego {disease} testing positivity data on {date_path}'
         metadata = store_assets.objectMetadata(name=name, description=description, source_url=config.url)
+        path=f"{s3_output_path}output/sandiego_epidemiology_testing/{date_path}/processed_by_disease"
+        lastestPath=f"sandiego_epidemiology_testing/processed_by_disease"
 
         store_dataframe_to_s3(
             df=disease_df,
             s3_resource=s3_resource,
-            path=f"{s3_output_path}output/sd_testing/{date_path}/",
+            path=path,
             dataset_identifier=f'{disease}_testing',
             metadata=metadata,
+            latestdatasetpath=lastestPath,
+            enable_latest_path=True
         )
 
-        # Transform to BasicEpidemiologySchema
-        epi_input = disease_df[['Week Ending', 'Tests Performed']].copy()
-        epi_input = epi_input.rename(columns={'Week Ending': 'Date', 'Tests Performed': 'Count'})
+        # Transform to StatisticalExtensionSchema
+        epi_input = disease_df[['Week Ending', 'Tests Performed', 'pct_positive']].copy()
+        epi_input = epi_input.rename(columns={'Week Ending': 'date', 'Tests Performed': 'count', 'pct_positive':'rate'})
+
+
 
         try:
             jurisdiction = f"SanDiego{disease}"
-            validated_df = epi_processor.process_basic_epidemiology_data(
+            epi_input['disease'] = disease
+            epi_input['metric'] = 'tests'
+            epi_input['observation_type'] = 'actual'
+            epi_input['Jurisdiction'] = jurisdiction
+            validated_df = epi_processor.process_statistical_extension_data(
                 epi_input,
-                jurisdiction=jurisdiction,
+
                 validate=True,
             )
 
@@ -470,12 +481,17 @@ def sd_testing(context, sandiego_epidemiology_testing_hyper_extraction: Dict[str
                     description=f'San Diego {disease} testing data in validated epi schema on {date_path}',
                     source_url=config.url,
                 )
+                path=f"{s3_output_path}output/sandiego_epidemiology_testing/{date_path}/"
+                lastestPath = f"sandiego_epidemiology_testing/"
                 store_dataframe_to_s3(
                     df=validated_df,
                     s3_resource=s3_resource,
-                    path=f"{s3_output_path}output/sd_testing/{date_path}/",
-                    dataset_identifier=f"validated_epi_schema/{disease}",
+                    path=path,
+                    dataset_identifier=f"validated_epi_schema/{disease}_testing",
                     metadata=validated_metadata,
+                    latestdatasetpath=lastestPath,
+                    enable_latest_path=True
+
                 )
                 logger.info(f"Stored validated epi schema for {disease}: {len(validated_df)} rows")
 

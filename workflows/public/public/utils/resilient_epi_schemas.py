@@ -73,6 +73,7 @@ basic_epidemiology_schema = DataFrameSchema({
     ),
     "Cases": Column(
         float,  # was int, can be float split if epimodel data is split over a week
+        coerce=True,
         checks=[
             Check.greater_than_or_equal_to(0),
         ],
@@ -129,18 +130,18 @@ statistical_extension_schema_base = DataFrameSchema({
 
 # Dictionary of optional column definitions for validation when present
 OPTIONAL_COLUMNS = {
-    "mean": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "count": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "rate": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "median": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "lower_ci": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "upper_ci": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "lower_20": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "upper_20": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "lower_50": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "upper_50": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "lower_90": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
-    "upper_90": Column(float, checks=[Check.greater_than_or_equal_to(0)]),
+    "mean": Column(float,coerce=True, checks=[Check.greater_than_or_equal_to(0)]),
+    "count": Column(float,coerce=True, checks=[Check.greater_than_or_equal_to(0)]),
+    "rate": Column(float, coerce=True,checks=[Check.greater_than_or_equal_to(0)]),
+    "median": Column(float,coerce=True, checks=[Check.greater_than_or_equal_to(0)]),
+    "lower_ci": Column(float, coerce=True,checks=[Check.greater_than_or_equal_to(0)]),
+    "upper_ci": Column(float,coerce=True, checks=[Check.greater_than_or_equal_to(0)]),
+    "lower_20": Column(float, coerce=True,checks=[Check.greater_than_or_equal_to(0)]),
+    "upper_20": Column(float,coerce=True, checks=[Check.greater_than_or_equal_to(0)]),
+    "lower_50": Column(float,coerce=True, checks=[Check.greater_than_or_equal_to(0)]),
+    "upper_50": Column(float, coerce=True,checks=[Check.greater_than_or_equal_to(0)]),
+    "lower_90": Column(float,coerce=True, checks=[Check.greater_than_or_equal_to(0)]),
+    "upper_90": Column(float,coerce=True,checks=[Check.greater_than_or_equal_to(0)]),
 }
 
 
@@ -245,7 +246,9 @@ class BasicEpidemiologySchema:
 
         # Transform
         df = df.copy()
-        df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d', errors='coerce')
+
+        if not pd.api.types.is_datetime64_any_dtype(df["Date"]):
+            df["Date"] = pd.to_datetime(df["Date"], format="%Y-%m-%d", errors="coerce")
 
         # Remove rows with invalid dates
         df = df.dropna(subset=['Date'])

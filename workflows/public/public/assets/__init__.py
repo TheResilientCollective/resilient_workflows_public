@@ -18,7 +18,8 @@ from .sd_apcd import (
     get_airnow_locations, current_freshness_check,
     yearly_aggregated_all, apcd_yearly_schedule,
     yearly_aggregated_h2s,
-    get_daily_raw_csv
+    get_daily_raw_csv,
+    h2s_all
 )
 from .beach_monitoring import (beachwatch_year, beachwatch_analyses_daily,
                                beach_waterquality_schedule, get_sdbeachinfo_status,
