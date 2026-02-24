@@ -22,6 +22,10 @@ import re
 from ..utils.constants import ICONS
 from ..utils import store_assets
 from bs4 import BeautifulSoup
+import ssl
+
+ssl._create_default_https_context = ssl._create_unverified_context
+
 
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
 
@@ -92,46 +96,50 @@ def spills(context):
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
     s3_resource = context.resources.s3
     slack = context.resources.slack
-    df = pd.read_html(url, header=0)[0]  # [0] is the first table in the page
-    df = df.drop(index=0) # drop the accumulative row
-    df['Start Time'] = pd.to_datetime(df['Start Date'], )
+    try:
+        df = pd.read_html(url, header=0)[0]  # [0] is the first table in the page
+        df = df.drop(index=0) # drop the accumulative row
+        df['Start Time'] = pd.to_datetime(df['Start Date'], )
 
-    df['End Time'] = pd.to_datetime(df['End Date'], errors='coerce')
-    df['End Time'].fillna(datetime.now(), inplace=True)
-    df['Status'] = df.apply(spillStatus, axis=1)
-    # date range attempt
-    # df= df.dropna(subset=['Start Date', 'End date'])
-    # df["daterange"] = df.apply(lambda x: pd.date_range(x['Start Date'], x['End date']), axis=1)
-    df['Date Range'] = df['Start Time'].dt.strftime('%Y-%m-%dT%H:%M:%S') + '/' + df['End Time'].dt.strftime(
-        '%Y-%m-%dT%H:%M:%S')
-    df['Date Range(90 Days)'] = df.apply(lambda x: cleaned_date_range(x['Start Time'], x['End Time']), axis=1)
+        df['End Time'] = pd.to_datetime(df['End Date'], errors='coerce')
+        df['End Time'].fillna(datetime.now(), inplace=True)
+        df['Status'] = df.apply(spillStatus, axis=1)
+        # date range attempt
+        # df= df.dropna(subset=['Start Date', 'End date'])
+        # df["daterange"] = df.apply(lambda x: pd.date_range(x['Start Date'], x['End date']), axis=1)
+        df['Date Range'] = df['Start Time'].dt.strftime('%Y-%m-%dT%H:%M:%S') + '/' + df['End Time'].dt.strftime(
+            '%Y-%m-%dT%H:%M:%S')
+        df['Date Range(90 Days)'] = df.apply(lambda x: cleaned_date_range(x['Start Time'], x['End Time']), axis=1)
 
-    df['Start Time'] = df['Start Time'].dt.strftime('%Y-%m-%dT%H:%M:%S')
-    df['End Time'] = df['End Time'].dt.strftime('%Y-%m-%dT%H:%M:%S')
-    df['Approximate Discharge Volume Value'] = df['Approximate Discharge Volume'].apply(lambda x: gallons(x))
-    locations_df = pd.read_csv(StringIO(stations_csv), on_bad_lines='warn')
-    gs = gpd.GeoSeries.from_xy(locations_df['Longitude'], locations_df['Latitude'])
-    locations_df =  gpd.GeoDataFrame(locations_df,
-                                 geometry=gs,
-                                 crs='EPSG:4326')
+        df['Start Time'] = df['Start Time'].dt.strftime('%Y-%m-%dT%H:%M:%S')
+        df['End Time'] = df['End Time'].dt.strftime('%Y-%m-%dT%H:%M:%S')
+        df['Approximate Discharge Volume Value'] = df['Approximate Discharge Volume'].apply(lambda x: gallons(x))
+        locations_df = pd.read_csv(StringIO(stations_csv), on_bad_lines='warn')
+        gs = gpd.GeoSeries.from_xy(locations_df['Longitude'], locations_df['Latitude'])
+        locations_df =  gpd.GeoDataFrame(locations_df,
+                                     geometry=gs,
+                                     crs='EPSG:4326')
 
-    spill_gdf=locations_df.merge(df, on='Discharge Location', how='right')
-    new_location =spill_gdf[spill_gdf['geometry']==None]
-    if not new_location.empty:
-        get_dagster_logger().warning(f'New spill location found. add or update : {new_location}')
-        slack.get_client().chat_postMessage(channel=SLACK_CHANNEL, text=f'New spill location found add or update: {new_location}')
-    spill_gdf['Icons'] = ICONS['spills']
-    # spill_json=spill_gdf.to_json()
-    # spill_csv=spill_gdf.to_csv( date_format='%Y-%m-%dT%H:%M:%SZ')
-    #
-    # filename = f'{s3_output_path}/spills.csv'
-    # s3_resource.putFile_text(data=spill_csv, path=filename)
-    #
-    # filename = f'{s3_output_path}/spills.geojson'
-    # s3_resource.putFile_text(data=spill_json, path=filename)
-    filename = f'{s3_output_path}output/spills'
-    store_assets.geodataframe_to_s3(spill_gdf, filename, s3_resource, metadata=metadata )
-    return spill_gdf
+        spill_gdf=locations_df.merge(df, on='Discharge Location', how='right')
+        new_location =spill_gdf[spill_gdf['geometry']==None]
+        if not new_location.empty:
+            get_dagster_logger().warning(f'New spill location found. add or update : {new_location}')
+            slack.get_client().chat_postMessage(channel=SLACK_CHANNEL, text=f'New spill location found add or update: {new_location}')
+        spill_gdf['Icons'] = ICONS['spills']
+        # spill_json=spill_gdf.to_json()
+        # spill_csv=spill_gdf.to_csv( date_format='%Y-%m-%dT%H:%M:%SZ')
+        #
+        # filename = f'{s3_output_path}/spills.csv'
+        # s3_resource.putFile_text(data=spill_csv, path=filename)
+        #
+        # filename = f'{s3_output_path}/spills.geojson'
+        # s3_resource.putFile_text(data=spill_json, path=filename)
+        filename = f'{s3_output_path}output/spills'
+        store_assets.geodataframe_to_s3(spill_gdf, filename, s3_resource, metadata=metadata )
+        return spill_gdf
+    except Exception as e:
+        get_dagster_logger().error(f'Error fetching spills data from IBWC: {e}')
+        raise e
 
 @asset(group_name="tijuana", key_prefix="ibwc",
        name="spills_reports", required_resource_keys={"s3", "airtable"},
