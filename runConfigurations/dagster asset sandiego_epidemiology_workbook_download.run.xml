@@ -25,6 +25,7 @@
         <ENTRY IS_ENABLED="true" PARSER="env" IS_EXECUTABLE="false" PATH="workflows/.env" />
       </ENTRIES>
     </EXTENSION>
+    <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
     <option name="PARAMETERS" value="asset materialize --select sandiego/sandiego_epidemiology_workbook_download  -m public" />
     <option name="SHOW_COMMAND_LINE" value="false" />

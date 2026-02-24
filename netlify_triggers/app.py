@@ -354,13 +354,13 @@ This is an automated notification from the Resilient Workflows system."""
 <body>
 
     <p>Dear all,</p>
-<p>Our automated forecast with this week’s numbers is readyt</p>
+<p>Our automated forecast with this week’s numbers is ready</p>
    
     <ul>
         <li>The simplified portal at <a href="{deploy_url}">{deploy_url}</a></li>
     </ul>
 
-    <p>Best wishes,.</p>
+    <p>Best wishes,</p>
  <p>Ruy</p>
     <hr>
     <small>This is an automated notification from the Resilient Workflows system.</small>

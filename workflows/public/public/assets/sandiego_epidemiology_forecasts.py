@@ -26,8 +26,11 @@ from dagster import (
     get_dagster_logger,
     define_asset_job,
     AssetKey,
-    AutomationCondition, RunConfig, Config, EnvVar
+    AutomationCondition, RunConfig, Config, EnvVar,
+Output
 )
+from pydantic import BaseModel, Field
+from typing import Optional
 from pyairtable.formulas import AND, GTE, Field, match, EQ
 
 from icecream import ic
@@ -55,7 +58,13 @@ FORECAST_NETLIFY_PREVIEW_HOOK=os.environ.get("FORECAST_NETLIFY_PREVIEW_HOOK")
 FORECAST_NETLIFY_PRODUCTION_HOOK=os.environ.get("FORECAST_NETLIFY_PRODUCTION_HOOK")
 FORECAST_NETLIFY_PREVIEW_URL=os.environ.get("FORECAST_NETLIFY_PREVIEW_URL")
 FORECAST_NETLIFY_PRODUCTION_URL=os.environ.get("FORECAST_NETLIFY_PRODUCTION_URL")
+FORECAST_NETLIFY_PREVIEW_2_HOOK=os.environ.get("FORECAST_NETLIFY_PREVIEW_2_HOOK")
+FORECAST_NETLIFY_PRODUCTION_2_HOOK=os.environ.get("FORECAST_NETLIFY_PRODUCTION_2_HOOK")
+FORECAST_NETLIFY_PREVIEW_2_URL=os.environ.get("FORECAST_NETLIFY_PREVIEW_2_URL")
+FORECAST_NETLIFY_PRODUCTION_2_URL=os.environ.get("FORECAST_NETLIFY_PRODUCTION_2_URL")
 FORECAST_NETLIFY_REJECT_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_MESSAGE","Please edit the prompts in Airtable and trigger a new preview when ready." )
+FORECAST_NETLIFY_REJECT_2_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_2_MESSAGE","Editing interface is being worked on." )
+
 TRIGGER_PREVIEW_HOOK=os.environ.get("TRIGGER_PREVIEW_HOOK")
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDID=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDID","rec4NITTQNAONirhd")
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME","CoSD-ILI-Report")
@@ -69,7 +78,7 @@ FORECAST_GITHUB_RT_TOKEN=os.environ.get("FORECAST_GITHUB_RT_TOKEN")
 
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 s3_output_path='pathogens/sandiego/sandiego_epidemiology/'
-
+s3_latest_path='latest/sandiego_epidemiology_ili/llm/'
 # File to Airtable table mapping - update these UUIDs with actual Airtable table IDs
 #AIRTABLE_EPI_DISEASE_TABLE_ID=tblgC8jeTS4c6LPTO
 #AIRTABLE_EPI_REPORTS_TABLE_ID=
@@ -186,6 +195,18 @@ TABLES_TO_CLEAR=[os.environ.get("AIRTABLE_EPI_NEW_CASES_TABLE_ID"),
     os.environ.get("AIRTABLE_EPI_HOSPITAL_ADMISSIONS_TABLE_ID")
 ]
 
+
+class DeployConfig(BaseModel):
+    """Pydantic model for deployment configuration data"""
+    asset_name: str
+    metadata: Optional[str] = "optional-metadata"
+    preview_hook: Optional[str] = None
+    deploy_hook: Optional[str] = None
+    preview_url: Optional[str] = None
+    deploy_url: Optional[str] = None
+    reject_message: Optional[str] = None
+
+
 def parse_run_id(run_path: str) -> tuple[datetime, str]:
     """
     Parse run ID from path like '2025-09-07T00-07-25_run15'
@@ -262,7 +283,7 @@ def run_epidemic_simulation(context):
       run_data=config_run_yaml,
       slack_resource=slack
   )
-  return result
+  return Output(result)
 
 class forecastsS3AssetConfig(Config):
     forecast_run_path: str
@@ -691,6 +712,7 @@ epidemiology_forecasts_job = define_asset_job(
     name="epidemiology_forecasts_job",
     selection=[
         AssetKey(["sandiego", "sandiego_epidemiology_airtable"]),
+
         AssetKey(["sandiego", "sandiego_epidemiology_github_rt"]),
         AssetKey(["sandiego", "sandiego_epidemiology_forecast_latest"])
     ]
@@ -815,161 +837,13 @@ Starting processing...
         except:
             pass
 
-# @asset(
-#     group_name="health",
-#     key_prefix="sandiego",
-#     name="resilientllm_sd_summary",
-#     required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
-#     deps=[AssetKey([f"sandiego", "resilientllm_sd_update"])],
-# automation_condition=AutomationCondition.eager()
-# )
-# def summary_resilientllm_asset(context):
-#     """
-#     Calls the ResilientLLM API Summary.
-#     """
-#     slack_resource = context.resources.slack
-#     llm = context.resources.resilientllm
-#     name = 'sandiego_epidemiology_sd_summary'
-#     description = '''
-#           San Diego Epidemiology Summary from ResilientLLM
-#           '''
-#     metadata = store_assets.objectMetadata(name=name, description=description)
-#     s3_resource = context.resources.s3
-#
-#     try:
-#         summary=llm.execute(llm.summary_id)
-#         content = summary['message']['data']['content']
-#         airtable_resource = context.resources.airtable
-#         try:
-#             recordId = FORECAST_AIRTABLE_WIDGETS_RECORDID
-#             tableId = FORECAST_AIRTABLE_WIDGETS_TABLE_ID
-#             widgets_table = airtable_resource.getTable(tableId)
-#             data = {
-#                 'Text': content
-#             }
-#             updated_record = widgets_table.update(recordId, data)
-#             dagster.get_dagster_logger().info(f"llm summary: {summary}")
-#             dagster.get_dagster_logger().info(f"llm summary record updated: {str(updated_record)}")
-#         except Exception as e:
-#             dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
-#             raise e
-#         date_path = datetime.today().strftime('%Y%m%d')
-#         s3_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
-#         store_assets.text_to_s3(content, s3_key, s3_resource
-#                                , contenttype='text/markdown',
-#                                metadata=metadata
-#                                )
-#         try:
-#
-#             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-#                                                          markdown_text=f"# LLM Summary for San Diego : \n {content}")
-#         except:
-#             pass
-#         if triggerDeploy():
-#             dagster.get_dagster_logger().info(f"deploy for San Diego Epidemiology Forecast ")
-#         else:
-#             dagster.get_dagster_logger().error(f"Failed Deploy for San Diego Epidemiology Forecast ")
-#         return content
-#     except Exception as e:
-#             try:
-#                 slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-#                                                              text=f"Error in resilientllm__sd_summary: {e}")
-#             except:
-#                 pass
-#             dagster.get_dagster_logger().error(f"Error in resilientllm__sd_summary: {e}")
-#             raise
-
-# @asset(
-#     group_name="health",
-#     key_prefix="sandiego",
-#     name="resilientllm_sd_update",
-#     required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
-#     deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
-# automation_condition=AutomationCondition.eager()
-# )
-# def update_resilientllm_asset(context):
-#     """
-#     Calls the ResilientLLM API Forecast Update.
-#     """
-#     try:
-#         slack_resource = context.resources.slack
-#         llm = context.resources.resilientllm
-#         llm = context.resources.resilientllm
-#         name = 'sandiego_epidemiology_sd_update'
-#         description = '''
-#                   San Diego Epidemiology Update from ResilientLLM
-#                   '''
-#         metadata = store_assets.objectMetadata(name=name, description=description)
-#         s3_resource = context.resources.s3
-#
-#         airtable_resource = context.resources.airtable
-#         update =  llm.execute(llm.update_id)
-#         content = update['message']['data']['content']
-#
-#         try:
-#             RsvPortalRecordId = FORECAST_AIRTABLE_RSV_PORTAL_RECORDID
-#             RsvPortalRecordName = FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME
-#             update_table=airtable_resource.getTable(FORECAST_AIRTABLE_RSV_UPDATES_TABLE_ID)
-#             date = datetime.today().strftime('%Y-%m-%d')
-#             #  formula = "AND(FIND('rec4NITTQNAONirhd', ARRAYJOIN({Portal})) > 0, IS_SAME({Date}, '2025-10-08', 'day'))"
-#             #formula = "AND(SEARCH('"+ RsvPortalRecordId + "', ARRAYJOIN({Portal} )) , IS_SAME({Date}, '"+ date +"', 'day'))"
-#             #formula = " IS_SAME({Date}, '"+ date +"', 'day')"
-#             #formula = "FIND('" + "rec4NITTQNAONirhd" + "', ARRAYJOIN({Portal} )) >0"
-#             #formula = "FIND('" + RsvPortalRecordName+ "', {Portal slug} )"
-#             formula="AND(FIND('" + RsvPortalRecordName+ "', {Portal slug} ) >0 , IS_SAME({Date}, '"+ date +"', 'day'))"
-#             existing_record=update_table.first(formula=formula)
-#             if  existing_record is not None:
-#                # existing_record["fields"]['Status']=content
-#                 fields={"Update":content}
-#                 update_table.update(existing_record['id'], fields)
-#             else:
-#                 data = {
-#                             "Portal": [RsvPortalRecordId],
-#                             "Update": content,
-#                             "Status": "Published",
-#                             "Date": date,
-#                             #"Portal slug":"CoSD-ILI-Report"
-#                         }
-#                 record = update_table.create(data)
-#             # attempt to upsert if this gets run more than once a day
-#            # records = [{ "fields":data}]
-#            # key_fields=['Date', 'Portal']
-#            # key_fields = ['Date', 'Portal slug']
-#             #record = update_table.batch_upsert(records, key_fields)
-#
-#         except Exception as e:
-#             dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
-#             raise e
-#         date_path = datetime.today().strftime('%Y%m%d')
-#         s3_key = f"{s3_output_path}output/llm/{date_path}/update.md"
-#         store_assets.text_to_s3(content, s3_key, s3_resource
-#                                , contenttype='text/markdown',
-#                                metadata=metadata
-#                                )
-#         try:
-#
-#
-#             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-#                                                          markdown_text=f"# LLM Update for San Diego : \n {content}")
-#         except:
-#             pass
-#         #triggerDeploy()
-#         return content
-#     except Exception as e:
-#         try:
-#             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-#                                                          markdown_text=f"Error in update_resilientllm_asset: {e}")
-#         except:
-#             pass
-#         dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
-#         raise e
 
 @asset(
     group_name="health",
     key_prefix="sandiego",
     name="resilientllm_sd",
     required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
-    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_airtable"])],
+    deps=[AssetKey([f"sandiego", "resilientllm_sd_disease"])],
 automation_condition=AutomationCondition.eager()
 )
 def resilientllm_asset(context):
@@ -987,12 +861,16 @@ def resilientllm_asset(context):
         s3_resource = context.resources.s3
 
         airtable_resource = context.resources.airtable
-        llm_response =  llm.execute(llm.webhook_uuid)
-
+        #llm_response =  llm.execute(llm.webhook_uuid)
+        llm_response_all = json.loads(context.repository_def.load_asset_value(AssetKey([f"sandiego", "resilientllm_sd_disease"])))
+        llm_response = llm_response_all['en']
+        shortsummry=  llm_response['summary-short'].replace('```', '')
         summary = llm_response['summary'].replace('```', '')
         update = llm_response['updates'].replace('```', '')
         try:
-            update_update_table(airtable_resource, summary, update)
+            # the update is now a long volume. just use the summary
+            #update_update_table(airtable_resource, summary, update,shortsummry)
+            update_update_table(airtable_resource, summary, summary, shortsummry)
             update_portal_record(airtable_resource, summary)
         except Exception as e:
             dagster.get_dagster_logger().error(f"Error in resilientllm_asset: {e}")
@@ -1000,6 +878,7 @@ def resilientllm_asset(context):
         date_path = datetime.today().strftime('%Y%m%d')
         s3_updates_key = f"{s3_output_path}output/llm/{date_path}/updates.md"
         s3_summary_key = f"{s3_output_path}output/llm/{date_path}/summary.md"
+        s3_short_key = f"{s3_output_path}output/llm/{date_path}/summary-short.md"
         store_assets.text_to_s3(update, s3_updates_key, s3_resource
                                , contenttype='text/markdown',
                                metadata=metadata
@@ -1008,43 +887,37 @@ def resilientllm_asset(context):
                                , contenttype='text/markdown',
                                metadata=metadata
                                )
-        # by disease. v2
-        if llm_response.get('diseases'):
-            for disease, disease_content in llm_response['diseases'].items():
-                dagster.get_dagster_logger().info(f"LLM Summary for {disease}")
-                name = f'sandiego_epidemiology_sd_llm_generate_content for {disease} on {date_path}'
-                description = f'''
-                                  San Diego Epidemiology Content Generated from ResilientLLM {disease} on {date_path}
-                                  '''
-                metadata = store_assets.objectMetadata(name=name, description=description)
-                disease_s3_key = f"{s3_output_path}output/llm/{date_path}/{disease}.json"
-                disease_s3_latest_key = f"latest/sandiego_epidemiology_ili/llm/{disease}.json"
-                store_assets.text_to_s3(
-                    json.dumps(disease_content, indent=2),
-                    disease_s3_key,
-                    s3_resource,
-                    contenttype='application/json',
-                    metadata=metadata
-                )
-                store_assets.text_to_s3(
-                    json.dumps(disease_content, indent=2),
-                    disease_s3_latest_key,
-                    s3_resource,
-                    contenttype='application/json',
-                    metadata=metadata
-                )
+        store_assets.text_to_s3(shortsummry, s3_short_key, s3_resource
+                               , contenttype='text/markdown',
+                               metadata=metadata
+                               )
+
 
 
         try:
 
-
+            # update is now long. Do not slack it
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                         markdown_text=f"# LLM Update for San Diego : \n {update}")
+                                                         markdown_text=f"# LLM summary-short for San Diego : \n {shortsummry}")
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
                                                          markdown_text=f"# LLM summary for San Diego : \n {summary}")
         except:
             pass
-        triggerDeploy()
+
+        # Create deployment configuration and trigger deploy
+
+        deploy_config = DeployConfig(
+            asset_name=f"sd_epidemiology_forecast original {date_path}",
+            #metadata=metadata,
+            preview_hook=FORECAST_NETLIFY_PREVIEW_HOOK,
+            deploy_hook=FORECAST_NETLIFY_PRODUCTION_HOOK,
+            preview_url=FORECAST_NETLIFY_PREVIEW_URL,
+            deploy_url=FORECAST_NETLIFY_PRODUCTION_URL,
+            reject_message=FORECAST_NETLIFY_REJECT_MESSAGE
+         )
+
+        trigger_deploy(deploy_config)
+
         return summary, update
     except Exception as e:
         try:
@@ -1054,6 +927,102 @@ def resilientllm_asset(context):
             pass
         dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
         raise e
+@asset(
+    group_name="health",
+    key_prefix="sandiego",
+    name="resilientllm_sd_disease",
+    required_resource_keys={"resilientllm", "slack",  "s3"},
+    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_forecast_latest"])],
+automation_condition=AutomationCondition.eager()
+)
+def resilientllm_by_disease_asset(context):
+    """
+    Calls the ResilientLLM API Forecast Update.
+    """
+    diseases_config={ "COVID": [
+    { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_case_reports.csv", "description": "reported cases" },
+     { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_hosp_reports.csv", "description": "hospitalizations" },
+     { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_hosp_Rt.csv", "description": "Rt for hospitalizations" }
+     ], "Influenza": [
+      { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/FLU_case_reports.csv", "description": "reported cases" },
+       { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/FLU_hosp_reports.csv", "description": "hospitalizations" },
+        { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/FLU_hosp_Rt.csv", "description": "Rt for hospitalizations" }
+        ], "RSV": [
+        { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_case_reports.csv", "description": "reported cases" },
+         { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_hosp_reports.csv", "description": "hospitalizations" },
+          { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_hosp_Rt.csv", "description": "Rt for hospitalizations" }
+          ] }
+    diseases_key='diseases'
+    toplevel_keys=['super-short-summary', 'short-summary', 'summary','super-short-summary-no-forecast'
+        , 'updates', ]
+    disease_level_keys=['summary','trend','generated','timestamp','summary-public-forecast','summary-public-nowcast','summary-public health office-forecast']
+    try:
+        slack_resource = context.resources.slack
+        llm = context.resources.resilientllm
+        name = 'sandiego_epidemiology_sd_llm_generate_content_by_disease'
+        description = '''
+                  San Diego Epidemiology Content Generated from ResilientLLM by_disease
+                  '''
+        metadata = store_assets.objectMetadata(name=name, description=description)
+        s3_resource = context.resources.s3
+
+        # llm_response =  llm.execute(llm.webhook_uuid)
+        llm_response = llm.execute_with_data(llm.webhook_uuid, diseases_config)
+        llm_response_json=json.dumps(llm_response, indent=2)
+        date_path = datetime.today().strftime('%Y%m%d')
+        s3_json_key = f"{s3_output_path}output/llm/{date_path}/forecast_summary.json"
+        s3_json_latest_key = f"{s3_latest_path}forecast_summary.json"
+        store_assets.text_to_s3(llm_response_json, s3_json_key, s3_resource
+                                , contenttype='application/json',
+                                metadata=metadata
+                                )
+        store_assets.text_to_s3(llm_response_json, s3_json_latest_key, s3_resource
+                                , contenttype='application/json',
+                                metadata=metadata
+                                )
+        languages = llm_response.keys()
+        get_dagster_logger().debug('languages in response: {}'.format(languages))
+        # Post aggregate Slack notification (keep for backward compatibility)
+        # disabled for now. grab a sample at one point...
+        # try:
+        #     slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+        #                                                  markdown_text=f"# LLM Update for San Diego : \n {update}")
+        #     slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+        #                                                  markdown_text=f"# LLM summary for San Diego : \n {summary}")
+        # except:
+        #     pass
+
+        # Create deployment configuration and trigger deploy
+        deploy_config = DeployConfig(
+            asset_name=f"resilientllm_sd_disease new layout {date_path}",
+            #metadata=metadata,
+            preview_hook=FORECAST_NETLIFY_PREVIEW_2_HOOK,
+            deploy_hook=FORECAST_NETLIFY_PRODUCTION_2_HOOK,
+            preview_url=FORECAST_NETLIFY_PREVIEW_2_URL,
+            deploy_url=FORECAST_NETLIFY_PRODUCTION_2_URL,
+            reject_message=FORECAST_NETLIFY_REJECT_2_MESSAGE
+         )
+        try:
+            trigger_deploy(deploy_config)
+        except Exception as e:
+            get_dagster_logger().error(f"Slack Workflow trigger Failed: {e}")
+            try:
+                slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                             markdown_text=f"Processing ok, but Slack Workflow trigger Failed in update_resilientllm_asset: {e}")
+            except:
+                pass
+
+        asset_metadata={'date':date_path, 'diseases': list(diseases_config.keys())}
+        return Output(llm_response_json, metadata=asset_metadata)
+    except Exception as e:
+        try:
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                         markdown_text=f"Error in update_resilientllm_asset: {e}")
+        except:
+            pass
+        dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
+        raise e
+
 
 def update_portal_record(airtable_resource, summary ):
     try:
@@ -1070,7 +1039,7 @@ def update_portal_record(airtable_resource, summary ):
         dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
         raise e
 
-def update_update_table(airtable_resource, summary, update,):
+def update_update_table(airtable_resource, summary, update,short_summary):
     try:
         RsvPortalRecordId = FORECAST_AIRTABLE_RSV_PORTAL_RECORDID
         RsvPortalRecordName = FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME
@@ -1108,37 +1077,70 @@ def update_update_table(airtable_resource, summary, update,):
         raise e
     return True
 
-def triggerDeploy(assetPath=None):
-    if assetPath is None:
-        assetPath = datetime.today().strftime('%Y%m%d')
-    dagster.get_dagster_logger().debug(f"Triggering Netlify  Deploy Workflow")
+def create_deploy_config(asset_name: str, metadata: Optional[str] = "optional-metadata") -> DeployConfig:
+    """
+    Create a DeployConfig with default values from environment variables.
+
+    Args:
+        asset_name: Name of the asset being deployed
+        metadata: Optional metadata for the deployment
+
+    Returns:
+        DeployConfig: Configured deployment model
+    """
+    return DeployConfig(
+        asset_name=asset_name,
+        metadata=metadata,
+        preview_hook=FORECAST_NETLIFY_PREVIEW_HOOK,
+        deploy_hook=FORECAST_NETLIFY_PRODUCTION_HOOK,
+        preview_url=FORECAST_NETLIFY_PREVIEW_URL,
+        deploy_url=FORECAST_NETLIFY_PRODUCTION_URL,
+        reject_message=FORECAST_NETLIFY_REJECT_MESSAGE
+    )
+
+
+def trigger_deploy(config: DeployConfig) -> bool:
+    """
+    Trigger a Netlify deployment workflow using the provided configuration.
+
+    Args:
+        config: DeployConfig model containing deployment configuration
+
+    Returns:
+        bool: True if deployment was triggered successfully, False otherwise
+    """
+    logger = get_dagster_logger()
+    logger.debug(f"Triggering Netlify Deploy Workflow for {config.asset_name}")
+
     # for local development issues, do not set a FORECAST_NETLIFY_PREVIEW_HOOK and slack workflow will not run.
-    if FORECAST_NETLIFY_PREVIEW_HOOK is None:
-        dagster.get_dagster_logger().debug(f"No PREVIEW massing FORECAST_NETILFY_PREVIEW_HOOK Triggering Netlify  Deploy Workflow")
+    if config.preview_hook is None:
+        logger.debug(f"No PREVIEW hook configured - skipping Netlify Deploy Workflow")
         return False
-    response = requests.post(f"{FORECAST_NETLIFY_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster")
+
+    response = requests.post(f"{config.preview_hook}?trigger_title=triggered+by+Dagster")
     if response.status_code == 200:
-        dagster.get_dagster_logger().info(f'Netlify Preview Hook called successfully')
-        dagster.get_dagster_logger().info(f'calling slack workflow: {TRIGGER_PREVIEW_HOOK}')
+        logger.info(f'Netlify Preview Hook called successfully')
+        logger.info(f'calling slack workflow: {TRIGGER_PREVIEW_HOOK}')
+
         if TRIGGER_PREVIEW_HOOK is not None:
-            data =  {
-                "asset_name": f"sd_epidemiology_forecast {assetPath}",
-                "metadata": "optional-metadata",
-                "preview_hook": FORECAST_NETLIFY_PREVIEW_HOOK,
-                "deploy_hook": FORECAST_NETLIFY_PRODUCTION_HOOK,
-                "preview_url": FORECAST_NETLIFY_PREVIEW_URL,
-                "deploy_url": FORECAST_NETLIFY_PRODUCTION_URL,
-                "reject_message":FORECAST_NETLIFY_REJECT_MESSAGE
-                }
-            response = requests.post(f"{TRIGGER_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster", json=data)
+            # Convert Pydantic model to dict for JSON payload
+            data = config.model_dump()
+
+            response = requests.post(
+                f"{TRIGGER_PREVIEW_HOOK}?trigger_title=triggered+by+Dagster",
+                json=data
+            )
             if response.status_code == 200:
-                dagster.get_dagster_logger().info(f'Slack workflow triggered successfully {TRIGGER_PREVIEW_HOOK}')
+                logger.info(f'Slack workflow triggered successfully {TRIGGER_PREVIEW_HOOK}')
             else:
-                dagster.get_dagster_logger().error(f'Failed to trigger Slack workflow {TRIGGER_PREVIEW_HOOK}')
+                logger.error(f'Failed to trigger Slack workflow {TRIGGER_PREVIEW_HOOK}')
         else:
-            dagster.get_dagster_logger().error(f'trigger not configured no TRIGGER_PREVIEW_HOOK  environment variable')
+            logger.error(f'trigger not configured no TRIGGER_PREVIEW_HOOK environment variable')
 
         return True
+
+    logger.error(f'Failed to call Netlify Preview Hook')
+    return False
 
 
 #

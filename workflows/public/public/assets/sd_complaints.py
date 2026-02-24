@@ -96,8 +96,17 @@ def sd_complaints(context):
     # complaints_json = complaints_gdf.to_json()
     # path = f"{output_path}/output/complaints.geojson"
     # s3_resource.putFile_text(data=complaints_json, path=path)
-    filename = f"{output_path}/output/complaints"
-    store_assets.geodataframe_to_s3(complaints_gdf, filename, s3_resource, metadata=metadata)
+    # filename = f"{output_path}/output/complaints"
+    # store_assets.geodataframe_to_s3(complaints_gdf, filename, s3_resource, metadata=metadata)
+    filepath = f"{output_path}/output/"
+    latestdatasetpath=f'{output_path}'
+    filename="complaints"
+    store_assets.store_dataframe_to_s3(complaints_gdf,
+            filepath, filename, s3_resource,
+            metadata=metadata,
+           enable_latest_path=True,
+          latestdatasetpath=latestdatasetpath,
+                                       formats=['json','geojson','csv','parquet'])
 
 
     return complaints_gdf
@@ -164,7 +173,7 @@ def sd_complaints_90_days(context):
     complaints_gdf = context.repository_def.load_asset_value(AssetKey([f"complaints", "sd_complaints"]))
     complaints_90_gdf = complaints_gdf[complaints_gdf['datetime']> datestart.strftime('%Y-%m-%d')]
     complaints_90_gdf= dropUnnecessaryColumns(complaints_90_gdf)
-    filename = f"{output_path}/output/latest/complaints"
+    filename = f"latest/{output_path}/complaints_90_days"
     store_assets.geodataframe_to_s3(complaints_90_gdf, filename, s3_resource, metadata=metadata)
 
     return complaints_90_gdf

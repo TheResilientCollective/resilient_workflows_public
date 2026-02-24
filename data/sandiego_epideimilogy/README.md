@@ -41,6 +41,19 @@ https://public.tableau.com/profile/api/single_workbook/DraftRespDash_750
   "externalLink":"","numberOfFavorites":0,"attributions":[]}
 ```
 
+## Testing Positivity
+https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/CombinedHighlights/HospDeathPoswk
+
+workbook:
+https://public.tableau.com/workbooks/CombinedHighlights.twb
+
+info: https://public.tableau.com/profile/api/single_workbook/CombinedHighlights
+
+
+'Sheet1' 
+has all the data 
+Week Ending, 
+
 ### other data
 * [site with test posititity no data download](https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/CombinedHighlights/HospDeathPoswk)
 * [syndromic no data download](https://www.sandiegocounty.gov/content/sdc/hhsa/programs/phs/community_epidemiology/dc/2019-nCoV/status/COVID19_Emergency_Department_Syndromic_Data.html)

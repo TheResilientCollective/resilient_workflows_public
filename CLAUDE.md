@@ -57,6 +57,10 @@ dagster asset materialize --select ibwc_spills -m public
 # Materialize asset groups
 dagster asset materialize --select tag:tijuana -m public
 dagster asset materialize --select tag:waterquality -m public
+
+# Materialize a chain of dependent assets (e.g. testing pipeline)
+cd workflows/public
+uv run python -m dagster asset materialize --select sandiego/sandiego_epidemiology_testing_workbook_download,sandiego/sandiego_epidemiology_testing_hyper_extraction,sandiego/sd_testing -m public
 ```
 ### Development Server
 ```bash

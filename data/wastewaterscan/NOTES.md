@@ -31,10 +31,15 @@ https://data.wastewaterscan.org/data/averages/region-west.csv
 
 
 plants:
+https://storage.googleapis.com/wastewater-dev-data/json/plants.json
+https://data.wastewaterscan.org/data/plant-points.csv
+
 https://storage.googleapis.com/wastewater-dev-data/csv/seq/plants.csv
 https://storage.googleapis.com/wastewater-dev-data/csv/seq/plants.csv
 data dictionary
 https://docs.google.com/document/d/15XLPO_TQb03HX5Brf5_SFOhXKTpfY4fm3BSRDvSJbn8/edit
+
+https://storage.googleapis.com/wastewater-dev-data/csv/seq/lineages.csv
 
 targets:
 https://storage.googleapis.com/wastewater-dev-data/json/targets.json
@@ -54,3 +59,8 @@ https://data.wastewaterscan.org/tracker/?charts=CjIQACABSABaBk4gR2VuZXIKMjAyNC0w
 
 no longer works
 https://data.wastewaterscan.org/data/csv/WWSCAN_us_plants_all_targets_20240920.csv
+
+
+san deigo jsons
+https://storage.googleapis.com/wastewater-dev-data/json/74d026bd.json
+https://storage.googleapis.com/wastewater-dev-data/json/3a3fa1e0.json

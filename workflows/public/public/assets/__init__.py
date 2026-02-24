@@ -9,16 +9,17 @@ from .sd_complaints import (get_sd_complaints,
                             sd_complaints_90_days,
     # complaints_daily_job
     # complaints_daily_schedule,
-sd_complaints_freshness_check,
+                            sd_complaints_freshness_check,
                             )
 from .sd_apcd import (
     current, generate_apcd, apcd_all,
     apcd_current_schedule, highh2s, hs2_latest,
     apcd_all_schedule,
     get_airnow_locations, current_freshness_check,
-yearly_aggregated_all, apcd_yearly_schedule,
-yearly_aggregated_h2s,
-get_daily_raw_csv
+    yearly_aggregated_all, apcd_yearly_schedule,
+    yearly_aggregated_h2s,
+    get_daily_raw_csv,
+    h2s_all
 )
 from .beach_monitoring import (beachwatch_year, beachwatch_analyses_daily,
                                beach_waterquality_schedule, get_sdbeachinfo_status,
@@ -27,9 +28,9 @@ from .beach_monitoring import (beachwatch_year, beachwatch_analyses_daily,
                                beachwatch__closures_year, beachwatch_closures_recent,
                                beachwatch_closure_recent_weekly,
                                beachwatch_status_translation,
-                                beachinfo_updated_sensor
+                               beachinfo_updated_sensor
                                )
-from .streamflow import( tj_boundary, tj_canal, streamflow_all_schedule, streamflow_yearly_schedule,
+from .streamflow import (tj_boundary, tj_canal, streamflow_all_schedule, streamflow_yearly_schedule,
                          yearly_assets)
 from .ibwc_spills import (
     spills, spills_last, spills_latest_sensor, spills_reports, spills_all, spills_historic_schedule)
@@ -58,14 +59,16 @@ sandiego_wastewater_workbook_download,sandiego_wastewater_hyper_extraction,
 sandiego_wastewater_job, sandiego_wastewater_sensor
 )
 from .sandiego_epidemiology_forecasts import (
-run_epidemic_simulation,
-process_epidemiology_forecasts,
-epidemiology_forecasts_job,
-epidemiology_forecasts_sensor,
-#update_resilientllm_asset, summary_resilientllm_asset
-resilientllm_asset,
-copy_rt_to_github,
-copy_forecast_latest
+    run_epidemic_simulation,
+    process_epidemiology_forecasts,
+    epidemiology_forecasts_job,
+    epidemiology_forecasts_sensor,
+    # update_resilientllm_asset, summary_resilientllm_asset
+    resilientllm_asset,
+    resilientllm_by_disease_asset,
+    copy_rt_to_github,
+    copy_forecast_latest
+
 )
 from .hysplit_forecasting import (
     data_for_models,
@@ -75,28 +78,35 @@ from .hysplit_forecasting import (
     h2s_exceedance_periods_filter
 )
 from .sandiego_epidemiology_mpox import (
-mpox_workbook_download,
-mpox_hyper_extraction,
-mpox_data_checks,
-mpox_epidemiology_job,
-mpox_epidemiology_sensor
+    mpox_workbook_download,
+    mpox_hyper_extraction,
+    mpox_data_checks,
+    mpox_epidemiology_job,
+    mpox_epidemiology_sensor
+)
+from .sandiego_epidemiology_testing import (
+    sandiego_epidemiology_testing_workbook_download,
+    sandiego_epidemiology_testing_hyper_extraction,
+    sd_testing,
+    #sde_timeseries_checks,
+    sandiego_epidemiology_testing_job, sandiego_epidemiology_testing_sensor
 )
 from .cdc_data_quality_checks import (
-check_mpox_weekly_completeness,
-check_measles_weekly_completeness,
-check_mpox_statistical_extension_completeness,
-check_measles_statistical_extension_completeness,
-check_mpox_zero_counts_preserved,
-check_measles_zero_counts_preserved
+    check_mpox_weekly_completeness,
+    check_measles_weekly_completeness,
+    check_mpox_statistical_extension_completeness,
+    check_measles_statistical_extension_completeness,
+    check_mpox_zero_counts_preserved,
+    check_measles_zero_counts_preserved
 )
 from .wahis import (
-process_wahis_excel_file,
-wahis_upload_sensor,
-wahis_uploads_job,
-outbreak_summaries,
-outbreak_by_pathogen
+    process_wahis_excel_file,
+    wahis_upload_sensor,
+    wahis_uploads_job,
+    outbreak_summaries,
+    outbreak_by_pathogen
 )
 from .tides import (
-tides_all_job,
-tides_historic
+    tides_all_job,
+    tides_historic
 )

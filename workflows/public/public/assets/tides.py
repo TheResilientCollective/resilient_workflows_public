@@ -43,11 +43,11 @@ def refine_state(row):
 
     # Check for High Slack (transition from flood to ebb)
     if current_diff > 0 and next_diff < 0:
-        return "slack high"
+        return "high"
 
     # Check for Low Slack (transition from ebb to flood)
     elif current_diff < 0 and next_diff > 0:
-        return "slack low"
+        return "low"
 
     return row['tidal_state']
 
