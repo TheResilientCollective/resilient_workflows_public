@@ -50,9 +50,13 @@ from .purple_air import memberGroup, getGroupData, purple_air_schedule
 
 from .mpox_counties import mpox_la_powerbi, mpox_sf_weekly, mpox_counties_weekly_schedule
 from .sandiego_epidemiology import (
-    sandiego_epidemiology_workbook_download,
-    sandiego_epidemiology_hyper_extraction, sde_timeseries_checks,
-    sandiego_epidemiology_job, sandiego_epidemiology_sensor
+sandiego_epidemiology_workbook_download,
+sandiego_epidemiology_hyper_extraction,sde_timeseries_checks,
+sandiego_epidemiology_job, sandiego_epidemiology_sensor,
+)
+from .sandiego_epidemiology_wastewater import (
+sandiego_wastewater_workbook_download,sandiego_wastewater_hyper_extraction,
+sandiego_wastewater_job, sandiego_wastewater_sensor
 )
 from .sandiego_epidemiology_forecasts import (
     run_epidemic_simulation,
