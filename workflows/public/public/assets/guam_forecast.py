@@ -60,7 +60,7 @@ TRIGGER_PREVIEW_HOOK = os.environ.get("TRIGGER_PREVIEW_HOOK")
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 
 s3_output_path = "pathogens/guam/guam_forecast/"
-s3_latest_llm_path = "latest/guam_flu_forecast/llm/"
+s3_latest_llm_path = "latest/guam/forecast"
 
 # Guam only has Influenza – simplified mapping
 GENERIC_FILE_TO_TABLE_MAPPING = {
@@ -549,15 +549,15 @@ def guam_resilientllm_by_disease_asset(context):
     diseases_config = {
         "Influenza": [
             {
-                "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/guam_flu_forecast/forecast/FLU_case_reports.csv",
+                "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/guam/forecast/FLU_case_reports.csv",
                 "description": "reported cases",
             },
             {
-                "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/guam_flu_forecast/forecast/FLU_hosp_reports.csv",
+                "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/guam/forecast/FLU_hosp_reports.csv",
                 "description": "hospitalizations",
             },
             {
-                "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/guam_flu_forecast/forecast/FLU_hosp_Rt.csv",
+                "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/guam/forecast/FLU_hosp_Rt.csv",
                 "description": "Rt for hospitalizations",
             },
         ]
@@ -597,15 +597,15 @@ def guam_resilientllm_by_disease_asset(context):
         languages = llm_response.keys()
         get_dagster_logger().debug("languages in response: {}".format(languages))
 
-        deploy_config = DeployConfig(
-            asset_name="guam_resilientllm_disease",
-            preview_hook=FORECAST_NETLIFY_PREVIEW_2_HOOK,
-            deploy_hook=FORECAST_NETLIFY_PRODUCTION_2_HOOK,
-            preview_url=FORECAST_NETLIFY_PREVIEW_2_URL,
-            deploy_url=FORECAST_NETLIFY_PRODUCTION_2_URL,
-            reject_message=FORECAST_NETLIFY_REJECT_2_MESSAGE,
-        )
-        trigger_deploy(deploy_config)
+        # deploy_config = DeployConfig(
+        #     asset_name="guam_resilientllm_disease",
+        #     preview_hook=FORECAST_NETLIFY_PREVIEW_2_HOOK,
+        #     deploy_hook=FORECAST_NETLIFY_PRODUCTION_2_HOOK,
+        #     preview_url=FORECAST_NETLIFY_PREVIEW_2_URL,
+        #     deploy_url=FORECAST_NETLIFY_PRODUCTION_2_URL,
+        #     reject_message=FORECAST_NETLIFY_REJECT_2_MESSAGE,
+        # )
+        # trigger_deploy(deploy_config)
 
         asset_metadata = {"date": date_path, "diseases": list(diseases_config.keys())}
         return Output(llm_response_json, metadata=asset_metadata)
