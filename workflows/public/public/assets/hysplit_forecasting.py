@@ -24,8 +24,8 @@ CSV_PATTERN='*.csv'
 H2S_PATH='latest/tijuana/sd_apcd_air/h2s'
 WEATHER_BASE='latest/tijuana/weather'
 STREAMFLOW_BASE='latest/tijuana/streamflow'
-STREAMFLOW_SITE='boundary_cms'
-#STREAMFLOW_SITES=['boundary_cms']
+STREAMFLOW_SITE_YEARLY='boundary_cms'
+STREAMFLOW_SITE_RECENT=STREAMFLOW_SITE_YEARLY
 TIDAL_BASE='latest/tijuana/tides/tidal_historic'
 
 
@@ -119,11 +119,12 @@ def h2s_locations(context):
     required_resource_keys={"s3"},
     deps=[AssetKey(["apcd", 'yearly_aggregated_h2s']),
           AssetKey(['streamflow', 'boundary_cms_yearly']),
+          AssetKey(['streamflow', 'boundary_cms']),
           AssetKey(['weather', 'openmeteo_historical'])
           ],
        metadata={
            "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
-           , "description": "Data for Forecast Modeling of H2S includes Wind Direction and Wind Speed"
+           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days)"
            , "variableMeasured": ["H2S", 'Wind Direction', 'Wind Speed', "Streamflow"]
        },
        automation_condition=AutomationCondition.eager()
@@ -258,23 +259,36 @@ def data_for_models(context):
         dagster_logger.error(f"Error merging weather and h2s data {e}")
         raise e
     dagster_logger.info(f"Matched {matched_df.shape[0]} rows")
-    # border streamflow
+    # border streamflow - load yearly historical data
+    streamflow_border_files = f"s3://{s3_resource.S3_BUCKET}/{STREAMFLOW_BASE}/{STREAMFLOW_SITE_YEARLY}/{PARQUET_PATTERN}"
     try:
-        streamflow_border_files = f"s3://{s3_resource.S3_BUCKET}/{STREAMFLOW_BASE}/{STREAMFLOW_SITE}/{PARQUET_PATTERN}"
         streamflow_border_df = duckdb_con.read_parquet(streamflow_border_files).df()
+        dagster_logger.info(f"Loaded {streamflow_border_df.shape[0]} yearly streamflow records")
     except Exception as e:
-        dagster_logger.error(f"Error reading streamflow csv files {streamflow_border_files} {e}")
+        dagster_logger.error(f"Error reading streamflow parquet files {streamflow_border_files} {e}")
         raise e
+    # also load recent boundary_cms (last 30 days) and combine for a complete flow record
+    # try:
+    #     streamflow_recent_files = f"s3://{s3_resource.S3_BUCKET}/{STREAMFLOW_BASE}/{STREAMFLOW_SITE_RECENT}/{CSV_PATTERN}"
+    #     streamflow_recent_df = duckdb_con.read_csv(streamflow_recent_files).df()
+    #     dagster_logger.info(f"Loaded {streamflow_recent_df.shape[0]} recent boundary_cms records")
+    #     streamflow_border_df = pd.concat([streamflow_border_df, streamflow_recent_df], ignore_index=True)
+    # except Exception as e:
+    #     dagster_logger.warning(f"Could not load recent boundary_cms data, continuing with yearly only: {e}")
     try:
-        streamflow_border_df['time'] = pd.to_datetime(streamflow_border_df['End of Interval (UTC-08:00)'], utc=False)
-        streamflow_border_df["time"] = streamflow_border_df["time"].dt.tz_localize("America/Los_Angeles", ambiguous=True,
-                                                                                   nonexistent='shift_forward')
+        streamflow_border_df['time'] = pd.to_datetime(streamflow_border_df['End of Interval (UTC-08:00)'])
+        # Data is UTC-8 fixed offset (no DST) — localize to fixed offset, then convert to LA
+        streamflow_border_df["time"] = streamflow_border_df["time"].dt.tz_localize('Etc/GMT+8').dt.tz_convert("America/Los_Angeles")
         streamflow_border_df = streamflow_border_df.rename(columns={'Average (m^3/s)': 'Flow (m^3/s)--Border'})
         streamflow_border_df = streamflow_border_df.set_index(pd.DatetimeIndex(streamflow_border_df['time']))
         streamflow_border_df = streamflow_border_df.drop(
-            ['time', 'End of Interval (UTC-08:00)', 'Start of Interval (UTC-08:00)'], axis=1)
+            ['time', 'End of Interval (UTC-08:00)', 'Start of Interval (UTC-08:00)'], axis=1, errors='ignore')
+        # deduplicate - recent data takes precedence over yearly
+        streamflow_border_df = streamflow_border_df[~streamflow_border_df.index.duplicated(keep='last')]
+        streamflow_border_df = streamflow_border_df.sort_index()
+        dagster_logger.info(f"Combined streamflow has {streamflow_border_df.shape[0]} records after dedup")
     except Exception as e:
-        dagster_logger.error(f"Error reading streamflow   files {streamflow_border_files} {e}")
+        dagster_logger.error(f"Error processing streamflow files {streamflow_border_files} {e}")
         raise e
     try:
         matched_df = pd.merge_asof(matched_df, streamflow_border_df, left_on="time", right_on="time", direction="nearest")
