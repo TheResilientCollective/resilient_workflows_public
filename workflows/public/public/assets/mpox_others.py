@@ -1,3 +1,4 @@
+import io
 import requests
 import json
 import pandas as pd
@@ -5,6 +6,7 @@ from dagster import asset, AutomationCondition, schedule, RunRequest, define_ass
 import geopandas as gpd
 from datetime import datetime, date
 import requests
+from epiweeks import Week
 from ..utils import store_assets
 from ..utils.resilient_epi_schemas import (
     BasicEpidemiologySchema,
@@ -66,8 +68,12 @@ def mpox_la_powerbi(context):
             date = datetime.utcfromtimestamp(cols[0] / 1000).date()
             records.append({"week_start_date": date, "cases": None})
 
-    # Save to CSV
     df = pd.DataFrame(records)
+
+    # Snap week_start_date to CDC epiweek Sunday start
+    df['week_start_date'] = pd.to_datetime(df['week_start_date']).apply(
+        lambda d: Week.fromdate(d, system='cdc').startdate()
+    )
 
     logger = get_dagster_logger()
     epi_processor = ResilientEpiProcessor()
@@ -219,11 +225,20 @@ def mpox_sf_weekly(context):
         valid_records = mpox_df.dropna(subset=['new_cases']).copy()
 
         if not valid_records.empty:
-            # Prepare data for basic epidemiology schema transformation
-            basic_data = valid_records[['episode_date', 'new_cases']].copy()
-            basic_data['episode_date'] = pd.to_datetime(basic_data['episode_date'])
+            # Aggregate daily episode_date to CDC epiweeks (Sunday start)
+            valid_records['episode_date'] = pd.to_datetime(valid_records['episode_date'])
+            valid_records['epiweek_start'] = valid_records['episode_date'].apply(
+                lambda d: Week.fromdate(d, system='cdc').startdate()
+            )
+            agg = {'new_cases': 'sum'}
+            if 'cumulative_cases' in valid_records.columns:
+                agg['cumulative_cases'] = 'max'
+            weekly = valid_records.groupby('epiweek_start').agg(agg).reset_index()
+            logger.info(f"Aggregated {len(valid_records)} daily SF records → {len(weekly)} CDC epiweeks")
+
+            basic_data = weekly[['epiweek_start', 'new_cases']].copy()
             basic_data = basic_data.rename(columns={
-                'episode_date': 'Date',
+                'epiweek_start': 'Date',
                 'new_cases': 'Count'
             })
 
@@ -258,8 +273,8 @@ def mpox_sf_weekly(context):
 
                 # Create statistical extension records for both new cases and cumulative cases
                 statistical_records = []
-                for _, row in valid_records.iterrows():
-                    date_str = pd.to_datetime(row['episode_date']).strftime('%Y-%m-%d')
+                for _, row in weekly.iterrows():
+                    date_str = pd.Timestamp(row['epiweek_start']).strftime('%Y-%m-%d')
 
                     # New cases record
                     if pd.notna(row['new_cases']):
@@ -327,3 +342,94 @@ mpox_counties_job = define_asset_job(
 @schedule(job=mpox_counties_job, cron_schedule="@weekly", name="mpox_counties_weekly_schedule")
 def mpox_counties_weekly_schedule(context):
     return RunRequest()
+
+
+s3_aggregated_path = 'pathogens/diseases/mpox/aggregated'
+s3_aggregated_latest = 'pathogens/mpox/aggregated'
+
+_MPOX_SOURCES = [
+    {
+        'name': 'sandiego',
+        'path': 'sandiego/sd_mpox/sd_mpox.csv',
+        'latest': True,
+    },
+    {
+        'name': 'los_angeles',
+        'path': 'mpox/california/mpox_la_weekly_basic.csv',
+        'latest': True,
+    },
+    {
+        'name': 'san_francisco',
+        'path': 'mpox/california/mpox_sf_weekly_basic.csv',
+        'latest': True,
+    },
+    {
+        'name': 'cdc',
+        'path': 'pathogens/mpox/usa/mpox_weekly_basic.csv',
+        'latest': True,
+    },
+]
+
+
+@asset(
+    group_name="pathogens",
+    key_prefix="mpox",
+    name="mpox_aggregated",
+    deps=[
+        AssetKey(["sandiego", "sd_mpox"]),
+        AssetKey(["mpox", "mpox_la_weekly"]),
+        AssetKey(["mpox", "mpox_sf_weekly"]),
+        AssetKey(["cdc", "mpox_weekly"]),
+    ],
+    required_resource_keys={"s3"},
+    automation_condition=AutomationCondition.eager(),
+    description="Aggregated MPOX dataset merging San Diego, Los Angeles, San Francisco, and CDC outputs",
+)
+def mpox_aggregated(context):
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+    latest_base = store_assets.get_latest_basepath()
+
+    frames = []
+    for source in _MPOX_SOURCES:
+        s3_path = f"{latest_base}/{source['path']}" if source.get('latest', True) else source['path']
+        try:
+            raw = s3_resource.getFile(s3_path)
+            df = pd.read_csv(io.BytesIO(raw) if isinstance(raw, bytes) else io.StringIO(raw.decode('utf-8')))
+            df['source_name'] = source['name']
+            frames.append(df)
+            logger.info(f"Loaded {len(df)} rows from {source['name']} ({s3_path})")
+        except Exception as e:
+            logger.error(f"Could not load {source['name']} from {s3_path}: {e}")
+
+    if not frames:
+        raise ValueError("No mpox source data could be loaded — cannot build mpox_aggregated")
+
+    _COLUMNS = ['Jurisdiction', 'date_week_start', 'date_week_end', 'Week_Number',
+                'Year', 'Week_Year', 'Cases', 'Week_Type', 'source_name']
+
+    combined = pd.concat(frames, ignore_index=True)
+    # Keep only the standard columns; fill any missing ones with NaN
+    for col in _COLUMNS:
+        if col not in combined.columns:
+            combined[col] = pd.NA
+    aggregated = combined[_COLUMNS]
+    logger.info(f"Aggregated {len(aggregated)} rows from {len(frames)} sources")
+
+    name = 'mpox_aggregated'
+    metadata = store_assets.objectMetadata(
+        name=name,
+        description='Aggregated MPOX dataset combining San Diego, Los Angeles, San Francisco, and CDC weekly case data',
+        source_url='https://data.cdc.gov/resource/x9gk-5huc.geojson'
+    )
+
+    store_assets.store_dataframe_to_s3(
+        df=aggregated,
+        path=s3_aggregated_path,
+        dataset_identifier=name,
+        s3_resource=s3_resource,
+        metadata=metadata,
+        formats=['csv', 'parquet'],
+        enable_latest_path=True,
+        latestdatasetpath=s3_aggregated_latest,
+    )

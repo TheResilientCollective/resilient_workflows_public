@@ -123,8 +123,8 @@ weekly_partitions = WeeklyPartitionsDefinition(
 timezone="America/Los_Angeles",
 )
 s3_output_path = 'pathogens/cdc/nndss'
-s3_latest_mpox = 'mpox/cdc'
-s3_latest_measles = 'measles/cdc'
+s3_latest_mpox = 'pathogens/mpox/usa'
+s3_latest_measles = 'pathogens/measles/usa'
 
 
 AIRTABLE_TABLE_ID = os.environ.get('AIRTABLE_MPOX_TABLE_ID')
