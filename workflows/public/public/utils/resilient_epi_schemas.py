@@ -258,18 +258,16 @@ class BasicEpidemiologySchema:
 
         transformed_df = pd.DataFrame()
 
-        # Date columns (create rows first)
-        transformed_df['date_week_start'] = df['Date'].dt.strftime('%Y-%m-%d')
-        transformed_df['date_week_end'] = (df['Date'] + pd.Timedelta(days=6)).dt.strftime('%Y-%m-%d')
+        # Compute CDC epiweek once per row (start=Sunday, end=Saturday)
+        epi_weeks = df['Date'].apply(lambda d: Week.fromdate(d, system='cdc'))
+
+        # Date columns snapped to CDC epiweek boundaries
+        transformed_df['date_week_start'] = epi_weeks.apply(lambda w: w.startdate().strftime('%Y-%m-%d'))
+        transformed_df['date_week_end'] = epi_weeks.apply(lambda w: w.enddate().strftime('%Y-%m-%d'))
 
         # Week and year calculations
-        #iso_calendar = df['Date'].dt.isocalendar()
-
-        #transformed_df['Week_Number'] = iso_calendar['week'].astype(int)
-        #transformed_df['Year'] = iso_calendar['year'].astype(int)
-        transformed_df['Week_Number'] =  df['Date'].apply(lambda d : Week.fromdate(d, system='cdc').week)
-
-        transformed_df['Year'] =  df['Date'].apply(lambda d : Week.fromdate(d, system='cdc').year)
+        transformed_df['Week_Number'] = epi_weeks.apply(lambda w: w.week)
+        transformed_df['Year'] = epi_weeks.apply(lambda w: w.year)
         transformed_df['Week_Year'] = (
             transformed_df['Week_Number'].astype(str) + '-' +
             transformed_df['Year'].astype(str)

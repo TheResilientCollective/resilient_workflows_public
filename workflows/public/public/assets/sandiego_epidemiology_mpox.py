@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 import pandas as pd
 from dagster import asset, get_dagster_logger, define_asset_job, AssetKey, sensor, RunRequest, SensorEvaluationContext, \
-    Config, AssetIn
+    Config, AssetIn, AutomationCondition
+from epiweeks import Week
 from typing import Dict, Any, Iterable
 import json
 import numpy as np
@@ -494,6 +495,115 @@ def mpox_data_checks(context, mpox_hyper_extraction) -> Iterable[dg.AssetCheckRe
             metadata={"error": str(e)},
             asset_key=dg.AssetKey(['sandiego', 'mpox_hyper_extraction']),
         )
+
+@asset(
+    group_name="health",
+    key_prefix="sandiego",
+    name="sd_mpox",
+    deps=[AssetKey(["sandiego", "mpox_hyper_extraction"])],
+    required_resource_keys={"s3"},
+    description="Combined MPOX dataset: disease summary + demographics, dates snapped to CDC epiweek (Sunday) start",
+    ins={
+        "mpox_hyper_extraction": AssetIn(
+            key=AssetKey(["sandiego", "mpox_hyper_extraction"])
+        )
+    },
+    automation_condition=AutomationCondition.eager()
+)
+def sd_mpox(context, mpox_hyper_extraction: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Combine MPXV Disease Summary and Demographics into a single dataset.
+    All week start dates are snapped to the CDC epiweek Sunday boundary.
+    """
+    logger = get_dagster_logger()
+    s3_resource = context.resources.s3
+    date_path = dates3Path()
+    config = MPOXWorkbookConfig()
+
+    processed_datasets = mpox_hyper_extraction.get("processed_datasets", {})
+
+    # Locate MPXV and Demographics keys (hyper filenames as keys)
+    mpxv_key = next((k for k in processed_datasets if k.startswith('MPXV')), None)
+    demographics_key = next((k for k in processed_datasets if k.startswith('Demographics')), None)
+
+    disease_summary_df = pd.DataFrame()
+    demographics_df = pd.DataFrame()
+
+    # --- MPXV Disease Summary ---
+    if mpxv_key:
+        info = processed_datasets[mpxv_key]
+        csv_path = f'{info["s3_path"]}/{mpxv_key}.csv'
+        try:
+            raw_df = pd.read_csv(StringIO(s3_resource.getFile(csv_path).decode('utf-8')))
+            logger.info(f"Loaded MPXV raw data: {len(raw_df)} rows, columns: {list(raw_df.columns)}")
+            disease_summary_df = transform_mpxv_disease_summary(raw_df)
+            logger.info(f"Transformed MPXV to epi schema: {len(disease_summary_df)} rows")
+        except Exception as e:
+            logger.error(f"Error reading/transforming MPXV data from {csv_path}: {e}")
+            raise
+    else:
+        logger.error(f"No MPXV dataset found in processed_datasets. Keys: {list(processed_datasets.keys())}")
+        raise ValueError("MPXV Disease Summary not found — cannot build sd_mpox")
+
+    # --- Demographics ---
+    if demographics_key:
+        info = processed_datasets[demographics_key]
+        csv_path = f'{info["s3_path"]}/{demographics_key}.csv'
+        try:
+            demographics_df = pd.read_csv(StringIO(s3_resource.getFile(csv_path).decode('utf-8')))
+            logger.info(f"Loaded Demographics: {len(demographics_df)} rows, columns: {list(demographics_df.columns)}")
+
+            # Snap any date/week column to CDC epiweek start (Sunday)
+            date_col = next(
+                (col for col in demographics_df.columns
+                 if any(kw in col.lower() for kw in ['week', 'date', 'episode'])),
+                None
+            )
+            if date_col:
+                demographics_df[date_col] = pd.to_datetime(demographics_df[date_col], errors='coerce')
+                demographics_df = demographics_df.dropna(subset=[date_col])
+                demographics_df['date_week_start'] = demographics_df[date_col].apply(
+                    lambda d: Week.fromdate(d, system='cdc').startdate().strftime('%Y-%m-%d')
+                )
+                logger.info(f"Snapped '{date_col}' to CDC epiweek Sunday start in demographics")
+            else:
+                logger.warning("No date/week column found in demographics — cannot align to epiweek")
+        except Exception as e:
+            logger.warning(f"Could not load demographics from {csv_path}: {e} — continuing with disease summary only")
+
+    # --- Merge on epiweek ---
+    if not demographics_df.empty and 'date_week_start' in demographics_df.columns:
+        combined_df = pd.merge(disease_summary_df, demographics_df, on='date_week_start', how='left')
+        logger.info(f"Merged disease summary + demographics on date_week_start: {len(combined_df)} rows")
+    else:
+        combined_df = disease_summary_df
+        logger.info("No demographics to merge — storing disease summary only")
+
+    # --- Store ---
+    name = f'sd_mpox_{date_path}'
+    metadata = store_assets.objectMetadata(
+        name=name,
+        description='San Diego MPOX combined dataset with CDC epiweek-aligned dates',
+        source_url=config.url
+    )
+    store_dataframe_to_s3(
+        df=combined_df,
+        s3_resource=s3_resource,
+        path=f"{s3_output_path}output/sd_mpox/{date_path}",
+        dataset_identifier='sd_mpox',
+        metadata=metadata,
+        latestdatasetpath="sandiego/sd_mpox",
+        enable_latest_path=True
+    )
+    logger.info(f"Stored sd_mpox: {len(combined_df)} rows, {len(combined_df.columns)} columns")
+
+    return {
+        "date_path": date_path,
+        "rows": len(combined_df),
+        "columns": list(combined_df.columns),
+        "status": "success"
+    }
+
 
 # Dagster job definition
 mpox_epidemiology_job = define_asset_job(
