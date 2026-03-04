@@ -48,7 +48,7 @@ from .airnow import (get_aq_combined_kml, get_aq_forecast, get_aq_site, aq_combi
                      )
 from .purple_air import memberGroup, getGroupData, purple_air_schedule
 
-from .mpox_counties import mpox_la_powerbi, mpox_sf_weekly, mpox_counties_weekly_schedule
+from .mpox_others import mpox_la_powerbi, mpox_sf_weekly, mpox_counties_weekly_schedule, mpox_aggregated
 from .sandiego_epidemiology import (
 sandiego_epidemiology_workbook_download,
 sandiego_epidemiology_hyper_extraction,sde_timeseries_checks,
@@ -82,7 +82,8 @@ from .sandiego_epidemiology_mpox import (
     mpox_hyper_extraction,
     mpox_data_checks,
     mpox_epidemiology_job,
-    mpox_epidemiology_sensor
+    mpox_epidemiology_sensor,
+sd_mpox
 )
 from .sandiego_epidemiology_testing import (
     sandiego_epidemiology_testing_workbook_download,
