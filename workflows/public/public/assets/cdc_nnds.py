@@ -398,28 +398,28 @@ def measles_weekly(context):
         raise Exception(f"access failed: {response.status_code} {response.text}")
     limit =1000
     offset = 0
-    mpox_df=None
+    disease_df=None
     for i in range(0,count,limit):
         mpox_url = f"{base_url}{query}&$offset={i}&$limit={limit}&{where}"
         get_dagster_logger().info(f"url :{mpox_url} ")
         try:
             this_df = gpd.read_file(mpox_url)
-            if mpox_df is None:
-                mpox_df = this_df
+            if disease_df is None:
+                disease_df = this_df
             else:
-                mpox_df = pd.concat( [mpox_df, this_df],ignore_index=True)
+                disease_df = pd.concat( [disease_df, this_df],ignore_index=True)
         except Exception as e:
             print(e)
             get_dagster_logger().error(f"{i}: access failed:{ mpox_url} {e} ")
     # store raw
     filename = f'{s3_output_path}/raw/measles/measles_raw'
-    store_assets.dataframe_to_s3(mpox_df, filename, s3_resource )
-    mpox_df["lat"] = mpox_df.geometry.y
-    mpox_df["lon"] = mpox_df.geometry.x
-    mpox_df['date'] = mpox_df.apply(lambda row: Week(int(row['year']), int(row['week'])).startdate(), axis=1)
-    mpox_df['date'] = pd.to_datetime(mpox_df['date'])
+    store_assets.dataframe_to_s3(disease_df, filename, s3_resource )
+    disease_df["lat"] = disease_df.geometry.y
+    disease_df["lon"] = disease_df.geometry.x
+    disease_df['date'] = disease_df.apply(lambda row: Week(int(row['year']), int(row['week'])).startdate(), axis=1)
+    disease_df['date'] = pd.to_datetime(disease_df['date'])
 
-    mpox_df.rename(columns={"m1": "current_week",
+    disease_df.rename(columns={"m1": "current_week",
                            "m2": "previous_52_weeks__max",
                            "m3": "current_YTD__cummulative",
    "m4": "previous_YTD__cummulative",
@@ -430,41 +430,41 @@ def measles_weekly(context):
     }, inplace=True)
 
     # Convert to numeric BEFORE calculate_correct_count (needed for Week_Type comparison)
-    mpox_df['current_week'] = pd.to_numeric(mpox_df['current_week'], errors='coerce').fillna(0)
-    mpox_df['previous_52_weeks__max'] = pd.to_numeric(mpox_df['previous_52_weeks__max'], errors='coerce').fillna(0)
-    mpox_df['current_YTD__cummulative'] = pd.to_numeric(mpox_df['current_YTD__cummulative'], errors='coerce').fillna(0)
-    mpox_df['previous_YTD__cummulative'] = pd.to_numeric(mpox_df['previous_YTD__cummulative'], errors='coerce').fillna(0)
+    disease_df['current_week'] = pd.to_numeric(disease_df['current_week'], errors='coerce').fillna(0)
+    disease_df['previous_52_weeks__max'] = pd.to_numeric(disease_df['previous_52_weeks__max'], errors='coerce').fillna(0)
+    disease_df['current_YTD__cummulative'] = pd.to_numeric(disease_df['current_YTD__cummulative'], errors='coerce').fillna(0)
+    disease_df['previous_YTD__cummulative'] = pd.to_numeric(disease_df['previous_YTD__cummulative'], errors='coerce').fillna(0)
 
-    mpox_df["key"] = mpox_df["label"] + '_' + mpox_df["year"] + '_' + mpox_df["week"] + '_' + mpox_df["location1"]
-    mpox_df.dropna(inplace=True, subset=['key']) # if a key is not generate
-    mpox_df.drop(columns=["sort_order"], inplace=True)
+    disease_df["key"] = disease_df["label"] + '_' + disease_df["year"] + '_' + disease_df["week"] + '_' + disease_df["location1"]
+    disease_df.dropna(inplace=True, subset=['key']) # if a key is not generate
+    disease_df.drop(columns=["sort_order"], inplace=True)
 
     # Add CorrectCount column using the centralized function
-    mpox_df = calculate_correct_count(mpox_df, cumulative_col='current_YTD__cummulative')
+    disease_df = calculate_correct_count(disease_df, cumulative_col='current_YTD__cummulative')
 
     logger = get_dagster_logger()
     epi_processor = ResilientEpiProcessor()
 
-    logger.info(f"🦠 Processing {len(mpox_df)} Measles records with resilient epi schemas")
+    logger.info(f"🦠 Processing {len(disease_df)} Measles records with resilient epi schemas")
 
     # Store original format
     filename = f'{s3_output_path}/output/measles_weekly'
-    store_assets.geodataframe_to_s3(mpox_df, filename, s3_resource )
-    logger.info(f"📊 Stored original Measles data: {len(mpox_df)} rows")
+    store_assets.geodataframe_to_s3(disease_df, filename, s3_resource )
+    logger.info(f"📊 Stored original Measles data: {len(disease_df)} rows")
 
     # Ensure proper data types before processing
-    mpox_df['date'] = pd.to_datetime(mpox_df['date'], errors='coerce')
+    disease_df['date'] = pd.to_datetime(disease_df['date'], errors='coerce')
     # Note: Numeric conversions already done before calculate_correct_count() call
 
     # Remove rows with invalid dates
-    mpox_df = mpox_df.dropna(subset=['date'])
-    logger.info(f"🔧 After type conversion and cleaning: {len(mpox_df)} records")
+    disease_df = disease_df.dropna(subset=['date'])
+    logger.info(f"🔧 After type conversion and cleaning: {len(disease_df)} records")
 
     # Process through resilient epi schemas by state/location
     validated_basic_records = []
     statistical_extension_records = []
 
-    for _, row in mpox_df.iterrows():
+    for _, row in disease_df.iterrows():
         location = row['location1'] if pd.notna(row['location1']) else 'Unknown'
         state = row['states'] if pd.notna(row['states']) else 'Unknown'
 
@@ -484,10 +484,10 @@ def measles_weekly(context):
 
         try:
             # Create basic epidemiology record for current week cases (including zero counts)
-            if pd.notna(row['cases_added']):
+            if pd.notna(row['Cases_Added']):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
-                    'Count': [int(row['cases_added'])],
+                    'Count': [int(row['Cases_Added'])],
                     'Week_Type': [str(row['Week_Type'])]
                 })
 
@@ -581,17 +581,17 @@ def measles_weekly(context):
             logger.warning(f"⚠️  Storing as DataFrame instead of GeoDataFrame: {e}")
             store_assets.dataframe_to_s3(combined_statistical, filename_statistical, s3_resource, metadata=metadata_statistical)
 
-    mpox_df=mpox_df.dropna( subset=["lat", "lon"])
+    disease_df=disease_df.dropna( subset=["lat", "lon"])
 
     filename = f'{s3_output_path}/output/measles_weekly_states'
-    store_assets.geodataframe_to_s3(mpox_df, filename, s3_resource )
+    store_assets.geodataframe_to_s3(disease_df, filename, s3_resource )
 
     # airtable
     #mpox_df["key"] = mpox_df["label"] + mpox_df["year"] +mpox_df["week"] +mpox_df["location1"]
     #keyfields = ['label', 'year', 'week', 'location1']
-    mpox_df.drop('geometry', axis=1, inplace=True)
+    disease_df.drop('geometry', axis=1, inplace=True)
     try:
-        at_resource.upsert2Table(AIRTABLE_TABLE_ID, mpox_df, keyfields=['key'])
+        at_resource.upsert2Table(AIRTABLE_TABLE_ID, disease_df, keyfields=['key'])
     except Exception as e:
         get_dagster_logger().error(f" airtable failed measles_weekly {e} ")
 

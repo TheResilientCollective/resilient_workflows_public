@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Python tests for " type="tests" factoryName="Autodetect">
+  <configuration default="false" name="Python tests for " type="tests" factoryName="Autodetect" folderName="New Folder">
     <module name="resilient_workflows" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -22,6 +22,7 @@
         <ENTRY IS_ENABLED="true" PARSER="env" IS_EXECUTABLE="false" PATH="workflows/.env" />
       </ENTRIES>
     </EXTENSION>
+    <option name="RUN_TOOL" value="true" />
     <option name="_new_additionalArguments" value="&quot;&quot;" />
     <option name="_new_target" value="&quot;tests&quot;" />
     <option name="_new_targetType" value="&quot;PYTHON&quot;" />
