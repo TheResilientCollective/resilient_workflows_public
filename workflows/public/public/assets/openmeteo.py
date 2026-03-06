@@ -133,7 +133,7 @@ def forecast(context, locations):
 # Define a yearly partition
 start_date_closures=datetime(2015,1,1)
 yearly_partitions= TimeWindowPartitionsDefinition(start=start_date_closures,fmt='%Y',
-cron_schedule = "@monthly"
+cron_schedule = "@yearly"
 )
 
 @asset(group_name="tijuana", key_prefix="weather",
