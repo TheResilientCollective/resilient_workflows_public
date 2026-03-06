@@ -109,5 +109,6 @@ from .wahis import (
 )
 from .tides import (
     tides_all_job,
-    tides_historic
+    tides_monthly,tides_hourly,
+tides_monthly_schedule,tides_hourly_schedule
 )
