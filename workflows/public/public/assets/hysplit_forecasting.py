@@ -14,6 +14,8 @@ import duckdb
 from ..resources import minio
 from ..utils import store_assets
 #from .sd_apcd import s3_output_path as apcd_s3_output_path
+from astral import LocationInfo
+from astral.sun import sun
 
 OUTPUT_PATH='tijuana/forecast/output/'
 LATEST='tijuana/forecast_data'
@@ -26,7 +28,7 @@ WEATHER_BASE='latest/tijuana/weather'
 STREAMFLOW_BASE='latest/tijuana/streamflow'
 STREAMFLOW_SITE_YEARLY='boundary_cms'
 STREAMFLOW_SITE_RECENT=STREAMFLOW_SITE_YEARLY
-TIDAL_BASE='latest/tijuana/tides/tidal_historic'
+TIDAL_BASE='latest/tijuana/tides'
 
 
 sites_csv = """LongName,site_name,lat,lon,AgencyName
@@ -124,7 +126,7 @@ def h2s_locations(context):
           ],
        metadata={
            "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
-           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days)"
+           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days). THIS IS UP TO DATE DAILY. Not hourly. "
            , "variableMeasured": ["H2S", 'Wind Direction', 'Wind Speed', "Streamflow"]
        },
        automation_condition=AutomationCondition.eager()
@@ -328,15 +330,61 @@ def data_for_models(context):
         else:
             # Default to -1 if column missing (unknown category)
             tidal_df['tidal_state_encoded'] = -1
-
+        tidal_df = tidal_df.sort_index()
     except Exception as e:
         dagster_logger.error(f"Error reading tidals   files {tidal_df} {e}")
         raise e
     try:
         matched_df = pd.merge_asof(matched_df, tidal_df, left_on="time", right_on="time", direction="nearest")
     except Exception as e:
-        dagster_logger.error(f"Error merging weather and h2s  AND tidal files data {e}")
+        dagster_logger.error(f"Error merging with tidal files data {e}")
         raise e
+
+    # add night day
+    # 2. Create a LocationInfo object for San Diego
+    san_diego_location = LocationInfo(
+        name='San Diego',
+        region='USA',
+        timezone='America/Los_Angeles',
+        latitude=32.7157,
+        longitude=-117.1611
+    )
+    unique_dates = matched_df['time'].dt.date.unique()
+
+    # 2. Initialize an empty dictionary to store the sunrise and sunset times
+    daily_sun_times = {}
+
+    # 3. For each unique date, calculate sunrise and sunset times
+    for date in unique_dates:
+        # Get sun times for the day using the San Diego location
+        s = sun(san_diego_location.observer, date=date, tzinfo=san_diego_location.timezone)
+
+        # 4. Store the sunrise and sunset times in the daily_sun_times dictionary
+        daily_sun_times[date] = {
+            'sunrise': s['sunrise'],
+            'sunset': s['sunset']
+        }
+
+    def get_day_night(timestamp, sun_times_dict):
+        # Extract the date part from the timestamp
+        date_only = timestamp.date()
+
+        # Retrieve sunrise and sunset times for the specific date
+        if date_only in sun_times_dict:
+            sun_info = sun_times_dict[date_only]
+            sunrise = sun_info['sunrise']
+            sunset = sun_info['sunset']
+
+            # Compare the hourly timestamp with sunrise and sunset to determine 'day' or 'night'
+            if sunrise <= timestamp < sunset:
+                return 'day'
+            else:
+                return 'night'
+        else:
+            # Handle cases where sun times might not be available for a date
+            return 'unknown'
+
+    matched_df['day_night'] = matched_df['time'].apply(lambda x: get_day_night(x, daily_sun_times))
 
     # Fill missing H2S values for each site_name based on min/max time ranges
     # and flag filled values
@@ -412,7 +460,7 @@ def data_for_models(context):
     },
 metadata={
            "source": "San Diego APCD and OpenMeteo historical data"
-       ,"description":"Data for Hysplit Model of H2S includes Wind Direction and Wind Speed"
+       ,"description":"Data for Hysplit Model of H2S includes Wind Direction and Wind Speed. This is one day behind."
 ,"variableMeasured":["H2S",'Wind Direction','Wind Speed']
 },
        automation_condition=AutomationCondition.eager()

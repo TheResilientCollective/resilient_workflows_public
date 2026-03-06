@@ -119,9 +119,38 @@ def tidal_data(station_id, start_date, end_date, product="predictions", datum="M
 
     return df_hist_final
 
+@asset(group_name="tijuana",key_prefix="tides",
+       name="tidal_hourly", required_resource_keys={"s3"},
+       metadata={
+           "source": "https://api.tidesandcurrents.noaa.gov/api/prod/"
+       ,"description":"Hourly Tidal Height data from NOAA with ebb and flood states added"
+#,"variableMeasured":variableMeasured
+       },
+)
+def tides_hourly(context,):
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url)
+
+    dataset_name = context.asset_key.path[-1]
+    """ Data is delayed by a couple  months, so we will use monlthy"""
+    date =  datetime.datetime.now()
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+    start_date = f'{date.strftime('%Y%m')}01'
+    end_date = date.strftime('%Y%m%d')
+    tidal_df = tidal_data(station_id=STATION_ID, start_date=start_date, end_date=end_date)
+    dataset_id = f"{dataset_name}_{date.strftime('%Y%m')}"
+    output_path = f'{s3_output_path}'
+    latest_path = f'{s3_latest_path}'
+    store_assets.store_dataframe_to_s3(tidal_df, output_path, dataset_id, s3_resource, metadata=metadata
+                                       , enable_latest_path=True, latestdatasetpath=latest_path,
+                                       formats=['csv', 'parquet'])
+
 @asset(
 group_name="tijuana",key_prefix="tides",
-       name="tidal_historic", required_resource_keys={"s3"},
+       name="tidal_monthly", required_resource_keys={"s3"},
        metadata={
            "source": "https://api.tidesandcurrents.noaa.gov/api/prod/"
        ,"description":"Hourly Tidal Height data from NOAA with ebb and flood states added"
@@ -129,7 +158,7 @@ group_name="tijuana",key_prefix="tides",
        },
     partitions_def=monthly_partitions
 )
-def tides_historic(context,):
+def tides_monthly(context,):
     meta = context.assets_def.metadata_by_key[context.asset_key]
     description = meta["description"]
     source_url = meta.get("source")
@@ -145,16 +174,34 @@ def tides_historic(context,):
     tidal_df = tidal_data(station_id=STATION_ID, start_date=start_date, end_date=end_date)
     month = time_window.start.strftime('%Y%m')
     dataset_id = f"{dataset_name}_{month}"
-    output_path = f'{s3_output_path}/{dataset_name}/'
-    latest_path = f'{s3_latest_path}/{dataset_name}'
+    output_path = f'{s3_output_path}'
+    latest_path = f'{s3_latest_path}'
     store_assets.store_dataframe_to_s3(tidal_df, output_path, dataset_id, s3_resource, metadata=metadata
                                        , enable_latest_path=True, latestdatasetpath=latest_path,
                                        formats=['csv', 'parquet'])
 
+tides_hourly_job = define_asset_job(
+    "tides_hourly", selection=[AssetKey(["tides", "tidal_hourly"])]
+)
+@schedule(job=tides_hourly_job, cron_schedule="@hourly", name="tidal_hourly")
+def tides_hourly_schedule(context):
+    return RunRequest()
 
 tides_all_job = define_asset_job(
-    "tides_tj_all", selection=[AssetKey(["tides", "tidal_historic"]),
+    "tides_tj_all", selection=[AssetKey(["tides", "tidal_monthly"]),
                                #AssetKey(["tides", "tides_current"])
                                ],
 partitions_def=monthly_partitions
 )
+
+@schedule(job=tides_all_job, cron_schedule="@monthly", name="tides_monthly")
+def tides_monthly_schedule(context):
+    partitions_to_run = monthly_partitions.get_partition_keys()
+
+    return [
+        RunRequest(
+            run_key=f"tidal_monthly_{partition_key}",
+            partition_key=partition_key
+        )
+        for partition_key in partitions_to_run
+    ]
