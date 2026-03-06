@@ -126,7 +126,7 @@ def h2s_locations(context):
           ],
        metadata={
            "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
-           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days)"
+           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days). THIS IS UP TO DATE DAILY. Not hourly. "
            , "variableMeasured": ["H2S", 'Wind Direction', 'Wind Speed', "Streamflow"]
        },
        automation_condition=AutomationCondition.eager()
@@ -460,7 +460,7 @@ def data_for_models(context):
     },
 metadata={
            "source": "San Diego APCD and OpenMeteo historical data"
-       ,"description":"Data for Hysplit Model of H2S includes Wind Direction and Wind Speed"
+       ,"description":"Data for Hysplit Model of H2S includes Wind Direction and Wind Speed. This is one day behind."
 ,"variableMeasured":["H2S",'Wind Direction','Wind Speed']
 },
        automation_condition=AutomationCondition.eager()
