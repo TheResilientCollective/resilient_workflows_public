@@ -169,6 +169,13 @@ def data_for_models(context):
         h2s_sensor_data_all = h2s_sensor_data_all.drop('time', axis=1)
         h2s_sensor_data_all.index = h2s_sensor_data_all.index.astype("datetime64[ns, America/Los_Angeles]")
         h2s_sensor_data_all = h2s_sensor_data_all.sort_index()
+        pre_dedup = h2s_sensor_data_all.shape[0]
+        h2s_sensor_data_all = (h2s_sensor_data_all
+                               .reset_index()
+                               .drop_duplicates(subset=['time', 'site_name'], keep='last')
+                               .set_index('time'))
+        h2s_sensor_data_all.index = h2s_sensor_data_all.index.astype("datetime64[ns, America/Los_Angeles]")
+        dagster_logger.info(f"Deduplicated h2s: {pre_dedup} -> {h2s_sensor_data_all.shape[0]} rows")
     except Exception as e:
         dagster_logger.error(f"Error processing h2s data {e}")
         raise e
@@ -449,6 +456,43 @@ def data_for_models(context):
 @asset(
     group_name="tijuana",
     key_prefix="h2sforecast",
+    name="modeldata_h2s_nofill",
+    required_resource_keys={"s3"},
+    deps=[AssetKey(["h2sforecast", "modeldata_h2s"])],
+    ins={
+        "modeldata_h2s": AssetIn(
+            key=AssetKey(["h2sforecast", "modeldata_h2s"])
+        )
+    },
+    metadata={
+        "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
+        , "description": "Model data identical to modeldata_h2s but with filled H2S values reverted to N/A. Only measured H2S values are retained."
+        , "variableMeasured": ["H2S", "Wind Direction", "Wind Speed", "Streamflow"]
+    },
+    automation_condition=AutomationCondition.eager()
+)
+def modeldata_h2s_nofill(context, modeldata_h2s):
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    variableMeasured = meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url, variableMeasured=variableMeasured)
+
+    s3_resource = context.resources.s3
+
+    result_df = modeldata_h2s.copy()
+    if "h2s_measured" in result_df.columns:
+        result_df.loc[~result_df["h2s_measured"], "H2S"] = None
+
+    store_assets.store_dataframe_to_s3(result_df, OUTPUT_PATH, "modeldata_h2s_nofill", s3_resource,
+                                       latestdatasetpath=LATEST, enable_latest_path=True,
+                                       formats=["csv", "parquet"], metadata=metadata)
+    return result_df
+
+
+@asset(
+    group_name="tijuana",
+    key_prefix="h2sforecast",
     name="hysplit_h2s",
     required_resource_keys={"s3"},
     deps=[AssetKey(["h2sforecast",'modeldata_h2s']),
@@ -474,9 +518,13 @@ def data_for_hysplit(context, data_for_models):
 
     s3_resource = context.resources.s3
     # Include both numeric and categorical wind direction columns
-    columns_to_select = ['time','site_name','H2S', 'wind_speed_10m', 'wind_direction_10m']
+    columns_to_select = ['time', 'site_name', 'H2S', 'wind_speed_10m', 'wind_direction_10m']
     if 'wind_direction_categorical' in data_for_models.columns:
         columns_to_select.append('wind_direction_categorical')
+    if 'temperature_2m' in data_for_models.columns:
+        columns_to_select.append('temperature_2m')
+    if 'h2s_measured' in data_for_models.columns:
+        columns_to_select.append('h2s_measured')
 
     h2s_df = data_for_models[columns_to_select]
     h2s_df = h2s_df.rename(columns={'wind_speed_10m':'wind_speed', 'wind_direction_10m':'wind_direction'})
