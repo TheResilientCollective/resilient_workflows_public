@@ -8,6 +8,7 @@ from dagster import (asset,
                      schedule,
                      MonthlyPartitionsDefinition , AssetIn, AutomationCondition
                      )
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
 from ..resources import minio
 from ..utils import store_assets
@@ -51,6 +52,12 @@ def refine_state(row):
 
     return row['tidal_state']
 
+@retry(
+    wait=wait_exponential(min=300, max=900),  # First retry at 5 minutes, max 15 minutes
+    stop=stop_after_attempt(3),  # Retry up to 3 times
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
 def tidal_data(station_id, start_date, end_date, product="predictions", datum="MLLW",
     interval="h",
     units="metric",
