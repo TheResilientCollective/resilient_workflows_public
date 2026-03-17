@@ -440,6 +440,9 @@ def data_for_models(context):
     total_filled = (~matched_df['h2s_measured']).sum()
     dagster_logger.info(f"Total H2S values filled across all sites: {total_filled}")
 
+    # H2S risk score using log-logistic (Hill) function: x^b / (x^b + c^b), c=5, b=1.23
+    matched_df['h2s_risk'] = matched_df['H2S'].pow(1.23) / (matched_df['H2S'].pow(1.23) + 5**1.23)
+
     if 'date_processed' in matched_df.columns:
             matched_df = matched_df.drop(columns=['date_processed'])
     if 'aggregation_year' in matched_df.columns:
@@ -525,6 +528,8 @@ def data_for_hysplit(context, data_for_models):
         columns_to_select.append('temperature_2m')
     if 'h2s_measured' in data_for_models.columns:
         columns_to_select.append('h2s_measured')
+    if 'h2s_risk' in data_for_models.columns:
+        columns_to_select.append('h2s_risk')
 
     h2s_df = data_for_models[columns_to_select]
     h2s_df = h2s_df.rename(columns={'wind_speed_10m':'wind_speed', 'wind_direction_10m':'wind_direction'})
