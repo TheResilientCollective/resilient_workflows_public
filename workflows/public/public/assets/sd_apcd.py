@@ -34,6 +34,12 @@ from urllib.request import urlopen
 from io import StringIO
 from ..utils import store_assets
 
+SITES_CSV= """LongName,SiteName,Latitude,Longitude,AgencyName
+Berry Elementary School,NESTOR - BES, 32.567097, -117.090656,San Diego APCD
+Imperial Beach Civic Center,IB CIVIC CTR, 32.576139,  -117.115361,San Diego APCD
+San Ysidro,SAN YSIDRO,	32.552794,	-117.047286,	San Diego APCD
+El Cajon - Lexington Elementary School,EL CAJON LES, 32.789561,  -116.944222,San Diego APCD
+        """
 # docker env has RESILIENT_ prefix
 #             - SLACK_CHANNEL=${RESILIENT_SLACK_CHANNEL:-"#test"}
 #             - SLACK_TOKEN=${RESILIENT_SLACK_TOKEN}
@@ -500,11 +506,7 @@ def get_airnow_locations(context, ) -> pd.DataFrame:
     locations_gdf['SiteName'] = locations_gdf['SiteName'].str.upper()
     filename = f'{s3_data_path}/airnow_locations'
     store_assets.geodataframe_to_s3(locations_gdf, filename, s3_resource )
-    sites_csv = """LongName,SiteName,Latitude,Longitude,AgencyName
-Berry Elementary School,NESTOR - BES, 32.567097, -117.090656,San Diego APCD
-Imperial Beach Civic Center,IB CIVIC CTR, 32.576139,  -117.115361,San Diego APCD
-El Cajon - Lexington Elementary School,EL CAJON LES, 32.789561,  -116.944222,San Diego APCD
-        """
+    sites_csv = SITES_CSV
     sites_df = pd.read_csv(StringIO(sites_csv), sep=',', on_bad_lines='warn')
     geom = gpd.points_from_xy(sites_df.Longitude, sites_df.Latitude, )
     sites_gdf = gpd.GeoDataFrame(sites_df, geometry=geom, crs='EPSG:4326')

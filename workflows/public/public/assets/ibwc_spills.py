@@ -306,10 +306,10 @@ def spills_latest_sensor(context: SensorEvaluationContext):
                 context.update_cursor(current_date)
                 context.log.info(f"IBWC Spills Page update detected. New date: {current_date}, Previous: {last_known_date}")
                 slack.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                    text=f'IBWC Spills Page update detected New date: {current_date}, Previous: {last_known_date}')
+                                                    markdown_text=f'[IBWC Spills Page]({url}) update detected New date: {current_date}, Previous: {last_known_date}')
                 return RunRequest(run_key=f"spills_update_{current_date}")
             else:
-                context.log.info(f"No page update detected. Current date: {current_date}")
+                context.log.info(f"No page update detected. Current date: {current_date} url: {url}")
                 #slack.get_client().chat_postMessage(channel=SLACK_CHANNEL,
                  #                                   text=f'IBWC Spills Page No page update detected: {current_date}')
 
@@ -317,13 +317,13 @@ def spills_latest_sensor(context: SensorEvaluationContext):
         else:
             context.log.warning("Could not find 'Page last updated' text on the webpage")
             slack.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                                text=f'IBWC Spills Page Could not find "Page last updated" text on the webpage')
+                                                markdown_text=f'[IBWC Spills Page]({url}) Could not find "Page last updated" text on the webpage')
             return None
 
     except Exception as e:
         context.log.error(f"Error checking IBWC webpage for updates: {str(e)}")
         slack.get_client().chat_postMessage(channel=SLACK_CHANNEL,
-                                            text=f'Error checking IBWC webpage for updates')
+                                            markdown_text=f'Error checking [IBWC Spills Page]({url}) for updates {str(e)}')
         return None
 
 spills_historic_job = define_asset_job(
