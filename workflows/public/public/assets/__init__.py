@@ -36,6 +36,7 @@ from .ibwc_spills import (
     spills, spills_last, spills_latest_sensor, spills_reports, spills_all, spills_historic_schedule)
 from .openmeteo import (forecast,
                         weather_historical,
+weather_current_year,
                         weather_all_schedule)
 from .cdc_nnds import (mpox_weekly,
                        nndss_weekly,

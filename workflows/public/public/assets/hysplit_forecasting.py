@@ -122,7 +122,8 @@ def h2s_locations(context):
     deps=[AssetKey(["apcd", 'yearly_aggregated_h2s']),
           AssetKey(['streamflow', 'boundary_cms_yearly']),
           AssetKey(['streamflow', 'boundary_cms']),
-          AssetKey(['weather', 'openmeteo_historical'])
+          AssetKey(['weather', 'openmeteo_historical']),
+          AssetKey(['weather', 'openmeteo_current_year']),
           ],
        metadata={
            "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
@@ -191,7 +192,7 @@ def data_for_models(context):
     #     weather_df = pd.concat([weather_df, wyear_df], )
     weather_files = f"s3://{s3_resource.S3_BUCKET}/{WEATHER_BASE}/{CSV_PATTERN}"
     try:
-        weather_df = duckdb_con.read_csv(weather_files).df()
+        weather_df = duckdb_con.read_csv(weather_files, null_padding=True).df()
     except Exception as e:
         dagster_logger.error(f"Error reading weather csv files {weather_files} {e}")
         raise e
@@ -204,6 +205,14 @@ def data_for_models(context):
         weather_df = weather_df.sort_index()
         if 'site_name' in weather_df.columns:
             weather_df['site_name'] = weather_df['site_name'].str.strip()
+            # Legacy CSVs (pre-refactor) have no site_name — they were single-site NESTOR-BES data
+            missing = weather_df['site_name'].isna()
+            if missing.any():
+                dagster_logger.warning(f"Filling {missing.sum()} rows with missing site_name as 'NESTOR - BES' (legacy data)")
+                weather_df.loc[missing, 'site_name'] = 'NESTOR - BES'
+        else:
+            dagster_logger.warning("site_name column not found in weather data — assigning all rows to 'NESTOR - BES'")
+            weather_df['site_name'] = 'NESTOR - BES'
 
         # Convert wind direction from degrees to categorical text
         if 'wind_direction_10m' in weather_df.columns:
