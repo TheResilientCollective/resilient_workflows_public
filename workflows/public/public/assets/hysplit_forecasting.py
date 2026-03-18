@@ -202,6 +202,8 @@ def data_for_models(context):
         weather_df = weather_df.drop(['time'], axis=1)
         weather_df.index = weather_df.index.astype("datetime64[ns, America/Los_Angeles]")
         weather_df = weather_df.sort_index()
+        if 'site_name' in weather_df.columns:
+            weather_df['site_name'] = weather_df['site_name'].str.strip()
 
         # Convert wind direction from degrees to categorical text
         if 'wind_direction_10m' in weather_df.columns:
@@ -219,17 +221,21 @@ def data_for_models(context):
         # Add rolling window calculations for wind speed and gusts
         dagster_logger.info("Calculating rolling wind metrics for 2, 3, and 4 hour windows")
 
-        # Rolling average wind speed for 2, 3, 4 hours
+        # Rolling average wind speed for 2, 3, 4 hours (per site)
         if 'wind_speed_10m' in weather_df.columns:
-            weather_df['wind_speed_10m_avg_2h'] = weather_df['wind_speed_10m'].rolling(window=2, min_periods=1).mean()
-            weather_df['wind_speed_10m_avg_3h'] = weather_df['wind_speed_10m'].rolling(window=3, min_periods=1).mean()
-            weather_df['wind_speed_10m_avg_4h'] = weather_df['wind_speed_10m'].rolling(window=4, min_periods=1).mean()
+            for window, label in [(2, '2h'), (3, '3h'), (4, '4h')]:
+                weather_df[f'wind_speed_10m_avg_{label}'] = (
+                    weather_df.groupby('site_name')['wind_speed_10m']
+                    .transform(lambda x: x.rolling(window=window, min_periods=1).mean())
+                )
 
-        # Rolling maximum wind gusts for 2, 3, 4 hours
+        # Rolling maximum wind gusts for 2, 3, 4 hours (per site)
         if 'wind_gusts_10m' in weather_df.columns:
-            weather_df['wind_gusts_10m_max_2h'] = weather_df['wind_gusts_10m'].rolling(window=2, min_periods=1).max()
-            weather_df['wind_gusts_10m_max_3h'] = weather_df['wind_gusts_10m'].rolling(window=3, min_periods=1).max()
-            weather_df['wind_gusts_10m_max_4h'] = weather_df['wind_gusts_10m'].rolling(window=4, min_periods=1).max()
+            for window, label in [(2, '2h'), (3, '3h'), (4, '4h')]:
+                weather_df[f'wind_gusts_10m_max_{label}'] = (
+                    weather_df.groupby('site_name')['wind_gusts_10m']
+                    .transform(lambda x: x.rolling(window=window, min_periods=1).max())
+                )
             dagster_logger.info("Added wind gust rolling maximums for 2, 3, 4 hour windows")
         else:
             dagster_logger.warning("wind_gusts_10m column not found - skipping gust calculations")
@@ -263,7 +269,17 @@ def data_for_models(context):
     dagster_logger.info(f"Matched {weather_df.shape[0]} rows")
     # merged_df = pd.merge(h2s_sensor_data_all, weather_df, on="time", how="inner")
     try:
-        matched_df = pd.merge_asof(h2s_sensor_data_all, weather_df, left_on="time", right_on="time", direction="nearest")
+        h2s_reset = h2s_sensor_data_all.reset_index()
+        weather_reset = weather_df.reset_index()
+        h2s_reset = h2s_reset.sort_values('time')
+        weather_reset = weather_reset.sort_values('time')
+        matched_df = pd.merge_asof(
+            h2s_reset,
+            weather_reset,
+            on='time',
+            by='site_name',
+            direction='nearest'
+        )
     except Exception as e:
         dagster_logger.error(f"Error merging weather and h2s data {e}")
         raise e
@@ -300,7 +316,8 @@ def data_for_models(context):
         dagster_logger.error(f"Error processing streamflow files {streamflow_border_files} {e}")
         raise e
     try:
-        matched_df = pd.merge_asof(matched_df, streamflow_border_df, left_on="time", right_on="time", direction="nearest")
+        streamflow_reset = streamflow_border_df.reset_index().sort_values('time')
+        matched_df = pd.merge_asof(matched_df, streamflow_reset, on='time', direction='nearest')
     except Exception as e:
         dagster_logger.error(f"Error merging weather and h2s  AND STREAMFLOW data {e}")
         raise e
@@ -342,7 +359,8 @@ def data_for_models(context):
         dagster_logger.error(f"Error reading tidals   files {tidal_df} {e}")
         raise e
     try:
-        matched_df = pd.merge_asof(matched_df, tidal_df, left_on="time", right_on="time", direction="nearest")
+        tidal_reset = tidal_df.reset_index().sort_values('time')
+        matched_df = pd.merge_asof(matched_df, tidal_reset, on='time', direction='nearest')
     except Exception as e:
         dagster_logger.error(f"Error merging with tidal files data {e}")
         raise e
@@ -408,11 +426,11 @@ def data_for_models(context):
         # Find min/max time where H2S data exists for this site
         h2s_valid_mask = site_df['H2S'].notna()
         if h2s_valid_mask.any():
-            min_time = site_df[h2s_valid_mask].index.min()
-            max_time = site_df[h2s_valid_mask].index.max()
+            min_time = site_df.loc[h2s_valid_mask, 'time'].min()
+            max_time = site_df.loc[h2s_valid_mask, 'time'].max()
 
             # Create time range mask for this site
-            time_range_mask = (site_df.index >= min_time) & (site_df.index <= max_time)
+            time_range_mask = (site_df['time'] >= min_time) & (site_df['time'] <= max_time)
 
             # Find missing H2S values within the time range
             missing_mask = time_range_mask & site_df['H2S'].isna()
@@ -434,7 +452,7 @@ def data_for_models(context):
         filled_dfs.append(site_df)
 
     # Combine all sites back together
-    matched_df = pd.concat(filled_dfs, ignore_index=False).sort_index()
+    matched_df = pd.concat(filled_dfs, ignore_index=True).sort_values('time')
 
     # Log summary of filling operation
     total_filled = (~matched_df['h2s_measured']).sum()
