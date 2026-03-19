@@ -1,5 +1,6 @@
 from datetime import datetime
 from io import StringIO
+import numpy as np
 import pandas as pd
 
 
@@ -72,6 +73,95 @@ def degrees_to_direction(degrees):
             return direction
 
     return "N"  # Default to North for edge cases
+
+
+def add_wind_features(df, logger):
+    """Add wind direction categorical/trig/encoded, rolling avg/max, and interaction features."""
+    if 'wind_direction_10m' in df.columns:
+        df['wind_direction_categorical'] = df['wind_direction_10m'].apply(degrees_to_direction)
+        wind_direction_rad = np.deg2rad(df['wind_direction_10m'])
+        df['wind_direction_sin'] = np.sin(wind_direction_rad)
+        df['wind_direction_cos'] = np.cos(wind_direction_rad)
+        logger.info("Added sine and cosine components for wind direction")
+
+    logger.info("Calculating rolling wind metrics for 2, 3, and 4 hour windows")
+
+    if 'wind_speed_10m' in df.columns:
+        for window, label in [(2, '2h'), (3, '3h'), (4, '4h')]:
+            df[f'wind_speed_10m_avg_{label}'] = (
+                df.groupby('site_name')['wind_speed_10m']
+                .transform(lambda x: x.rolling(window=window, min_periods=1).mean())
+            )
+
+    if 'wind_gusts_10m' in df.columns:
+        for window, label in [(2, '2h'), (3, '3h'), (4, '4h')]:
+            df[f'wind_gusts_10m_max_{label}'] = (
+                df.groupby('site_name')['wind_gusts_10m']
+                .transform(lambda x: x.rolling(window=window, min_periods=1).max())
+            )
+        logger.info("Added wind gust rolling maximums for 2, 3, 4 hour windows")
+    else:
+        logger.warning("wind_gusts_10m column not found - skipping gust calculations")
+
+    if 'wind_speed_10m' in df.columns and 'temperature_2m' in df.columns:
+        df['wind_temp_interaction'] = df['wind_speed_10m'] * df['temperature_2m']
+
+    if 'relative_humidity_2m' in df.columns and 'temperature_2m' in df.columns:
+        df['humidity_temp_interaction'] = df['relative_humidity_2m'] * df['temperature_2m']
+
+    if 'wind_direction_categorical' in df.columns:
+        wind_direction_mapping = {'N': 0, 'NE': 1, 'E': 2, 'SE': 3, 'S': 4, 'SW': 5, 'W': 6, 'NW': 7}
+        df['wind_direction_categorical_encoded'] = (
+            df['wind_direction_categorical'].map(wind_direction_mapping).fillna(-1).astype(int)
+        )
+        logger.info("Encoded wind_direction_categorical to integers (N=0, NE=1, ..., NW=7)")
+
+    logger.info("Completed rolling wind calculations")
+    return df
+
+
+def add_tidal_encoding(tidal_df):
+    """Add tidal_state_encoded column based on tidal_state."""
+    tidal_mapping = {
+        'low': 0, 'slack low': 0,
+        'rising': 1, 'flood': 1,
+        'high': 2, 'slack high': 2,
+        'falling': 3, 'ebb': 3,
+    }
+    if 'tidal_state' in tidal_df.columns:
+        tidal_df['tidal_state_encoded'] = tidal_df['tidal_state'].map(tidal_mapping).fillna(-1).astype(int)
+    else:
+        tidal_df['tidal_state_encoded'] = -1
+    return tidal_df
+
+
+def add_day_night(df, logger):
+    """Add day_night column based on San Diego sunrise/sunset times. Reads from df['time'] column."""
+    san_diego_location = LocationInfo(
+        name='San Diego',
+        region='USA',
+        timezone='America/Los_Angeles',
+        latitude=32.7157,
+        longitude=-117.1611
+    )
+    unique_dates = df['time'].dt.date.unique()
+    daily_sun_times = {}
+    for date in unique_dates:
+        s = sun(san_diego_location.observer, date=date, tzinfo=san_diego_location.timezone)
+        daily_sun_times[date] = {'sunrise': s['sunrise'], 'sunset': s['sunset']}
+
+    def get_day_night(timestamp, sun_times_dict):
+        date_only = timestamp.date()
+        if date_only in sun_times_dict:
+            sun_info = sun_times_dict[date_only]
+            if sun_info['sunrise'] <= timestamp < sun_info['sunset']:
+                return 'day'
+            else:
+                return 'night'
+        return 'unknown'
+
+    df['day_night'] = df['time'].apply(lambda x: get_day_night(x, daily_sun_times))
+    return df
 
 
 def duckdb_connection(s3_resource: minio.S3Resource):
@@ -214,63 +304,7 @@ def data_for_models(context):
             dagster_logger.warning("site_name column not found in weather data — assigning all rows to 'NESTOR - BES'")
             weather_df['site_name'] = 'NESTOR - BES'
 
-        # Convert wind direction from degrees to categorical text
-        if 'wind_direction_10m' in weather_df.columns:
-            weather_df['wind_direction_categorical'] = weather_df['wind_direction_10m'].apply(degrees_to_direction)
-
-            # Add sine and cosine components for circular wind direction (better for ML models)
-            import numpy as np
-            # Convert degrees to radians for trigonometric functions
-            wind_direction_rad = np.deg2rad(weather_df['wind_direction_10m'])
-            weather_df['wind_direction_sin'] = np.sin(wind_direction_rad)
-            weather_df['wind_direction_cos'] = np.cos(wind_direction_rad)
-
-            dagster_logger.info("Added sine and cosine components for wind direction")
-
-        # Add rolling window calculations for wind speed and gusts
-        dagster_logger.info("Calculating rolling wind metrics for 2, 3, and 4 hour windows")
-
-        # Rolling average wind speed for 2, 3, 4 hours (per site)
-        if 'wind_speed_10m' in weather_df.columns:
-            for window, label in [(2, '2h'), (3, '3h'), (4, '4h')]:
-                weather_df[f'wind_speed_10m_avg_{label}'] = (
-                    weather_df.groupby('site_name')['wind_speed_10m']
-                    .transform(lambda x: x.rolling(window=window, min_periods=1).mean())
-                )
-
-        # Rolling maximum wind gusts for 2, 3, 4 hours (per site)
-        if 'wind_gusts_10m' in weather_df.columns:
-            for window, label in [(2, '2h'), (3, '3h'), (4, '4h')]:
-                weather_df[f'wind_gusts_10m_max_{label}'] = (
-                    weather_df.groupby('site_name')['wind_gusts_10m']
-                    .transform(lambda x: x.rolling(window=window, min_periods=1).max())
-                )
-            dagster_logger.info("Added wind gust rolling maximums for 2, 3, 4 hour windows")
-        else:
-            dagster_logger.warning("wind_gusts_10m column not found - skipping gust calculations")
-        # Interaction features
-        if 'wind_speed_10m' in weather_df.columns and 'temperature_2m' in weather_df.columns:
-            weather_df['wind_temp_interaction'] = weather_df['wind_speed_10m'] * weather_df['temperature_2m']
-
-        if 'relative_humidity_2m' in weather_df.columns and 'temperature_2m' in weather_df.columns:
-            weather_df['humidity_temp_interaction'] = weather_df['relative_humidity_2m'] * weather_df['temperature_2m']
-
-        # Encode categorical variables using dict lookups (instead of LabelEncoder)
-        if 'wind_direction_categorical' in weather_df.columns:
-            wind_direction_mapping = {
-                'N': 0,
-                'NE': 1,
-                'E': 2,
-                'SE': 3,
-                'S': 4,
-                'SW': 5,
-                'W': 6,
-                'NW': 7
-            }
-            weather_df['wind_direction_categorical_encoded'] = weather_df['wind_direction_categorical'].map(wind_direction_mapping).fillna(-1).astype(int)
-            dagster_logger.info("Encoded wind_direction_categorical to integers (N=0, NE=1, ..., NW=7)")
-
-        dagster_logger.info("Completed rolling wind calculations")
+        weather_df = add_wind_features(weather_df, dagster_logger)
     except Exception as e:
         dagster_logger.error(f"Error processing weather data {e}")
         raise e
@@ -348,21 +382,7 @@ def data_for_models(context):
         tidal_df = tidal_df.drop(
             ['time'], axis=1)
 
-        # Encode tidal states to integers
-        tidal_mapping = {
-            'low': 0,
-            'rising': 1,
-            'high': 2,
-            'falling': 3,
-            'ebb': 3,      # falling/ebb are the same
-            'flood': 1     # rising/flood are the same
-        }
-
-        if 'tidal_state' in tidal_df.columns:
-            tidal_df['tidal_state_encoded'] = tidal_df['tidal_state'].map(tidal_mapping).fillna(-1).astype(int)
-        else:
-            # Default to -1 if column missing (unknown category)
-            tidal_df['tidal_state_encoded'] = -1
+        tidal_df = add_tidal_encoding(tidal_df)
         tidal_df = tidal_df.sort_index()
     except Exception as e:
         dagster_logger.error(f"Error reading tidals   files {tidal_df} {e}")
@@ -374,51 +394,7 @@ def data_for_models(context):
         dagster_logger.error(f"Error merging with tidal files data {e}")
         raise e
 
-    # add night day
-    # 2. Create a LocationInfo object for San Diego
-    san_diego_location = LocationInfo(
-        name='San Diego',
-        region='USA',
-        timezone='America/Los_Angeles',
-        latitude=32.7157,
-        longitude=-117.1611
-    )
-    unique_dates = matched_df['time'].dt.date.unique()
-
-    # 2. Initialize an empty dictionary to store the sunrise and sunset times
-    daily_sun_times = {}
-
-    # 3. For each unique date, calculate sunrise and sunset times
-    for date in unique_dates:
-        # Get sun times for the day using the San Diego location
-        s = sun(san_diego_location.observer, date=date, tzinfo=san_diego_location.timezone)
-
-        # 4. Store the sunrise and sunset times in the daily_sun_times dictionary
-        daily_sun_times[date] = {
-            'sunrise': s['sunrise'],
-            'sunset': s['sunset']
-        }
-
-    def get_day_night(timestamp, sun_times_dict):
-        # Extract the date part from the timestamp
-        date_only = timestamp.date()
-
-        # Retrieve sunrise and sunset times for the specific date
-        if date_only in sun_times_dict:
-            sun_info = sun_times_dict[date_only]
-            sunrise = sun_info['sunrise']
-            sunset = sun_info['sunset']
-
-            # Compare the hourly timestamp with sunrise and sunset to determine 'day' or 'night'
-            if sunrise <= timestamp < sunset:
-                return 'day'
-            else:
-                return 'night'
-        else:
-            # Handle cases where sun times might not be available for a date
-            return 'unknown'
-
-    matched_df['day_night'] = matched_df['time'].apply(lambda x: get_day_night(x, daily_sun_times))
+    matched_df = add_day_night(matched_df, dagster_logger)
 
     # Fill missing H2S values for each site_name based on min/max time ranges
     # and flag filled values
@@ -836,4 +812,76 @@ def h2s_exceedance_periods_filter(context, h2s_peaks, modeldata_h2s):
         raise e
 
 
+@asset(
+    group_name="tijuana",
+    key_prefix="h2sforecast",
+    name="model_forecast",
+    required_resource_keys={"s3"},
+    ins={
+        "openmeteo_forecast": AssetIn(key=AssetKey(["weather", "openmeteo_forecast"])),
+        "tidal_forecast": AssetIn(key=AssetKey(["tides", "tidal_forecast"])),
+        "streamflow_forecast": AssetIn(key=AssetKey(["streamflow", "streamflow_forecast"])),
+    },
+    metadata={
+        "source": "OpenMeteo forecast, NOAA tidal predictions, IBWC streamflow forecast",
+        "description": "Combined forecast feature dataset for H2S model inference. No H2S target columns.",
+        "variableMeasured": ["Wind Direction", "Wind Speed", "Tide Height", "Streamflow"],
+    },
+    automation_condition=AutomationCondition.eager(),
+)
+def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forecast):
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    variableMeasured = meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(
+        name=str(context.asset_key.path[-1]),
+        description=description,
+        source_url=source_url,
+        variableMeasured=variableMeasured,
+    )
 
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    # --- Weather ---
+    weather_df = openmeteo_forecast.copy()
+    weather_df = weather_df.rename(columns={'date': 'time'})
+    weather_df['time'] = weather_df['time'].dt.tz_convert('America/Los_Angeles')
+    weather_df['site_name'] = weather_df['site_name'].str.strip()
+    weather_df = weather_df.sort_values('time').reset_index(drop=True)
+    if 'visibility' in weather_df.columns:
+        weather_df = weather_df.drop(columns=['visibility'])
+    weather_df = add_wind_features(weather_df, logger)
+    now = pd.Timestamp.now(tz='America/Los_Angeles').floor('h')
+    weather_df = weather_df[weather_df['time'] >= now].reset_index(drop=True)
+    logger.info(f"Weather forecast: {len(weather_df)} rows from {now} onwards, sites: {weather_df['site_name'].unique().tolist()}")
+
+    # --- Tidal ---
+    tidal_df = tidal_forecast.copy()
+    tidal_df['time'] = pd.to_datetime(tidal_df['time']).dt.tz_localize('UTC').dt.tz_convert('America/Los_Angeles')
+    tidal_df = add_tidal_encoding(tidal_df)
+    tidal_df = tidal_df.sort_values('time').reset_index(drop=True)
+    logger.info(f"Tidal forecast: {len(tidal_df)} rows")
+
+    # --- Streamflow ---
+    streamflow_df = streamflow_forecast.copy()
+    streamflow_df['time'] = pd.to_datetime(streamflow_df['time']).dt.tz_localize('UTC').dt.tz_convert('America/Los_Angeles')
+    streamflow_df = streamflow_df.rename(columns={'Average (m^3/s)': 'Flow (m^3/s)--Border'})
+    streamflow_df = streamflow_df.sort_values('time').reset_index(drop=True)
+    logger.info(f"Streamflow forecast: {len(streamflow_df)} rows")
+
+    # --- Merge (nearest-neighbor) ---
+    merged = pd.merge_asof(weather_df, tidal_df, on='time', direction='nearest')
+    merged = pd.merge_asof(merged, streamflow_df, on='time', direction='nearest')
+    logger.info(f"Merged forecast: {len(merged)} rows")
+
+    # --- Day/night ---
+    merged = add_day_night(merged, logger)
+
+    store_assets.store_dataframe_to_s3(
+        merged, OUTPUT_PATH, 'model_forecast', s3_resource,
+        latestdatasetpath=LATEST, enable_latest_path=True,
+        formats=['csv', 'parquet'], metadata=metadata,
+    )
+    return merged

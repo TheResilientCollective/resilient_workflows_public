@@ -78,7 +78,8 @@ from .hysplit_forecasting import (
     data_for_hysplit,
     h2s_locations,
     h2s_peaks_analysis,
-    h2s_exceedance_periods_filter
+    h2s_exceedance_periods_filter,
+    model_forecast,
 )
 from .sandiego_epidemiology_mpox import (
     mpox_workbook_download,
