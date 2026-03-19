@@ -31,11 +31,14 @@ from .beach_monitoring import (beachwatch_year, beachwatch_analyses_daily,
                                beachinfo_updated_sensor
                                )
 from .streamflow import (tj_boundary, tj_canal, streamflow_all_schedule, streamflow_yearly_schedule,
-                         yearly_assets)
+                         yearly_assets,
+                         streamflow_forecast
+                         )
 from .ibwc_spills import (
     spills, spills_last, spills_latest_sensor, spills_reports, spills_all, spills_historic_schedule)
 from .openmeteo import (forecast,
                         weather_historical,
+weather_current_year,
                         weather_all_schedule)
 from .cdc_nnds import (mpox_weekly,
                        nndss_weekly,
@@ -75,7 +78,8 @@ from .hysplit_forecasting import (
     data_for_hysplit,
     h2s_locations,
     h2s_peaks_analysis,
-    h2s_exceedance_periods_filter
+    h2s_exceedance_periods_filter,
+    model_forecast,
 )
 from .sandiego_epidemiology_mpox import (
     mpox_workbook_download,
@@ -109,6 +113,6 @@ from .wahis import (
 )
 from .tides import (
     tides_all_job,
-    tides_monthly,tides_hourly,
+    tides_monthly,tides_hourly,tidal_forecast,
 tides_monthly_schedule,tides_hourly_schedule
 )

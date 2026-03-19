@@ -9,7 +9,10 @@ from dagster import (asset,
                      get_dagster_logger,
                      define_asset_job, AssetKey,
                      RunRequest,
-                     schedule, TimeWindowPartitionsDefinition)
+                     schedule, TimeWindowPartitionsDefinition,
+                     Field, AssetExecutionContext, AutomationCondition)
+from sqlalchemy.cyextension.processors import time_cls
+
 from ..utils import store_assets
 
 # Define a yearly partition
@@ -107,6 +110,105 @@ def tj_canal(context):
         )
         raise HTTPError(response.status_code, response.reason)
 
+@asset(
+    group_name="tijuana",key_prefix="streamflow",
+    name="streamflow_forecast",
+    required_resource_keys={"s3"},
+    kinds={"python", "s3"},
+    description="Streamflow forecast using diurnal (month, hour) median profile from historical data",
+    config_schema={
+        "forecast_days": Field(
+            int,
+            default_value=10,
+            description="Number of days forward to generate streamflow forecast",
+        ),
+    },
+    deps=[AssetKey(["streamflow", "boundary_cms"])],
+    automation_condition=AutomationCondition.eager(),
+)
+def streamflow_forecast(context: AssetExecutionContext) -> pd.DataFrame:
+    """Generate flow rate forecast using historical diurnal (month, hour) median profile.
+
+    Loads historical training data, computes median Flow (m^3/s)--Border per (month, hour)
+    bucket, and projects that profile over the upcoming forecast window.
+    Returns columns: time, Flow (m^3/s)--Border
+    """
+    s3_resource = context.resources.s3
+    forecast_days = context.op_config["forecast_days"]
+    flow_col = "Flow (m^3/s)--Border"
+
+    # --- Load historical data (S3 with local fallback) ---
+    hist_df = None
+    #s3_path = "latest/tijuana/forecast_data/modeldata_h2s_nofill.parquet"
+    try:
+        #stream = s3_resource.get_stream(path=s3_path)
+        #hist_df = pd.read_parquet(stream)
+        hist_df = context.repository_def.load_asset_value(AssetKey(["streamflow", "boundary_cms"]))
+        context.log.info(f"✓ Loaded historical data : {["streamflow", "boundary_cms"]} ({len(hist_df)} rows)")
+    except Exception as e:
+        context.log.warning(f"load failed ({e}), ")
+        raise ValueError(f"Could not load historical data for streamflow forecast: {e}")
+
+    # --- Parse time column ---
+    # time_col = next((c for c in ["time", "date", "Time", "Date"] if c in hist_df.columns), None)
+    # if time_col is None:
+    #     raise ValueError(f"No time column found in historical data. Columns: {list(hist_df.columns)}")
+
+
+    time_col="Start of Interval (UTC-08:00)"
+    if time_col == hist_df.index.name:
+        hist_df = hist_df.reset_index()
+    if time_col not in hist_df.columns:
+        raise ValueError(f"Column '{time_col}' not found. Available: {list(hist_df.columns)}")
+    flow_col='Average (m^3/s)'
+    if flow_col not in hist_df.columns:
+        raise ValueError(f"Column '{flow_col}' not found. Available: {list(hist_df.columns)}")
+
+    hist_df["_time"] = pd.to_datetime(hist_df[time_col])
+    hist_valid = hist_df[hist_df[flow_col].notna()].copy()
+    hist_valid["_month"] = hist_valid["_time"].dt.month
+    hist_valid["_hour"] = hist_valid["_time"].dt.hour
+
+    # --- Compute (month, hour) median profile ---
+    profile = hist_valid.groupby(["_month", "_hour"])[flow_col].median()
+    global_median = hist_valid[flow_col].median()
+
+    context.log.info(f"✓ Computed flow profile from {len(hist_valid)} rows")
+    context.log.info(f"  Date range: {hist_valid['_time'].min()} → {hist_valid['_time'].max()}")
+    context.log.info(f"  Flow range: {hist_valid[flow_col].min():.2f} – {hist_valid[flow_col].max():.2f} m³/s")
+    context.log.info(f"  Global median: {global_median:.3f} m³/s")
+
+    # --- Generate forecast timestamps (hourly from now) ---
+    now_utc = pd.Timestamp.utcnow().floor("h").tz_localize(None)
+    forecast_times = pd.date_range(start=now_utc, periods=forecast_days * 24, freq="h")
+
+    rows = [
+        {"time": ts, flow_col: profile.get((ts.month, ts.hour), global_median)}
+        for ts in forecast_times
+    ]
+    forecast_df = pd.DataFrame(rows)
+
+    context.log.info(f"✓ Generated {len(forecast_df)} hourly streamflow forecast rows")
+    context.log.info(f"  Flow range: {forecast_df[flow_col].min():.3f} – {forecast_df[flow_col].max():.3f} m³/s")
+
+    # --- Upload to S3 ---
+    csv_path = "latest/tijuana/streamflow_forecast/latest.csv"
+    try:
+        csv_bytes = forecast_df.to_csv(index=False).encode("utf-8")
+        s3_resource.putFile(csv_bytes, csv_path, bucket=s3_resource.S3_BUCKET, content_type="text/csv")
+        context.log.info(f"✓ Uploaded streamflow forecast to S3: {csv_path}")
+    except Exception as e:
+        context.log.warning(f"Could not upload streamflow forecast to S3: {e}")
+
+    context.add_output_metadata({
+        "row_count": len(forecast_df),
+        "flow_min": float(forecast_df[flow_col].min()),
+        "flow_max": float(forecast_df[flow_col].max()),
+        "flow_median": float(forecast_df[flow_col].median()),
+        "profile_buckets": int(len(profile)),
+        "historical_rows": int(len(hist_valid)),
+    })
+    return forecast_df
 
 # Asset factory for yearly streamflow datasets
 def create_streamflow_yearly_asset(dataset_name: str, dataset_value: str):
@@ -225,7 +327,10 @@ def yearly_assets():
 
 # Job for current/recent streamflow data (existing assets)
 streamflow_all_job = define_asset_job(
-    "streamflow_tj_all", selection=[AssetKey(["streamflow", "canal_cms"]), AssetKey(["streamflow", "boundary_cms"])]
+    "streamflow_tj_all", selection=[AssetKey(["streamflow", "canal_cms"]),
+                                    AssetKey(["streamflow", "boundary_cms"]),
+                                #    AssetKey(["streamflow", "streamflow_forecast"])
+        ],
 )
 
 # Job for yearly streamflow datasets

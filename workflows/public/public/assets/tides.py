@@ -6,7 +6,7 @@ from dagster import (asset,
                      define_asset_job, AssetKey,
                      RunRequest,
                      schedule,
-                     MonthlyPartitionsDefinition , AssetIn, AutomationCondition
+                     MonthlyPartitionsDefinition, AssetIn, AutomationCondition, Field, AssetExecutionContext
                      )
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
@@ -51,6 +51,25 @@ def refine_state(row):
         return "low"
 
     return row['tidal_state']
+
+def _derive_tidal_state(heights: pd.Series) -> pd.Series:
+    """Classify each hourly tide height as flood, ebb, slack high, or slack low."""
+    states = ['ebb'] * len(heights)
+    for i in range(len(heights)):
+        h = heights.iloc[i]
+        h_prev = heights.iloc[i - 1] if i > 0 else h
+        h_next = heights.iloc[i + 1] if i < len(heights) - 1 else h
+        if i > 0 and i < len(heights) - 1:
+            if h >= h_prev and h >= h_next:
+                states[i] = 'slack high'
+            elif h <= h_prev and h <= h_next:
+                states[i] = 'slack low'
+            elif h > h_prev:
+                states[i] = 'flood'
+            # else: ebb (default)
+        elif h > h_prev:
+            states[i] = 'flood'
+    return pd.Series(states, index=heights.index)
 
 @retry(
     wait=wait_exponential(min=300, max=900),  # First retry at 5 minutes, max 15 minutes
@@ -186,9 +205,102 @@ def tides_monthly(context,):
     store_assets.store_dataframe_to_s3(tidal_df, output_path, dataset_id, s3_resource, metadata=metadata
                                        , enable_latest_path=True, latestdatasetpath=latest_path,
                                        formats=['csv', 'parquet'])
+@asset(
+    key_prefix="tides",
+    group_name="tijuana",
+    name="tidal_forecast",
+    required_resource_keys={"s3"},
+    kinds={"python", "s3"},
+    description="Tidal predictions from NOAA CO-OPS API (Station 9410170, San Diego)",
+    config_schema={
+        "forecast_days":Field(
+            int,
+            default_value=10,
+            description="Number of days forward to fetch tidal predictions",
+        ),
+        "noaa_station": Field(
+            str,
+            default_value="9410170",
+            description="NOAA CO-OPS station ID (default: San Diego, CA — closest to Tijuana River mouth)",
+        ),
+    },
+
+    automation_condition=AutomationCondition.eager(),
+)
+def tidal_forecast(context: AssetExecutionContext) -> pd.DataFrame:
+    """Fetch deterministic hourly tidal predictions from NOAA CO-OPS API.
+
+    Station 9410170 (San Diego) is the closest official NOAA gauge to the
+    Tijuana River mouth. Derives tidal_state (flood/ebb/slack high/slack low)
+    from the slope of the predicted tide height series.
+    Returns columns: time, tide_height, tidal_state
+    """
+    import json as _json
+    import urllib.request
+
+    s3_resource = context.resources.s3
+    forecast_days = context.op_config["forecast_days"]
+    station = context.op_config["noaa_station"]
+
+    now_utc = pd.Timestamp.utcnow()
+    begin_date = now_utc.strftime("%Y%m%d")
+    end_date = (now_utc + pd.Timedelta(days=forecast_days)).strftime("%Y%m%d")
+
+    api_url = (
+        f"https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+        f"?product=predictions&datum=MLLW&interval=h&units=metric&time_zone=gmt"
+        f"&format=json&station={station}&begin_date={begin_date}&end_date={end_date}"
+    )
+
+    context.log.info(f"Fetching tidal predictions from NOAA CO-OPS (station {station})...")
+    context.log.info(f"  Date range: {begin_date} → {end_date}")
+
+    try:
+        with urllib.request.urlopen(api_url, timeout=30) as response:
+            data = _json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch NOAA tidal predictions: {e}")
+
+    if "error" in data:
+        raise RuntimeError(f"NOAA API error: {data['error'].get('message', data['error'])}")
+
+    predictions = data.get("predictions", [])
+    if not predictions:
+        raise RuntimeError("NOAA API returned no predictions")
+
+    context.log.info(f"✓ Received {len(predictions)} tidal predictions from NOAA")
+
+    tide_df = pd.DataFrame([
+        {"time": pd.to_datetime(p["t"]), "tide_height": float(p["v"])}
+        for p in predictions
+    ]).sort_values("time").reset_index(drop=True)
+
+    tide_df["tidal_state"] = _derive_tidal_state(tide_df["tide_height"])
+
+    state_counts = tide_df["tidal_state"].value_counts().to_dict()
+    context.log.info(f"✓ Tide height range: {tide_df['tide_height'].min():.3f} – {tide_df['tide_height'].max():.3f} m")
+    context.log.info(f"  Tidal states: {state_counts}")
+
+    # --- Upload to S3 ---
+    csv_path = "latest/tijuana/tidal_forecast/latest.csv"
+    try:
+        csv_bytes = tide_df.to_csv(index=False).encode("utf-8")
+        s3_resource.putFile(csv_bytes, csv_path, bucket=s3_resource.S3_BUCKET, content_type="text/csv")
+        context.log.info(f"✓ Uploaded tidal forecast to S3: {csv_path}")
+    except Exception as e:
+        context.log.warning(f"Could not upload tidal forecast to S3: {e}")
+
+    context.add_output_metadata({
+        "row_count": len(tide_df),
+        "tide_min": float(tide_df["tide_height"].min()),
+        "tide_max": float(tide_df["tide_height"].max()),
+        "tidal_states": state_counts,
+        "station": station,
+    })
+    return tide_df
 
 tides_hourly_job = define_asset_job(
-    "tides_hourly", selection=[AssetKey(["tides", "tidal_hourly"])]
+    "tides_hourly", selection=[AssetKey(["tides", "tidal_hourly"]), AssetKey(["tides", "tidal_forecast"])]
 )
 @schedule(job=tides_hourly_job, cron_schedule="@hourly", name="tidal_hourly")
 def tides_hourly_schedule(context):
