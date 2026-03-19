@@ -31,7 +31,9 @@ from .beach_monitoring import (beachwatch_year, beachwatch_analyses_daily,
                                beachinfo_updated_sensor
                                )
 from .streamflow import (tj_boundary, tj_canal, streamflow_all_schedule, streamflow_yearly_schedule,
-                         yearly_assets)
+                         yearly_assets,
+                         streamflow_forecast
+                         )
 from .ibwc_spills import (
     spills, spills_last, spills_latest_sensor, spills_reports, spills_all, spills_historic_schedule)
 from .openmeteo import (forecast,
@@ -110,6 +112,6 @@ from .wahis import (
 )
 from .tides import (
     tides_all_job,
-    tides_monthly,tides_hourly,
+    tides_monthly,tides_hourly,tidal_forecast,
 tides_monthly_schedule,tides_hourly_schedule
 )
