@@ -121,23 +121,22 @@ When creating new assets:
 4. Follow naming convention: `domain_description_timeframe` (e.g., `beachwatch_closures_recent`)
 5. Use geographic processing for location-based data
 6. Include proper error handling and logging with `get_dagster_logger()`
-7. Store data in both raw and processed formats
+7. use utils/store_assets to Store data in both raw and processed formats
 8. Add automation conditions for scheduling (e.g., `AutomationCondition.eager()`)
 
 ### Data Storage Structure
-- **Raw data**: `/{domain}/raw/{source}/` 
+- **Raw data**: `/{domain}/raw/{source}/`
 - **Processed data**: `/{domain}/output/{asset_name}/`
 - **Multiple formats**: Store as CSV, GeoJSON, and JSON for different use cases
 - **Metadata**: Include schema.org metadata with each dataset
 
 ### Asset Scheduling
 - **Real-time**: Use `AutomationCondition.eager()` for frequently updated data
-- **Daily**: Beach monitoring, air quality current conditions  
+- **Daily**: Beach monitoring, air quality current conditions
 - **Weekly**: Disease surveillance, county health data
 - **Event-driven**: Use sensors for website change detection
 
 ### Common Utility Functions
 - `store_assets.geodataframe_to_s3()`: Multi-format S3 storage
 - `store_assets.objectMetadata()`: Schema.org metadata creation
-- `ICONS[category]`: Consistent icon assignment for visualization
 - Geographic utilities for coordinate processing and CRS handling
