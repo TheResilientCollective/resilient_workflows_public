@@ -114,6 +114,7 @@ def spills(context):
         df['Start Time'] = df['Start Time'].dt.strftime('%Y-%m-%dT%H:%M:%S')
         df['End Time'] = df['End Time'].dt.strftime('%Y-%m-%dT%H:%M:%S')
         df['Approximate Discharge Volume Value'] = df['Approximate Discharge Volume'].apply(lambda x: gallons(x))
+        df['Discharge Location'] = df['Discharge Location'].apply(lambda t: ' '.join(t.encode('ascii', 'ignore').decode('utf-8').split()))
         locations_df = pd.read_csv(StringIO(stations_csv), on_bad_lines='warn')
         gs = gpd.GeoSeries.from_xy(locations_df['Longitude'], locations_df['Latitude'])
         locations_df =  gpd.GeoDataFrame(locations_df,
