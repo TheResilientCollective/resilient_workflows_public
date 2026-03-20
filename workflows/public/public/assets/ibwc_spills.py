@@ -115,6 +115,12 @@ def spills(context):
         df['End Time'] = df['End Time'].dt.strftime('%Y-%m-%dT%H:%M:%S')
         df['Approximate Discharge Volume Value'] = df['Approximate Discharge Volume'].apply(lambda x: gallons(x))
         df['Discharge Location'] = df['Discharge Location'].apply(lambda t: ' '.join(t.encode('ascii', 'ignore').decode('utf-8').split()))
+        # save updates in case they drop data. missing 2023 and start of 2024.
+        raw_metadata = metadata.copy()
+        raw_metadata.name = f'Spills Raw Data {datetime.now().strftime("%Y%m%d")}'
+        raw_metadata.description = f'Raw data from the International Water Boundary Commission {datetime.now().strftime("%Y%m%d")}'
+        raw_path = f'{s3_output_path}archive/{datetime.now().strftime("%Y%m%d")}'
+        store_assets.store_dataframe_to_s3(df, raw_path, 'spills_raw', s3_resource, metadata=raw_metadata)
         locations_df = pd.read_csv(StringIO(stations_csv), on_bad_lines='warn')
         gs = gpd.GeoSeries.from_xy(locations_df['Longitude'], locations_df['Latitude'])
         locations_df =  gpd.GeoDataFrame(locations_df,
