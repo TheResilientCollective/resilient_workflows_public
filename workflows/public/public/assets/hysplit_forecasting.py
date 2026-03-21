@@ -31,6 +31,18 @@ STREAMFLOW_SITE_YEARLY='boundary_cms'
 STREAMFLOW_SITE_RECENT=STREAMFLOW_SITE_YEARLY
 TIDAL_BASE='latest/tijuana/tides'
 
+EFFLUENT_BASE='latest/tijuana/effluent_flow'
+EFFLUENT_CURRENT_YEAR='current_year'
+EFFLUENT_TODAY='today'
+
+DIURNAL_FACTORS = {
+    0: 0.70, 1: 0.65, 2: 0.60, 3: 0.58, 4: 0.60, 5: 0.70,
+    6: 0.85, 7: 1.05, 8: 1.15, 9: 1.20, 10: 1.25, 11: 1.20,
+    12: 1.15, 13: 1.10, 14: 1.10, 15: 1.10, 16: 1.15, 17: 1.20,
+    18: 1.15, 19: 1.10, 20: 1.00, 21: 0.90, 22: 0.85, 23: 0.75
+}
+DIURNAL_MEAN = np.mean(list(DIURNAL_FACTORS.values()))
+
 
 sites_csv = """LongName,site_name,lat,lon,AgencyName
 Berry Elementary School,NESTOR - BES, 32.567097, -117.090656,San Diego APCD
@@ -164,6 +176,153 @@ def add_day_night(df, logger):
     return df
 
 
+def add_inference_features(df: pd.DataFrame, logger) -> pd.DataFrame:
+    """Pre-compute temporal cyclicals, flow transforms, source regime, and stable_atm.
+
+    Valid at both training time and forecast time (no H2S observations required).
+    Logic matches prepare_data() in train_models_auto.py exactly.
+    """
+    hour = df['time'].dt.hour
+    month = df['time'].dt.month
+    df['hour_sin']  = np.sin(2 * np.pi * hour / 24)
+    df['hour_cos']  = np.cos(2 * np.pi * hour / 24)
+    df['month_sin'] = np.sin(2 * np.pi * month / 12)
+    df['month_cos'] = np.cos(2 * np.pi * month / 12)
+    df['is_night']  = (df['day_night'] == 'night').astype(int)
+
+    def source_regime(row):
+        if row['day_night'] != 'night': return 0
+        wd = row['wind_direction_10m']
+        if 22.5 <= wd < 135:           return 1
+        elif wd >= 247.5 or wd < 22.5: return 2
+        elif 135 <= wd < 247.5:        return 3
+        return 0
+    df['source_regime'] = df.apply(source_regime, axis=1)
+
+    flow_col = 'Flow (m^3/s)--Border'
+    if flow_col in df.columns:
+        df['flow_log']  = np.log1p(df[flow_col])
+        df['flow_low']  = (df[flow_col] < 1).astype(int)
+        df['flow_high'] = (df[flow_col] > 5).astype(int)
+    else:
+        df['flow_log'] = df['flow_low'] = df['flow_high'] = np.nan
+
+    df['stable_atm'] = ((df['wind_speed_10m'] < 5) & (df['is_night'] == 1)).astype(int)
+    logger.info("Added inference features: hour/month cyclicals, is_night, source_regime, flow transforms, stable_atm")
+    return df
+
+
+def add_h2s_lag_features(df: pd.DataFrame, logger) -> pd.DataFrame:
+    """Pre-compute per-site H2S and flow lag/rolling features.
+
+    Only valid for training data where H2S measurements exist.
+    Logic matches prepare_data() in train_models_auto.py exactly.
+    """
+    flow_col = 'Flow (m^3/s)--Border'
+    lag_cols = ['h2s_lag_1h', 'h2s_lag_3h', 'h2s_lag_6h',
+                'h2s_rolling_6h', 'h2s_rolling_24h', 'flow_lag_6h', 'flow_rolling_24h']
+    for col in lag_cols:
+        df[col] = np.nan
+    df = df.sort_values(['site_name', 'time']).reset_index(drop=True)
+    for site in df['site_name'].unique():
+        m = df['site_name'] == site
+        s = df.loc[m].copy()
+        s['h2s_lag_1h']      = s['H2S'].shift(1)
+        s['h2s_lag_3h']      = s['H2S'].shift(3)
+        s['h2s_lag_6h']      = s['H2S'].shift(6)
+        s['h2s_rolling_6h']  = s['H2S'].rolling(6,  min_periods=1).mean()
+        s['h2s_rolling_24h'] = s['H2S'].rolling(24, min_periods=1).mean()
+        if flow_col in df.columns:
+            s['flow_lag_6h']      = s[flow_col].shift(6)
+            s['flow_rolling_24h'] = s[flow_col].rolling(24, min_periods=1).mean()
+        for col in lag_cols:
+            df.loc[m, col] = s[col].values
+    logger.info(f"Added H2S/flow lag features for {df['site_name'].nunique()} sites")
+    return df
+
+
+def add_sbiwtp_features(df: pd.DataFrame, sbiwtp_daily: pd.Series, logger) -> pd.DataFrame:
+    """Merge SBIWTP effluent flow features into df.
+
+    Parameters
+    ----------
+    df : DataFrame with a 'time' column in America/Los_Angeles timezone.
+    sbiwtp_daily : Series indexed by date with daily average MGD values.
+    logger : dagster logger.
+
+    Adds columns (Tiers 1-3):
+      sbiwtp_flow_mgd       — daily flow lagged 1 day
+      sbiwtp_anomaly        — (flow - 30d_mean) / 30d_mean
+      sbiwtp_deficit        — max(0, 30d_mean - flow) lagged 1 day
+      sbiwtp_flow_x_temp    — sbiwtp_flow_mgd × temperature_2m
+      sbiwtp_hourly_mgd     — diurnal-disaggregated hourly flow
+      sbiwtp_sli            — Sewage Load Index accumulation-decay
+    """
+    if sbiwtp_daily.empty:
+        logger.warning("SBIWTP daily series is empty — skipping feature engineering")
+        for col in ['sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
+                    'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli']:
+            df[col] = np.nan
+        return df
+
+    # Resample to daily mean
+    daily = sbiwtp_daily.resample('D').mean().rename('sbiwtp_flow_mgd')
+
+    # 30-day rolling mean
+    rolling_mean = daily.rolling(30, min_periods=1).mean()
+
+    # Tier 1 features (lagged 1 day)
+    lag1 = daily.shift(1)
+    lag1_mean = rolling_mean.shift(1)
+    anomaly = (lag1 - lag1_mean) / lag1_mean.replace(0, np.nan)
+    deficit = (lag1_mean - lag1).clip(lower=0)
+
+    # Map to each row in df via date
+    df = df.copy()
+    dates = df['time'].dt.date.astype('datetime64[ns]')
+
+    def map_by_date(series):
+        s = series.copy()
+        s.index = s.index.normalize()
+        return dates.map(s)
+
+    df['sbiwtp_flow_mgd'] = map_by_date(lag1)
+    df['sbiwtp_anomaly'] = map_by_date(anomaly)
+    df['sbiwtp_deficit'] = map_by_date(deficit)
+
+    if 'temperature_2m' in df.columns:
+        df['sbiwtp_flow_x_temp'] = df['sbiwtp_flow_mgd'] * df['temperature_2m']
+    else:
+        df['sbiwtp_flow_x_temp'] = np.nan
+
+    # Tier 2 — hourly disaggregation
+    hour = df['time'].dt.hour
+    diurnal = hour.map(DIURNAL_FACTORS).fillna(1.0)
+    df['sbiwtp_hourly_mgd'] = df['sbiwtp_flow_mgd'] * diurnal / DIURNAL_MEAN
+
+    # Tier 3 — Sewage Load Index
+    decay = np.exp(-np.log(2) / 2.5)  # half-life 2.5 days
+    sli_values = np.zeros(len(df))
+    deficit_arr = df['sbiwtp_deficit'].fillna(0).values
+    temp_arr = df['temperature_2m'].fillna(20).values if 'temperature_2m' in df.columns else np.full(len(df), 20.0)
+    tide_arr = df['tide_height_m'].fillna(0).values if 'tide_height_m' in df.columns else np.zeros(len(df))
+
+    sli = 0.0
+    for i in range(len(df)):
+        temp_factor = 1 + 0.02 * (temp_arr[i] - 20)
+        tide_factor = 1 - 0.1 * tide_arr[i]
+        sli = sli * decay * tide_factor + deficit_arr[i] * temp_factor
+        sli_values[i] = sli
+
+    df['sbiwtp_sli'] = sli_values
+
+    logger.info(
+        f"SBIWTP features added: {df['sbiwtp_flow_mgd'].notna().sum()} non-null flow values, "
+        f"mean deficit={df['sbiwtp_deficit'].mean():.2f}, mean SLI={df['sbiwtp_sli'].mean():.2f}"
+    )
+    return df
+
+
 def duckdb_connection(s3_resource: minio.S3Resource):
 
     server=s3_resource.S3_ADDRESS
@@ -214,6 +373,8 @@ def h2s_locations(context):
           AssetKey(['streamflow', 'boundary_cms']),
           AssetKey(['weather', 'openmeteo_historical']),
           AssetKey(['weather', 'openmeteo_current_year']),
+          AssetKey(['effluent_flow', 'effluent_flow_current_year']),
+          AssetKey(['effluent_flow', 'effluent_flow_today']),
           ],
        metadata={
            "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
@@ -394,7 +555,45 @@ def data_for_models(context):
         dagster_logger.error(f"Error merging with tidal files data {e}")
         raise e
 
+    # --- SBIWTP effluent flow features ---
+    try:
+        effluent_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}/{PARQUET_PATTERN}"
+        effluent_df = duckdb_con.read_parquet(effluent_files).df()
+        dagster_logger.info(f"Loaded {len(effluent_df)} effluent flow records")
+
+        # Find the timestamp column
+        time_col = next(
+            (c for c in effluent_df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
+            None
+        )
+        if time_col:
+            effluent_df['time'] = pd.to_datetime(effluent_df[time_col])
+            # Data is UTC-8 fixed offset
+            effluent_df['time'] = effluent_df['time'].dt.tz_localize('Etc/GMT+8').dt.tz_convert('America/Los_Angeles')
+        else:
+            raise ValueError("No timestamp column found in effluent flow data")
+
+        # Find the MGD value column (first numeric column other than timestamp)
+        value_col = next(
+            (c for c in effluent_df.columns if c != time_col and pd.api.types.is_numeric_dtype(effluent_df[c])),
+            None
+        )
+        if value_col is None:
+            raise ValueError("No numeric value column found in effluent flow data")
+
+        effluent_series = effluent_df.set_index('time')[value_col].rename('sbiwtp_flow_mgd')
+        matched_df = add_sbiwtp_features(matched_df, effluent_series, dagster_logger)
+    except Exception as e:
+        dagster_logger.warning(f"Could not load SBIWTP effluent flow, skipping features: {e}")
+        for col in ['sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
+                    'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli']:
+            matched_df[col] = np.nan
+
     matched_df = add_day_night(matched_df, dagster_logger)
+    matched_df = add_inference_features(matched_df, dagster_logger)
+    # H2S lags are computed on pre-fill H2S so that train_models_auto.py can filter
+    # filled rows via h2s_measured; the fill step happens below.
+    matched_df = add_h2s_lag_features(matched_df, dagster_logger)
 
     # Fill missing H2S values for each site_name based on min/max time ranges
     # and flag filled values
@@ -825,7 +1024,7 @@ def h2s_exceedance_periods_filter(context, h2s_peaks, modeldata_h2s):
     metadata={
         "source": "OpenMeteo forecast, NOAA tidal predictions, IBWC streamflow forecast",
         "description": "Combined forecast feature dataset for H2S model inference. No H2S target columns.",
-        "variableMeasured": ["Wind Direction", "Wind Speed", "Tide Height", "Streamflow"],
+        "variableMeasured": ["Wind Direction", "Wind Speed", "Tide Height", "Streamflow", "SBIWTP Effluent Flow"],
     },
     automation_condition=AutomationCondition.eager(),
 )
@@ -878,6 +1077,92 @@ def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forec
 
     # --- Day/night ---
     merged = add_day_night(merged, logger)
+
+    # --- Inference features (temporal cyclicals, flow transforms, source regime) ---
+    # H2S lag features are omitted — no observations at forecast time
+    merged = add_inference_features(merged, logger)
+
+    # --- SBIWTP effluent flow persistence forecast ---
+    try:
+        duckdb_con = duckdb_connection(s3_resource)
+        effluent_today_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_TODAY}/{CSV_PATTERN}"
+        effluent_today_df = duckdb_con.read_csv(effluent_today_files, null_padding=True).df()
+
+        time_col = next(
+            (c for c in effluent_today_df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
+            None
+        )
+        value_col = next(
+            (c for c in effluent_today_df.columns if c != time_col
+             and pd.api.types.is_numeric_dtype(effluent_today_df[c])),
+            None
+        )
+        if time_col and value_col:
+            effluent_today_df['time'] = (
+                pd.to_datetime(effluent_today_df[time_col])
+                .dt.tz_localize('Etc/GMT+8')
+                .dt.tz_convert('America/Los_Angeles')
+            )
+            today_mgd = effluent_today_df[value_col].mean()
+            logger.info(f"SBIWTP today's mean effluent flow: {today_mgd:.2f} MGD")
+
+            # Build a daily-indexed series for persistence forecast
+            # hours 0-24: today's value; 24-48: persistence; >48: decay to 30-day mean
+            effluent_current_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}/{PARQUET_PATTERN}"
+            effluent_hist_df = duckdb_con.read_parquet(effluent_current_files).df()
+            hist_time_col = next(
+                (c for c in effluent_hist_df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
+                None
+            )
+            hist_value_col = next(
+                (c for c in effluent_hist_df.columns if c != hist_time_col
+                 and pd.api.types.is_numeric_dtype(effluent_hist_df[c])),
+                None
+            )
+            if hist_time_col and hist_value_col:
+                effluent_hist_df['time'] = (
+                    pd.to_datetime(effluent_hist_df[hist_time_col])
+                    .dt.tz_localize('Etc/GMT+8')
+                    .dt.tz_convert('America/Los_Angeles')
+                )
+                hist_series = effluent_hist_df.set_index('time')[hist_value_col].rename('sbiwtp_flow_mgd')
+                mean_30d = hist_series.last('30D').mean()
+            else:
+                hist_series = pd.Series(dtype=float)
+                mean_30d = today_mgd
+
+            # Build forecast series aligned to merged['time'] dates
+            forecast_dates = merged['time'].dt.normalize().unique()
+            today_date = now.normalize()
+            mgd_by_date = {}
+            for d in forecast_dates:
+                hours_ahead = (d - today_date).total_seconds() / 3600
+                if hours_ahead <= 24:
+                    mgd_by_date[d] = today_mgd
+                elif hours_ahead <= 48:
+                    mgd_by_date[d] = today_mgd  # persistence (autocorr r=0.77)
+                else:
+                    days_beyond = (hours_ahead - 48) / 24
+                    decay_factor = np.exp(-np.log(2) / 2.5 * days_beyond)
+                    mgd_by_date[d] = today_mgd * decay_factor + mean_30d * (1 - decay_factor)
+
+            sbiwtp_forecast_series = pd.Series(
+                {d: mgd_by_date.get(d, mean_30d) for d in forecast_dates},
+                name='sbiwtp_flow_mgd'
+            )
+            # Extend hist_series with forecast values so add_sbiwtp_features has full context
+            combined_series = pd.concat([hist_series, sbiwtp_forecast_series.rename('sbiwtp_flow_mgd')])
+            merged = add_sbiwtp_features(merged, combined_series, logger)
+        else:
+            logger.warning("Could not parse SBIWTP today CSV — skipping SBIWTP forecast features")
+            for col in ['sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
+                        'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli']:
+                merged[col] = np.nan
+    except Exception as e:
+        logger.warning(f"SBIWTP forecast features failed, continuing without them: {e}")
+        for col in ['sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
+                    'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli']:
+            merged[col] = np.nan
 
     store_assets.store_dataframe_to_s3(
         merged, OUTPUT_PATH, 'model_forecast', s3_resource,
