@@ -44,7 +44,7 @@ El Cajon - Lexington Elementary School,EL CAJON LES, 32.789561,  -116.944222,San
 #             - SLACK_CHANNEL=${RESILIENT_SLACK_CHANNEL:-"#test"}
 #             - SLACK_TOKEN=${RESILIENT_SLACK_TOKEN}
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
-earliest=os.environ.get('APCD_EARLIEST',"2025-08-01" )
+earliest=os.environ.get('APCD_EARLIEST',"2026-01-01" )
 daily_apcd_partitions = DailyPartitionsDefinition(start_date=earliest)
 start_date_apcd=datetime(2023,1,1)
 yearly_apcd_partitions = TimeWindowPartitionsDefinition(start=start_date_apcd,fmt='%Y',

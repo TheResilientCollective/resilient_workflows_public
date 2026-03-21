@@ -77,7 +77,7 @@ def parse_effluent_csv(text: str) -> pd.DataFrame:
 
 @asset(
     group_name="tijuana",
-    key_prefix="effluent_flow",
+    key_prefix="ibwc",
     name="effluent_flow_today",
     required_resource_keys={"s3", "airtable"},
     automation_condition=AutomationCondition.eager(),
@@ -129,7 +129,7 @@ def effluent_flow_today(context):
 
 @asset(
     group_name="tijuana",
-    key_prefix="effluent_flow",
+    key_prefix="ibwc",
     name="effluent_flow_current_year",
     required_resource_keys={"s3", "airtable"},
     automation_condition=AutomationCondition.eager(),
@@ -193,7 +193,7 @@ def create_effluent_flow_yearly_asset():
     @asset(
         name='effluent_flow_yearly',
         group_name="tijuana",
-        key_prefix="effluent_flow",
+        key_prefix="ibwc",
         partitions_def=yearly_partitions,
         required_resource_keys={"s3", "airtable"},
         metadata={

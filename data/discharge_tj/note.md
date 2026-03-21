@@ -1,10 +1,21 @@
 
+effulent flow: entire period of record
+https://waterdata.ibwc.gov/AQWebportal/Export/DataSet?DataSet=Flow.Plant-Effluent-Flow-MGD%40SBIWTP&Calendar=CALENDARYEAR&DateRange=EntirePeriodOfRecord&UnitID=111&Conversion=Instantaneous&IntervalPoints=PointsAsRecorded&ApprovalLevels=False&Qualifiers=True&Step=1&ExportFormat=csv&Compressed=true&RoundData=True&GradeCodes=True&InterpolationTypes=False&Timezone=-8&_=1774104400349
+
+effulent flow: 1 year
+https://waterdata.ibwc.gov/AQWebportal/Export/DataSet?DataSet=Flow.Plant-Effluent-Flow-MGD%40SBIWTP&Calendar=CALENDARYEAR&DateRange=Years1&UnitID=111&Conversion=Instantaneous&IntervalPoints=PointsAsRecorded&ApprovalLevels=False&Qualifiers=True&Step=1&ExportFormat=csv&Compressed=false&RoundData=True&GradeCodes=True&InterpolationTypes=False&Timezone=-8&_=1774104486924
+
+today
+https://waterdata.ibwc.gov/AQWebportal/Export/DataSet?DataSet=Flow.Plant-Effluent-Flow-MGD%40SBIWTP&Calendar=CALENDARYEAR&DateRange=Today&UnitID=111&Conversion=Instantaneous&IntervalPoints=PointsAsRecorded&ApprovalLevels=False&Qualifiers=True&Step=1&ExportFormat=csv&Compressed=false&RoundData=True&GradeCodes=True&InterpolationTypes=False&Timezone=-8&_=1774104542907
+
+For a year:
+https://waterdata.ibwc.gov/AQWebportal/Export/DataSet?DataSet=Flow.Plant-Effluent-Flow-MGD%40SBIWTP&Calendar=CALENDARYEAR&StartTime=2025-01-01 00:00:00&EndTime=2025-12-31 00:00:00&DateRange=Custom&UnitID=111&Conversion=Instantaneous&IntervalPoints=PointsAsRecorded&ApprovalLevels=False&Qualifiers=True&Step=1&ExportFormat=csv&Compressed=false&RoundData=True&GradeCodes=True&InterpolationTypes=False&Timezone=-8&_=1774104591854
 
 https://ibwcsftpstg.blob.core.windows.net/wad/TelemetryTXT/11013300.txt
 
 Locations:
 * 11-TIJUANA-CANAL
-* South Bay Treatment 
+* South Bay Treatment
 Tijuana River At International Boundary Location/11013300
 * Punta Bandera Location/11-PUNTA-BANDERA
 * South Bay International Wastewater Treatment Plant
@@ -16,7 +27,7 @@ UnitMillion US Gallons per day
 https://waterdata.ibwc.gov/AQWebportal/Data/DataSet/Chart/Location/SBIWTP/DataSet/Total%20Flow/Plant-Effluent-Flow-Monthly-Total-Million-Gallons-Web/Interval/Yearly/Calendar/CALENDARYEAR/2025
 
 
-Look at cacluating.using over capacity 
+Look at cacluating.using over capacity
 https://waterdata.ibwc.gov/AQWebportal/Data/DataSet/Chart/Location/SBIWTP/DataSet/Flow/Plant-Influent-Flow-MGD/Interval/Monthly/Calendar/CALENDARYEAR/2025/03
 
 

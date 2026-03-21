@@ -36,7 +36,9 @@ all_schedules = [assets.beach_waterquality_schedule,
                  assets.cdc_nnds.cdc_nndss_raw_schedule,
                  assets.mpox_counties_weekly_schedule,
                  assets.streamflow_yearly_schedule,
-                 assets.tides_monthly_schedule,assets.tides_hourly_schedule
+                 assets.tides_monthly_schedule,assets.tides_hourly_schedule,
+                 assets.effluent_flow_current_schedule,
+                 assets.effluent_flow_yearly_schedule,
                 # assets.sandiego_epidemiology_schedule # now a sensor
                  ]
 all_sensors=[slack_on_run_failure,

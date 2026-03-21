@@ -116,3 +116,10 @@ from .tides import (
     tides_monthly,tides_hourly,tidal_forecast,
 tides_monthly_schedule,tides_hourly_schedule
 )
+from .ibwc_flows import (
+    effluent_flow_today,
+    effluent_flow_current_year,
+    effluent_flow_yearly,
+    effluent_flow_current_schedule,
+    effluent_flow_yearly_schedule,
+)
