@@ -270,15 +270,15 @@ effluent_flow_yearly = create_effluent_flow_yearly_asset()
 effluent_flow_current_job = define_asset_job(
     "effluent_flow_current",
     selection=[
-        AssetKey(["effluent_flow", "effluent_flow_today"]),
-        AssetKey(["effluent_flow", "effluent_flow_current_year"]),
+        AssetKey(["ibwc", "effluent_flow_today"]),
+        AssetKey(["ibwc", "effluent_flow_current_year"]),
     ]
 )
 
 # Job for yearly partitioned data
 effluent_flow_yearly_job = define_asset_job(
     "effluent_flow_yearly_all",
-    selection=[AssetKey(["effluent_flow", "effluent_flow_yearly"])],
+    selection=[AssetKey(["ibwc", "effluent_flow_yearly"])],
     partitions_def=yearly_partitions
 )
 
