@@ -389,7 +389,10 @@ def weather_current_year(context):
 
 
 weather_all_job = define_asset_job(
-    "weather_all", selection=[AssetKey(["weather", "openmeteo_forecast"]), ]
+    "weather_all", selection=[
+        AssetKey(["weather", "openmeteo_forecast"]),
+        AssetKey(["weather", "openmeteo_current_year"]),
+    ]
 )
 
 

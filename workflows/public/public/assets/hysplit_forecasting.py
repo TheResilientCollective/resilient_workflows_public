@@ -373,8 +373,8 @@ def h2s_locations(context):
           AssetKey(['streamflow', 'boundary_cms']),
           AssetKey(['weather', 'openmeteo_historical']),
           AssetKey(['weather', 'openmeteo_current_year']),
-          AssetKey(['effluent_flow', 'effluent_flow_current_year']),
-          AssetKey(['effluent_flow', 'effluent_flow_today']),
+          AssetKey(['ibwc', 'effluent_flow_current_year']),
+          AssetKey(['ibwc', 'effluent_flow_today']),
           ],
        metadata={
            "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
