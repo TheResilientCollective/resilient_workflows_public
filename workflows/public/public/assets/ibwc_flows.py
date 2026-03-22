@@ -63,15 +63,13 @@ def parse_effluent_csv(text: str) -> pd.DataFrame:
     The portal exports a CSV with 3 header rows; skiprows=3 skips them,
     header=1 uses the second remaining row as column names, and skipfooter=1
     drops the trailing summary row.
+
+    Returns the DataFrame with the original timestamp column name (usually 'Timestamp (UTC-08:00)').
+    Does NOT set timestamp as index - keeps it as a regular column.
     """
     df = pd.read_csv(StringIO(text), skiprows=3, skipfooter=1, header=1, engine='python')
-    # Find timestamp column — PointsAsRecorded exports use 'Timestamp (UTC-08:00)'
-    time_col = next(
-        (c for c in df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
-        None
-    )
-    if time_col:
-        df.set_index(time_col, inplace=True)
+    # Keep original column names - don't set timestamp as index or rename it
+    # This ensures consistent schema across all parquet files
     return df
 
 

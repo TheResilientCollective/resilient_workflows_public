@@ -32,7 +32,7 @@ STREAMFLOW_SITE_RECENT=STREAMFLOW_SITE_YEARLY
 TIDAL_BASE='latest/tijuana/tides'
 
 EFFLUENT_BASE='latest/tijuana/effluent_flow'
-EFFLUENT_CURRENT_YEAR='current_year'
+EFFLUENT_CURRENT_YEAR='yearly'
 EFFLUENT_TODAY='today'
 
 DIURNAL_FACTORS = {
@@ -267,6 +267,7 @@ def add_sbiwtp_features(df: pd.DataFrame, sbiwtp_daily: pd.Series, logger) -> pd
 
     # Resample to daily mean
     daily = sbiwtp_daily.resample('D').mean().rename('sbiwtp_flow_mgd')
+    logger.info(f"Resampled effluent to daily: {len(daily)} days from {daily.index.min()} to {daily.index.max()}")
 
     # 30-day rolling mean
     rolling_mean = daily.rolling(30, min_periods=1).mean()
@@ -276,19 +277,43 @@ def add_sbiwtp_features(df: pd.DataFrame, sbiwtp_daily: pd.Series, logger) -> pd
     lag1_mean = rolling_mean.shift(1)
     anomaly = (lag1 - lag1_mean) / lag1_mean.replace(0, np.nan)
     deficit = (lag1_mean - lag1).clip(lower=0)
+    logger.info(f"Created lag1 series: {lag1.notna().sum()} non-null values")
 
     # Map to each row in df via date
     df = df.copy()
-    dates = df['time'].dt.date.astype('datetime64[ns]')
 
-    def map_by_date(series):
+    # Create date column for merging (normalized to midnight in local timezone)
+    df['_date'] = df['time'].dt.normalize()
+    logger.info(f"DataFrame time range: {df['time'].min()} to {df['time'].max()}")
+    logger.info(f"DataFrame normalized dates: {df['_date'].min()} to {df['_date'].max()}")
+
+    def map_by_date(series, series_name):
+        """Map daily series values to hourly dataframe by matching dates."""
         s = series.copy()
+        # Ensure series index is timezone-aware and normalized to midnight
+        if s.index.tz is None:
+            logger.info(f"{series_name}: Index has no timezone, localizing to America/Los_Angeles")
+            s.index = pd.to_datetime(s.index).tz_localize('America/Los_Angeles')
         s.index = s.index.normalize()
-        return dates.map(s)
 
-    df['sbiwtp_flow_mgd'] = map_by_date(lag1)
-    df['sbiwtp_anomaly'] = map_by_date(anomaly)
-    df['sbiwtp_deficit'] = map_by_date(deficit)
+        logger.info(f"{series_name}: Series date range: {s.index.min()} to {s.index.max()}")
+        logger.info(f"{series_name}: Series has {s.notna().sum()} non-null values out of {len(s)}")
+
+        # Convert to DataFrame for merge
+        s_df = s.to_frame('value')
+
+        # Merge on normalized date
+        merged = df[['_date']].merge(s_df, left_on='_date', right_index=True, how='left')
+        matched_count = merged['value'].notna().sum()
+        logger.info(f"{series_name}: Matched {matched_count} out of {len(df)} rows")
+        return merged['value'].values
+
+    df['sbiwtp_flow_mgd'] = map_by_date(lag1, 'lag1')
+    df['sbiwtp_anomaly'] = map_by_date(anomaly, 'anomaly')
+    df['sbiwtp_deficit'] = map_by_date(deficit, 'deficit')
+
+    # Drop temporary date column
+    df = df.drop(columns=['_date'])
 
     if 'temperature_2m' in df.columns:
         df['sbiwtp_flow_x_temp'] = df['sbiwtp_flow_mgd'] * df['temperature_2m']
@@ -558,10 +583,10 @@ def data_for_models(context):
     # --- SBIWTP effluent flow features ---
     try:
         effluent_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}/{PARQUET_PATTERN}"
-        effluent_df = duckdb_con.read_parquet(effluent_files).df()
-        dagster_logger.info(f"Loaded {len(effluent_df)} effluent flow records")
+        effluent_df = duckdb_con.read_parquet(effluent_files, union_by_name=True).df()
+        dagster_logger.info(f"Loaded {len(effluent_df)} effluent flow records with columns: {effluent_df.columns.tolist()}")
 
-        # Find the timestamp column
+        # Find the timestamp column (check both columns and index)
         time_col = next(
             (c for c in effluent_df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
             None
@@ -570,21 +595,34 @@ def data_for_models(context):
             effluent_df['time'] = pd.to_datetime(effluent_df[time_col])
             # Data is UTC-8 fixed offset
             effluent_df['time'] = effluent_df['time'].dt.tz_localize('Etc/GMT+8').dt.tz_convert('America/Los_Angeles')
+        elif effluent_df.index.name and isinstance(effluent_df.index.name, str) and ('timestamp' in effluent_df.index.name.lower() or 'time' in effluent_df.index.name.lower()):
+            # Timestamp is in the index, reset it to a column
+            index_name = effluent_df.index.name
+            effluent_df = effluent_df.reset_index()
+            effluent_df['time'] = pd.to_datetime(effluent_df[index_name])
+            effluent_df['time'] = effluent_df['time'].dt.tz_localize('Etc/GMT+8').dt.tz_convert('America/Los_Angeles')
+            time_col = index_name  # Track the original column name for exclusion below
         else:
             raise ValueError("No timestamp column found in effluent flow data")
 
-        # Find the MGD value column (first numeric column other than timestamp)
+        # Find the MGD value column (first numeric column other than timestamp/time)
         value_col = next(
-            (c for c in effluent_df.columns if c != time_col and pd.api.types.is_numeric_dtype(effluent_df[c])),
+            (c for c in effluent_df.columns if c not in [time_col, 'time'] and pd.api.types.is_numeric_dtype(effluent_df[c])),
             None
         )
         if value_col is None:
+            dagster_logger.error(f"Available columns: {effluent_df.columns.tolist()}")
+            dagster_logger.error(f"Column dtypes: {effluent_df.dtypes.to_dict()}")
             raise ValueError("No numeric value column found in effluent flow data")
 
+        dagster_logger.info(f"Using effluent time column: {time_col} -> 'time', value column: {value_col}")
         effluent_series = effluent_df.set_index('time')[value_col].rename('sbiwtp_flow_mgd')
+        dagster_logger.info(f"Effluent series: {len(effluent_series)} records from {effluent_series.index.min()} to {effluent_series.index.max()}")
         matched_df = add_sbiwtp_features(matched_df, effluent_series, dagster_logger)
     except Exception as e:
-        dagster_logger.warning(f"Could not load SBIWTP effluent flow, skipping features: {e}")
+        dagster_logger.error(f"Could not load SBIWTP effluent flow, skipping features: {e}")
+        import traceback
+        dagster_logger.error(traceback.format_exc())
         for col in ['sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
                     'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli']:
             matched_df[col] = np.nan
@@ -1088,10 +1126,19 @@ def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forec
         effluent_today_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_TODAY}/{CSV_PATTERN}"
         effluent_today_df = duckdb_con.read_csv(effluent_today_files, null_padding=True).df()
 
+        # Find timestamp column (check both columns and index)
         time_col = next(
             (c for c in effluent_today_df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
             None
         )
+        if not time_col:
+            # Check if timestamp is in the index
+            index_name = effluent_today_df.index.name
+            if index_name and isinstance(index_name, str):
+                if 'timestamp' in index_name.lower() or 'time' in index_name.lower():
+                    time_col = index_name
+                    effluent_today_df = effluent_today_df.reset_index()
+
         value_col = next(
             (c for c in effluent_today_df.columns if c != time_col
              and pd.api.types.is_numeric_dtype(effluent_today_df[c])),
@@ -1109,11 +1156,19 @@ def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forec
             # Build a daily-indexed series for persistence forecast
             # hours 0-24: today's value; 24-48: persistence; >48: decay to 30-day mean
             effluent_current_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}/{PARQUET_PATTERN}"
-            effluent_hist_df = duckdb_con.read_parquet(effluent_current_files).df()
+            effluent_hist_df = duckdb_con.read_parquet(effluent_current_files, union_by_name=True).df()
             hist_time_col = next(
                 (c for c in effluent_hist_df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
                 None
             )
+            if not hist_time_col:
+                # Check if timestamp is in the index
+                hist_index_name = effluent_hist_df.index.name
+                if hist_index_name and isinstance(hist_index_name, str):
+                    if 'timestamp' in hist_index_name.lower() or 'time' in hist_index_name.lower():
+                        hist_time_col = hist_index_name
+                        effluent_hist_df = effluent_hist_df.reset_index()
+
             hist_value_col = next(
                 (c for c in effluent_hist_df.columns if c != hist_time_col
                  and pd.api.types.is_numeric_dtype(effluent_hist_df[c])),
