@@ -14,6 +14,7 @@ from dagster import (asset,
 import duckdb
 from ..resources import minio
 from ..utils import store_assets
+from ..utils import forecast_features
 #from .sd_apcd import s3_output_path as apcd_s3_output_path
 from astral import LocationInfo
 from astral.sun import sun
@@ -1058,6 +1059,7 @@ def h2s_exceedance_periods_filter(context, h2s_peaks, modeldata_h2s):
         "openmeteo_forecast": AssetIn(key=AssetKey(["weather", "openmeteo_forecast"])),
         "tidal_forecast": AssetIn(key=AssetKey(["tides", "tidal_forecast"])),
         "streamflow_forecast": AssetIn(key=AssetKey(["streamflow", "streamflow_forecast"])),
+        "modeldata_h2s_nofill": AssetIn(key=AssetKey(["h2sforecast", "modeldata_h2s_nofill"])),
     },
     metadata={
         "source": "OpenMeteo forecast, NOAA tidal predictions, IBWC streamflow forecast",
@@ -1066,7 +1068,7 @@ def h2s_exceedance_periods_filter(context, h2s_peaks, modeldata_h2s):
     },
     automation_condition=AutomationCondition.eager(),
 )
-def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forecast):
+def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forecast, modeldata_h2s_nofill):
     meta = context.assets_def.metadata_by_key[context.asset_key]
     description = meta["description"]
     source_url = meta.get("source")
@@ -1218,6 +1220,31 @@ def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forec
         for col in ['sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
                     'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli']:
             merged[col] = np.nan
+
+    # --- Feature Engineering: Add missing lag/persistence features ---
+    try:
+        # Filter to recent observations (last 48h for lag features)
+        obs_df = modeldata_h2s_nofill.copy()
+        obs_df = obs_df[(obs_df['h2s_measured'] == True) & (obs_df['H2S'] <= 500)]
+        cutoff = now - pd.Timedelta(hours=48)
+        obs_df = obs_df[obs_df['time'] >= cutoff]
+
+        logger.info(f"Using {len(obs_df)} observation rows for feature engineering")
+
+        # Engineer all missing features (H2S lags, flow lags, etc.)
+        merged = forecast_features.engineer_features(merged, obs_df)
+
+        # Verify all 43 features are present
+        missing = [f for f in forecast_features.MODEL_FEATURES if f not in merged.columns]
+        if missing:
+            logger.warning(f"Still missing features after engineering: {missing}")
+        else:
+            logger.info("All 43 MODEL_FEATURES successfully populated")
+
+    except Exception as e:
+        logger.warning(f"Feature engineering failed, some features may be missing: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
     store_assets.store_dataframe_to_s3(
         merged, OUTPUT_PATH, 'model_forecast', s3_resource,
