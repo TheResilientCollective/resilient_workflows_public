@@ -10,7 +10,7 @@ from dagster import (asset,
                      define_asset_job, AssetKey,
                      RunRequest,
                      schedule, TimeWindowPartitionsDefinition,
-                     Field, AssetExecutionContext, AutomationCondition)
+                     Field, AssetExecutionContext, AutomationCondition, AssetIn)
 from sqlalchemy.cyextension.processors import time_cls
 
 from ..utils import store_assets
@@ -123,10 +123,12 @@ def tj_canal(context):
             description="Number of days forward to generate streamflow forecast",
         ),
     },
-    deps=[AssetKey(["streamflow", "boundary_cms"])],
+    ins={
+        "boundary_cms": AssetIn(key=AssetKey(["streamflow", "boundary_cms"])),
+    },
     automation_condition=AutomationCondition.eager(),
 )
-def streamflow_forecast(context: AssetExecutionContext) -> pd.DataFrame:
+def streamflow_forecast(context: AssetExecutionContext, boundary_cms: pd.DataFrame) -> pd.DataFrame:
     """Generate flow rate forecast using historical diurnal (month, hour) median profile.
 
     Loads historical training data, computes median Flow (m^3/s)--Border per (month, hour)
@@ -137,17 +139,9 @@ def streamflow_forecast(context: AssetExecutionContext) -> pd.DataFrame:
     forecast_days = context.op_config["forecast_days"]
     flow_col = "Flow (m^3/s)--Border"
 
-    # --- Load historical data (S3 with local fallback) ---
-    hist_df = None
-    #s3_path = "latest/tijuana/forecast_data/modeldata_h2s_nofill.parquet"
-    try:
-        #stream = s3_resource.get_stream(path=s3_path)
-        #hist_df = pd.read_parquet(stream)
-        hist_df = context.repository_def.load_asset_value(AssetKey(["streamflow", "boundary_cms"]))
-        context.log.info(f"✓ Loaded historical data : {["streamflow", "boundary_cms"]} ({len(hist_df)} rows)")
-    except Exception as e:
-        context.log.warning(f"load failed ({e}), ")
-        raise ValueError(f"Could not load historical data for streamflow forecast: {e}")
+    # --- Load historical data from boundary_cms asset ---
+    hist_df = boundary_cms.copy()
+    context.log.info(f"✓ Loaded historical data from boundary_cms asset ({len(hist_df)} rows)")
 
     # --- Parse time column ---
     # time_col = next((c for c in ["time", "date", "Time", "Date"] if c in hist_df.columns), None)
