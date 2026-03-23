@@ -7,7 +7,7 @@ from dagster import ( asset,
 DailyPartitionsDefinition,
 schedule, RunRequest, define_asset_job, AssetKey,
 AutomationCondition,
-sensor,SensorEvaluationContext
+sensor,SensorEvaluationContext, AssetIn
                       )
 
 from .. import utils
@@ -403,11 +403,13 @@ Maintain the html elements"
 
 @asset(group_name="tijuana", key_prefix="waterquality",
        name="sdbeachinfo_status_translation", required_resource_keys={"s3", "airtable","openai"},
-       deps=[AssetKey(['waterquality','sdbeachinfo_status'])],
+       ins={
+           "sdbeachinfo_status": AssetIn(key=AssetKey(['waterquality','sdbeachinfo_status'])),
+       },
         compute_kind="OpenAI",
        automation_condition=AutomationCondition.eager()
        )
-def beachwatch_status_translation(context) -> gpd.GeoDataFrame:
+def beachwatch_status_translation(context, sdbeachinfo_status: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     ''' Translates www.sdbeachinfo.com status to spanish
      adds:
        * Description_es
@@ -427,7 +429,7 @@ def beachwatch_status_translation(context) -> gpd.GeoDataFrame:
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
     s3_resource = context.resources.s3
     openai_resource = context.resources.openai
-    closure_gdf = context.repository_def.load_asset_value(AssetKey([f"waterquality", "sdbeachinfo_status"]))
+    closure_gdf = sdbeachinfo_status
     # Initialize cache on first use
     init_translation_cache()
 
@@ -551,9 +553,11 @@ def weeks_spanned(row):
 @asset(group_name="tijuana", key_prefix="waterquality",
        name="beachwatch_closures_recent_weekly", required_resource_keys={"s3", "airtable"},
        automation_condition=AutomationCondition.eager(),
-       deps=[AssetKey([f"waterquality", "beachwatch_closures_recent"])]
+       ins={
+           "beachwatch_closures_recent": AssetIn(key=AssetKey([f"waterquality", "beachwatch_closures_recent"])),
+       }
        )
-def beachwatch_closure_recent_weekly(context)-> pd.DataFrame:
+def beachwatch_closure_recent_weekly(context, beachwatch_closures_recent: pd.DataFrame)-> pd.DataFrame:
     name = 'beachwatch_closures_recent_weekly'
     description = '''Aggregates by conount  Closure notices for San Diego County from the California  Data Site 
                  https://beachwatch.waterboards.ca.gov/public/
@@ -562,7 +566,7 @@ def beachwatch_closure_recent_weekly(context)-> pd.DataFrame:
     metadata = store_assets.objectMetadata(name=name, description=description)
 
     s3_resource = context.resources.s3
-    closure_gdf = context.repository_def.load_asset_value(AssetKey([f"waterquality", "beachwatch_closures_recent"]))
+    closure_gdf = beachwatch_closures_recent
     get_dagster_logger().info(f'beachwatch_closures_recent unpickle {len(closure_gdf)}', )
     get_dagster_logger().info(f'beachwatch_closures_recent  unpickle types {closure_gdf.dtypes}', )
     # for some reason this does not get a clean unpickle... just clean it again

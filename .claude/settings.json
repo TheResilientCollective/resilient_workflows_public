@@ -1,0 +1,5 @@
+{
+  "enabledPlugins": {
+    "yaml-language-server@claude-code-lsps": true
+  }
+}

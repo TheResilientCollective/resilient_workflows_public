@@ -27,7 +27,7 @@ from dagster import (
     define_asset_job,
     AssetKey,
     AutomationCondition, RunConfig, Config, EnvVar,
-Output
+Output, AssetIn
 )
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -230,14 +230,16 @@ def parse_run_id(run_path: str) -> tuple[datetime, str]:
     key_prefix="sandiego",
     name="sandiego_epidemiology_forecast",
        required_resource_keys={"resilientsims", "slack", "s3"},
-       deps=[AssetKey([f"sandiego", "sandiego_epidemiology_hyper_extraction"])],
+       ins={
+           "sandiego_epidemiology_hyper_extraction": AssetIn(key=AssetKey([f"sandiego", "sandiego_epidemiology_hyper_extraction"])),
+       },
        automation_condition=AutomationCondition.eager()
        )
-def run_epidemic_simulation(context):
+def run_epidemic_simulation(context, sandiego_epidemiology_hyper_extraction: dict):
   sims = context.resources.resilientsims
   s3_resource=context.resources.s3
   slack = context.resources.slack
-  hyper_metadata = context.repository_def.load_asset_value(AssetKey([f"sandiego", "sandiego_epidemiology_hyper_extraction"]))
+  hyper_metadata = sandiego_epidemiology_hyper_extraction
   date_path = hyper_metadata["date_path"]
   if date_path is None:
       raise Exception("No date+_path found in sandiego_epidemiology_hyper_extraction run. Rerun AssetKey([sandiego, sandiego_epidemiology_hyper_extraction]")
@@ -843,10 +845,12 @@ Starting processing...
     key_prefix="sandiego",
     name="resilientllm_sd",
     required_resource_keys={"resilientllm", "slack", "airtable", "s3"},
-    deps=[AssetKey([f"sandiego", "resilientllm_sd_disease"])],
+    ins={
+        "resilientllm_sd_disease": AssetIn(key=AssetKey([f"sandiego", "resilientllm_sd_disease"])),
+    },
 automation_condition=AutomationCondition.eager()
 )
-def resilientllm_asset(context):
+def resilientllm_asset(context, resilientllm_sd_disease: str):
     """
     Calls the ResilientLLM API Forecast Update.
     """
@@ -862,7 +866,7 @@ def resilientllm_asset(context):
 
         airtable_resource = context.resources.airtable
         #llm_response =  llm.execute(llm.webhook_uuid)
-        llm_response_all = json.loads(context.repository_def.load_asset_value(AssetKey([f"sandiego", "resilientllm_sd_disease"])))
+        llm_response_all = json.loads(resilientllm_sd_disease)
         llm_response = llm_response_all['en']
         shortsummry=  llm_response['summary-short'].replace('```', '')
         summary = llm_response['summary'].replace('```', '')

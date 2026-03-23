@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(python -m pytest workflows/public/tests/test_resilientsims.py -v)",
+      "Bash(python -m pytest tests/test_resilientsims.py -v)",
+      "Bash(python -m pytest tests/ --collect-only)",
+      "Bash(python -m pytest public/tests/test_resilient_epi_schemas.py -v)",
+      "Bash(source:*)",
+      "Bash(python:*)",
+      "Bash(chmod:*)",
+      "Bash(set -a)",
+      "Bash(set +a)",
+      "Bash(echo:*)",
+      "Bash(dagster asset materialize:*)",
+      "Bash(dagster asset check:*)",
+      "Bash(python3:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

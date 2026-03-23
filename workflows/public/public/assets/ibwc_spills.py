@@ -9,7 +9,7 @@ from dagster import ( asset,
                       schedule,
                       sensor,
                       SensorEvaluationContext,
-                      AutomationCondition)
+                      AutomationCondition, AssetIn)
 
 from ..resources import minio
 
@@ -217,10 +217,12 @@ def spills_reports(context):
 
 @asset(group_name="tijuana", key_prefix="ibwc",
        name="spills_last_by_site", required_resource_keys={"s3", "airtable"},
-       deps=[AssetKey(["ibwc","spills"])],
+       ins={
+           "spills": AssetIn(key=AssetKey(["ibwc","spills"])),
+       },
        automation_condition=AutomationCondition.eager()
        )
-def spills_last(context):
+def spills_last(context, spills: gpd.GeoDataFrame):
     url = 'https://www.waterboards.ca.gov/sandiego/water_issues/programs/tijuana_river_valley_strategy/sewage_issue.html'
     name = 'spills_last_by_site'
     description = '''Last Spill at each location from  the International Water Boundary Commission from the most recent spills page
@@ -229,7 +231,7 @@ def spills_last(context):
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
 
     s3_resource = context.resources.s3
-    spills_gdf = context.repository_def.load_asset_value(AssetKey(["ibwc","spills"]))
+    spills_gdf = spills
     spills_gdf.drop_duplicates(subset=['Discharge Location'],keep='last', inplace=True)
 
     filename = f'{s3_output_path}output/spills_last_by_site'
@@ -237,25 +239,28 @@ def spills_last(context):
 
 @asset(group_name="tijuana", key_prefix="ibwc",
        name="spills_all", required_resource_keys={"s3", "airtable"},
-       deps=[AssetKey(["ibwc","spills"]), AssetKey(["ibwc","spills_reports"])],
+       ins={
+           "spills": AssetIn(key=AssetKey(["ibwc","spills"])),
+           "spills_reports": AssetIn(key=AssetKey(["ibwc","spills_reports"])),
+       },
        automation_condition=AutomationCondition.eager()
        )
-def spills_all(context):
+def spills_all(context, spills: gpd.GeoDataFrame, spills_reports: gpd.GeoDataFrame):
     url = 'https://www.waterboards.ca.gov/sandiego/water_issues/programs/tijuana_river_valley_strategy/sewage_issue.html'
     name = 'spills_all'
     description = '''Spill information from from  the International Water Boundary Commission including the
-     most [recent spills page] (https://www.waterboards.ca.gov/sandiego/water_issues/programs/tijuana_river_valley_strategy/sewage_issue.html) 
+     most [recent spills page] (https://www.waterboards.ca.gov/sandiego/water_issues/programs/tijuana_river_valley_strategy/sewage_issue.html)
      and [historic spills report page](https://www.waterboards.ca.gov/sandiego/water_issues/programs/tijuana_river_valley_strategy/spill_report.html
      '''
     source_url = url
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
 
     s3_resource = context.resources.s3
-    spills_gdf = context.repository_def.load_asset_value(AssetKey(["ibwc","spills"]))
+    spills_gdf = spills.copy()
     spills_gdf["Reported Cause"]=spills_gdf["Notes"]
     spills_gdf["Volume (Gallons)"] = spills_gdf["Approximate Discharge Volume Value"]
 
-    spills_reports_gdf = context.repository_def.load_asset_value(AssetKey(["ibwc","spills_reports"]))
+    spills_reports_gdf = spills_reports
     spills_reports_gdf["Event Type"]=spills_reports_gdf["Type (A or B)"]
 
     if spills_gdf is not None and spills_reports_gdf is not None:

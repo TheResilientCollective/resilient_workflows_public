@@ -1,0 +1,28 @@
+# Guam forecast.
+## Task
+I want to create a ILI forcast for GUAM.
+It will only have infulenza, so a single input file for the
+run_epidemic_simulation
+the file is at: https://oss.resilientservice.mooo.com/resilentpublic/pathogens/guam/FLU_Guam_26NOV2025.csv
+# thoughts
+It will neeed to have change env variables:
+FORECAST_OUTPUT_DIRECTORY
+FORECAST_API_RUN_PATH
+the hard coded variables will also need to be changed:
+s3_output_path
+s3_latest_path
+
+# goals:
+I would like it to be based on the asset like, workflows/public/public/assets/sandiego_epidemiology_forecasts.py
+run_epidemic_simulation
+wait for the forecast to complete using the epidemiology_forecasts_sensor
+
+# chagnes to the workflow
+rename the assets with a 'guam' prefix.
+add a guam_forecast.py
+the run_id will be 'guam_forecast' and the run_epidemic_simulation will be called with the appropriate input file for guam.
+
+We do not need to push the results to airtable, nor to github, yet. Keep the copy_rt_to_github but disbale it.
+
+
+

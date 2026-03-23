@@ -19,7 +19,7 @@ from io import StringIO, BytesIO
 from shapely.geometry import Point
 from dagster import ( asset,
                      get_dagster_logger,
-                      AssetKey,AutomationCondition
+                      AssetKey,AutomationCondition, AssetIn
                       )
 from ..utils import store_assets
 
@@ -83,19 +83,21 @@ def get_aq_combined_kml(context):
 @asset(group_name="tijuana",key_prefix="airquality",
        name="airnow_forecast_contours",
        required_resource_keys={"s3"},
-       deps=[AssetKey(['airquality', 'airnow_forecast_contours_kml'])],
+       ins={
+           "airnow_forecast_contours_kml": AssetIn(key=AssetKey(['airquality', 'airnow_forecast_contours_kml'])),
+       },
        automation_condition=AutomationCondition.eager())
-def aq_combined_geojson(context):
+def aq_combined_geojson(context, airnow_forecast_contours_kml: str):
     bbox=sd_bbox
     api_key=AIRNOW_API_KEY()
     s3_resource=context.resources.s3
     name = 'airnow_aq_contours'
     description = '''
-       AirNow Air Quality Contours 
+       AirNow Air Quality Contours
        '''
     source_url = 'https://docs.airnowapi.org/KML/Combined/docs'
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
-    aq_combined_kml = context.repository_def.load_asset_value(AssetKey([f"airquality", "airnow_forecast_contours_kml"]))
+    aq_combined_kml = airnow_forecast_contours_kml
 
     # 1. (Optional) List available layers in the KML
     # kml_buffer = aq_combined_kml.encode('utf-8')
