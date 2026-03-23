@@ -14,7 +14,7 @@ AutomationCondition,
 SensorEvaluationContext,AssetCheckSpec,
                       AssetCheckResult,
                       asset_check,
-                      AssetCheckExecutionContext
+                      AssetCheckExecutionContext, AssetIn
                       )
 from ..utils.constants import ICONS
 from .gis import subregions
@@ -68,10 +68,11 @@ def get_sd_complaints(context  ) -> str:
 @asset(group_name="tijuana",key_prefix="complaints",
        name="sd_complaints",
        required_resource_keys={"s3"},
-       deps=[AssetKey(["complaints","sd_complaints_raw"])]
-       ,
+       ins={
+           "sd_complaints_raw": AssetIn(key=AssetKey(["complaints","sd_complaints_raw"])),
+       },
        automation_condition=AutomationCondition.eager())
-def sd_complaints(context):
+def sd_complaints(context, sd_complaints_raw: str):
     name='sd_complaints'
     description='''
     Data from San Diego Air Pollution Control District Complaints ArcGIS service
@@ -79,7 +80,7 @@ def sd_complaints(context):
     source_url='https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/'
     metadata = store_assets.objectMetadata(name=name,description=description, source_url=source_url)
     s3_resource = context.resources.s3
-    json_txt = context.repository_def.load_asset_value(AssetKey([f"complaints", "sd_complaints_raw"]))
+    json_txt = sd_complaints_raw
     featueres = json.loads(json_txt)
     complaints_gdf = gpd.GeoDataFrame.from_features(featueres)
     complaints_gdf['datetime'] = pd.to_datetime(complaints_gdf['date_received'], unit='ms')
@@ -158,10 +159,11 @@ def sd_complaints_freshness_check(context: AssetCheckExecutionContext, sd_compla
 @asset(group_name="tijuana", key_prefix="complaints",
        name="sd_complaints_90_days",
        required_resource_keys={"s3"},
-       deps=[AssetKey(["complaints", "sd_complaints"])]
-    ,
+       ins={
+           "sd_complaints": AssetIn(key=AssetKey(["complaints", "sd_complaints"])),
+       },
        automation_condition=AutomationCondition.eager())
-def sd_complaints_90_days(context):
+def sd_complaints_90_days(context, sd_complaints: gpd.GeoDataFrame):
     datestart = datetime.datetime.now(pytz.timezone("America/Los_Angeles")) - datetime.timedelta(days=90)
     name = 'sd_complaints_90_days'
     description = '''
@@ -170,7 +172,7 @@ def sd_complaints_90_days(context):
     source_url = 'https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/'
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
     s3_resource = context.resources.s3
-    complaints_gdf = context.repository_def.load_asset_value(AssetKey([f"complaints", "sd_complaints"]))
+    complaints_gdf = sd_complaints
     complaints_90_gdf = complaints_gdf[complaints_gdf['datetime']> datestart.strftime('%Y-%m-%d')]
     complaints_90_gdf= dropUnnecessaryColumns(complaints_90_gdf)
     filename = f"latest/{output_path}/complaints_90_days"
@@ -180,19 +182,20 @@ def sd_complaints_90_days(context):
 @asset(group_name="tijuana",key_prefix="complaints",
        name="sd_complaints_summary",
        required_resource_keys={"s3"},
-       deps=[AssetKey(["complaints","sd_complaints"])],
-
+       ins={
+           "sd_complaints": AssetIn(key=AssetKey(["complaints","sd_complaints"])),
+       },
  automation_condition = AutomationCondition.eager()
 )
-def sd_complaints_summary(context):
+def sd_complaints_summary(context, sd_complaints: gpd.GeoDataFrame):
     name = 'complaints_by_date'
-    description = '''A daily count of the odor complaints from 
+    description = '''A daily count of the odor complaints from
      the from San Diego Air Pollution Control District Complaints ArcGIS service
         '''
     source_url = 'https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/'
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
     s3_resource = context.resources.s3
-    complaints_gdf = context.repository_def.load_asset_value(AssetKey([f"complaints", "sd_complaints"]))
+    complaints_gdf = sd_complaints
     complaint_groupby_date = complaints_gdf[complaints_gdf['nature_of_complaint'] == 'Odor'].groupby(
         by=['date', 'nature_of_complaint'],  as_index=False).agg(count=('date_received', 'count'))
     complaint_groupby_date['Icon'] = 'pin'
@@ -204,20 +207,21 @@ def sd_complaints_summary(context):
 @asset(group_name="tijuana",key_prefix="complaints",
        name="sd_complaints_latest_bydate",
        required_resource_keys={"s3"},
-       deps=[AssetKey(["complaints","sd_complaints_summary"])],
-
+       ins={
+           "sd_complaints_summary": AssetIn(key=AssetKey(["complaints","sd_complaints_summary"])),
+       },
  automation_condition = AutomationCondition.eager()
 )
-def sd_complaints_latest_bydate(context):
+def sd_complaints_latest_bydate(context, sd_complaints_summary: pd.DataFrame):
     name = 'complaints_latest_bydate'
-    description = '''The last 90 days of daily count of the odor complaints from 
+    description = '''The last 90 days of daily count of the odor complaints from
      the from San Diego Air Pollution Control District Complaints ArcGIS service
         '''
     source_url = 'https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/'
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
 
     s3_resource = context.resources.s3
-    complaints_gdf = context.repository_def.load_asset_value(AssetKey([f"complaints", "sd_complaints_summary"]))
+    complaints_gdf = sd_complaints_summary
     complaints_gdf['datetime'] = pd.to_datetime(complaints_gdf['date'], )
     start = datetime.datetime.now() - datetime.timedelta(days=90)
     complaint_last_90 = complaints_gdf[complaints_gdf['datetime'] >= start]
@@ -230,10 +234,13 @@ def sd_complaints_latest_bydate(context):
 @asset(group_name="tijuana",key_prefix="complaints",
        name="sd_complaints_by_subregional",
        required_resource_keys={"s3"},
-       deps=[AssetKey(["complaints","sd_complaints"]), AssetKey(["gis","subregional_areas"])]
-       , automation_condition=AutomationCondition.eager() )
+       ins={
+           "sd_complaints": AssetIn(key=AssetKey(["complaints","sd_complaints"])),
+           "subregional_areas": AssetIn(key=AssetKey(["gis","subregional_areas"])),
+       },
+       automation_condition=AutomationCondition.eager() )
 
-def sd_complaints_spatial_subregional(context):
+def sd_complaints_spatial_subregional(context, sd_complaints: gpd.GeoDataFrame, subregional_areas: gpd.GeoDataFrame):
     name = 'complaints_by_subregional'
     description = '''Complaints with joined with census subregional areas  
      the from San Diego Air Pollution Control District Complaints ArcGIS service
@@ -242,8 +249,8 @@ def sd_complaints_spatial_subregional(context):
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
 
     s3_resource = context.resources.s3
-    complaints_gdf = context.repository_def.load_asset_value(AssetKey([f"complaints", "sd_complaints"]))
-    geo_gdf = context.repository_def.load_asset_value(AssetKey([f"gis", "subregional_areas"]))
+    complaints_gdf = sd_complaints
+    geo_gdf = subregional_areas
 
     complaint_with_tract_gdf = gpd.sjoin(
         geo_gdf,
@@ -267,20 +274,23 @@ def sd_complaints_spatial_subregional(context):
 @asset(group_name="tijuana",key_prefix="complaints",
        name="sd_complaints_by_tract",
        required_resource_keys={"s3"},
-       deps=[AssetKey(["complaints","sd_complaints"]), AssetKey(["gis","tracts"])]
-       , automation_condition=AutomationCondition.eager() )
+       ins={
+           "sd_complaints": AssetIn(key=AssetKey(["complaints","sd_complaints"])),
+           "tracts": AssetIn(key=AssetKey(["gis","tracts"])),
+       },
+       automation_condition=AutomationCondition.eager() )
 
-def sd_complaints_spatial_tract(context):
+def sd_complaints_spatial_tract(context, sd_complaints: gpd.GeoDataFrame, tracts: gpd.GeoDataFrame):
     name = 'complaints_with_tract'
-    description = '''Complaints with joined with census tracts areas  
+    description = '''Complaints with joined with census tracts areas
      the from San Diego Air Pollution Control District Complaints ArcGIS service
         '''
     source_url = 'https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/'
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
 
     s3_resource = context.resources.s3
-    complaints_gdf = context.repository_def.load_asset_value(AssetKey([f"complaints", "sd_complaints"]))
-    geo_gdf = context.repository_def.load_asset_value(AssetKey([f"gis", "tracts"]))
+    complaints_gdf = sd_complaints
+    geo_gdf = tracts
     complaint_with_tract_gdf = gpd.sjoin(
         geo_gdf,
         complaints_gdf,

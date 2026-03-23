@@ -79,9 +79,11 @@ outputs = [
 
 @asset(group_name="tijuana",key_prefix="apcd",
        name="current_apcd", required_resource_keys={"s3", "airtable"},
-       deps=[AssetKey([f"apcd", "locations"])]
+       ins={
+           "locations": AssetIn(key=AssetKey([f"apcd", "locations"])),
+       }
   )
-def current(context) -> gpd.GeoDataFrame:
+def current(context, locations: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     name = 'current_apcd'
     description = '''Air Quality data for today and yesterday
         Data from San Diego Air Pollution Control District Air Quality Monitoring Sites
@@ -102,7 +104,7 @@ def current(context) -> gpd.GeoDataFrame:
     #output_csv = output_df.to_csv(index=False)
     # filename= f'{s3_output_path}/current.csv'
     # s3_resource.putFile_text(data=output_csv, path=filename)
-    locations_gdf = context.repository_def.load_asset_value(AssetKey([f"apcd", "locations"]))
+    locations_gdf = locations
     output_gdf = locations_gdf.merge(output_df, how='inner', left_on='SiteName', right_on='Site Name',
                                      suffixes=('', '_y'))
     filename = f'{s3_output_path}/current'
@@ -175,10 +177,13 @@ def current_freshness_check(context: AssetCheckExecutionContext, current):
 
 @asset(group_name="tijuana", key_prefix="apcd",
        name="h2s_warnings", required_resource_keys={"s3", "airtable", "slack"},
-       deps=[AssetKey(['apcd','current_apcd']), AssetKey(['apcd', 'locations'])],
+       ins={
+           "current_apcd": AssetIn(key=AssetKey(['apcd','current_apcd'])),
+       },
+       deps=[AssetKey(['apcd', 'locations'])],
         automation_condition=AutomationCondition.eager()
        )
-def highh2s(context):
+def highh2s(context, current_apcd: gpd.GeoDataFrame):
     name = 'h2s_warnings'
     description = '''Records where H2S exceeds the standard for Yesterday and Today
 
@@ -202,7 +207,7 @@ def highh2s(context):
         last_h2s = gpd.GeoDataFrame()
         last_h2s_date = datetime.min
         get_dagster_logger().info(f'issue starting the last date datetime min ')
-    current = context.repository_def.load_asset_value(AssetKey([f"apcd", "current_apcd"]))
+    current = current_apcd
     h2s = current[current['Parameter'] == h2s_parameter]
     h2s['level'] = h2s['Result'].apply(lambda r: h2s_guidance(r))
     h2s.dropna(subset=['Result'], inplace=True)
@@ -239,16 +244,19 @@ def highh2s(context):
 
 @asset(group_name="tijuana", key_prefix="apcd",
        name="hs2_latest", required_resource_keys={"s3", "airtable", "slack"},
-       deps=[AssetKey(['apcd','current_apcd']), AssetKey(['apcd', 'locations'])],
+       ins={
+           "current_apcd": AssetIn(key=AssetKey(['apcd','current_apcd'])),
+       },
+       deps=[AssetKey(['apcd', 'locations'])],
         automation_condition=AutomationCondition.eager()
        )
-def hs2_latest(context):
+def hs2_latest(context, current_apcd: gpd.GeoDataFrame):
 
 
     s3_resource = context.resources.s3
     slack = context.resources.slack
 
-    current = context.repository_def.load_asset_value(AssetKey([f"apcd", "current_apcd"]))
+    current = current_apcd
 
     name = 'hs2_current'
     description = '''Records for H2S for Yesterday and Today
@@ -519,10 +527,13 @@ def get_airnow_locations(context, ) -> pd.DataFrame:
 
 @asset(group_name="tijuana",key_prefix="apcd",
        name="subset_h2s_s02", required_resource_keys={"s3", "airtable"},
-       deps=[AssetKey(["apcd","all_sd_airquality"]), AssetKey(["apcd","locations"])],
+       ins={
+           "all_sd_airquality": AssetIn(key=AssetKey(["apcd","all_sd_airquality"])),
+           "locations": AssetIn(key=AssetKey(["apcd","locations"])),
+       },
        automation_condition=AutomationCondition.eager()
   )
-def generate_apcd(context):
+def generate_apcd(context, all_sd_airquality: pd.DataFrame, locations: gpd.GeoDataFrame):
     name = 'subset_h2s_s02'
     description = '''H2S and SO2 subsets of the Air Quality Monitoring Data from San Diego Air Pollution Control District
                           '''
@@ -531,8 +542,8 @@ def generate_apcd(context):
 
     interface_days = 30
     s3_resource = context.resources.s3
-    output_df =context.repository_def.load_asset_value(AssetKey([f"apcd","all_sd_airquality"]))
-    locations_gdf = context.repository_def.load_asset_value(AssetKey([f"apcd", "locations"]))
+    output_df = all_sd_airquality
+    locations_gdf = locations
     output_gdf = locations_gdf.merge(output_df, how='inner', left_on='SiteName', right_on='Site Name',
                                       suffixes=('', '_y'))
     h2s = output_gdf[output_gdf['Parameter'] == h2s_parameter]
@@ -907,10 +918,13 @@ def yearly_aggregated_all(context) -> pd.DataFrame:
 @asset(group_name="tijuana", key_prefix="apcd",
        name="yearly_aggregated_h2s", required_resource_keys={"s3"},
        partitions_def=yearly_apcd_partitions,
-       deps=[AssetKey(["apcd", "yearly_aggregated_all"]), AssetKey(['apcd', 'locations'])],
+       ins={
+           "yearly_aggregated_all": AssetIn(key=AssetKey(["apcd", "yearly_aggregated_all"])),
+           "locations": AssetIn(key=AssetKey(['apcd', 'locations'])),
+       },
        automation_condition=AutomationCondition.eager()
        )
-def yearly_aggregated_h2s(context) -> pd.DataFrame:
+def yearly_aggregated_h2s(context, yearly_aggregated_all: pd.DataFrame, locations: gpd.GeoDataFrame) -> pd.DataFrame:
     """
     Create yearly H2S-only aggregated files from yearly all data
 
@@ -929,7 +943,7 @@ def yearly_aggregated_h2s(context) -> pd.DataFrame:
     s3_resource = context.resources.s3
     logger = get_dagster_logger()
 
-    locations_gdf = context.repository_def.load_asset_value(AssetKey([f"apcd", "locations"]))
+    locations_gdf = locations
 
     # Get the year from partition key
     partition_key = context.asset_partition_key_for_output()
@@ -937,11 +951,8 @@ def yearly_aggregated_h2s(context) -> pd.DataFrame:
 
     # Get the yearly aggregated data for the specific partition
     try:
-        # Load the yearly aggregated data from the same partition
-        all_data = context.repository_def.load_asset_value(
-            AssetKey(["apcd", "yearly_aggregated_all"]),
-            partition_key=partition_key
-        )
+        # Partitioned dependency is automatically passed with correct partition
+        all_data = yearly_aggregated_all
 
         if all_data.empty:
             logger.warning(f"No yearly aggregated data available for year {year}")
