@@ -134,17 +134,22 @@ def add_wind_features(df, logger):
 
 
 def add_tidal_encoding(tidal_df):
-    """Add tidal_state_encoded column based on tidal_state."""
+    """Add tidal_state_encoded column based on tidal_state.
+
+    Encoding matches feature_engineering.py standard:
+        low: 0, ebb: 1, flood: 2, slack: 3, high: 4
+    """
     tidal_mapping = {
-        'low': 0, 'slack low': 0,
-        'rising': 1, 'flood': 1,
-        'high': 2, 'slack high': 2,
-        'falling': 3, 'ebb': 3,
+        'low': 0,
+        'ebb': 1,
+        'flood': 2,
+        'slack': 3,
+        'high': 4,
     }
     if 'tidal_state' in tidal_df.columns:
-        tidal_df['tidal_state_encoded'] = tidal_df['tidal_state'].map(tidal_mapping).fillna(-1).astype(int)
+        tidal_df['tidal_state_encoded'] = tidal_df['tidal_state'].map(tidal_mapping).fillna(1).astype(int)
     else:
-        tidal_df['tidal_state_encoded'] = -1
+        tidal_df['tidal_state_encoded'] = 1
     return tidal_df
 
 
