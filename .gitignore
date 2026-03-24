@@ -1,4 +1,6 @@
 client.secret
+.cache.sqlite
+
 /venv_3_9/
 /information/.pytest_cache/
 ### JetBrains template
