@@ -18,7 +18,7 @@ from ..utils.resilient_epi_schemas import (
 )
 
 s3_output_path = 'pathogens/ca/counties/'
-s3_latest_path = 'mpox/california'
+s3_latest_path = 'pathogens/mpox/california'
 
 @asset(group_name="pathogens", key_prefix="mpox",
        name="mpox_la_weekly",
@@ -350,22 +350,22 @@ s3_aggregated_latest = 'pathogens/mpox/aggregated'
 _MPOX_SOURCES = [
     {
         'name': 'sandiego',
-        'path': 'sandiego/sd_mpox/sd_mpox.csv',
+        'path': 'pathogens/mpox/california/mpox_sd_weekly.csv',
         'latest': True,
     },
     {
         'name': 'los_angeles',
-        'path': 'mpox/california/mpox_la_weekly_basic.csv',
+        'path': 'pathogens/mpox/california/mpox_la_weekly_basic.csv',
         'latest': True,
     },
     {
         'name': 'san_francisco',
-        'path': 'mpox/california/mpox_sf_weekly_basic.csv',
+        'path': 'pathogens/mpox/california/mpox_sf_weekly_basic.csv',
         'latest': True,
     },
     {
         'name': 'cdc',
-        'path': 'pathogens/mpox/usa/mpox_weekly_basic.csv',
+        'path': 'pathogens/mpox/usa/mpox_usa_weekly_basic.csv',
         'latest': True,
     },
 ]

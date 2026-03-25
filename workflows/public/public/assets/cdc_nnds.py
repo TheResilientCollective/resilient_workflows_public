@@ -304,8 +304,8 @@ def mpox_weekly(context):
             source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
         )
 
-        store_assets.store_dataframe_to_s3(combined_basic, filename_basic, "mpox_weekly_basic", s3_resource,
-                                               metadata=metadata_basic, formats=['csv', 'json'],
+        store_assets.store_dataframe_to_s3(combined_basic, filename_basic, "mpox_usa_weekly_basic", s3_resource,
+                                               metadata=metadata_basic, formats=['csv', 'json', 'parquet'],
                                                enable_latest_path=True, latestdatasetpath=s3_latest_mpox)
 
 
@@ -315,19 +315,16 @@ def mpox_weekly(context):
         logger.info(f"✅ Created {len(combined_statistical)} statistical extension records")
         logger.info(f"🔍 Statistical extension schema validation passed for {len(statistical_extension_records)} record batches")
 
-        filename_statistical = f'{s3_output_path}/output/validated_epi_schema/mpox_weekly_statistical'
+        filename_statistical = f'{s3_output_path}/output/validated_epi_schema/'
         metadata_statistical = store_assets.objectMetadata(
             name="mpox_weekly_statistical_extension",
             description="CDC Mpox weekly data in statistical extension schema format",
             source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
         )
-        try:
-            gdf_statistical = gpd.GeoDataFrame(combined_statistical)
-            store_assets.geodataframe_to_s3(gdf_statistical, filename_statistical, s3_resource, metadata=metadata_statistical)
-            logger.info(f"📊 Stored statistical extension data: {len(combined_statistical)} rows")
-        except Exception as e:
-            logger.warning(f"⚠️  Storing as DataFrame instead of GeoDataFrame: {e}")
-            store_assets.dataframe_to_s3(combined_statistical, filename_statistical, s3_resource, metadata=metadata_statistical)
+        store_assets.store_dataframe_to_s3(combined_statistical, filename_statistical, "mpox_usa_weekly_statistical", s3_resource,
+                                           metadata=metadata_statistical, formats=['csv', 'json', 'parquet'],
+                                           enable_latest_path=False, latestdatasetpath=s3_latest_mpox)
+
 
     mpox_df=mpox_df.dropna( subset=["lat", "lon"])
 
