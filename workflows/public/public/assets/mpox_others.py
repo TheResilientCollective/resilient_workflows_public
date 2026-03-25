@@ -350,7 +350,7 @@ s3_aggregated_latest = 'pathogens/mpox/aggregated'
 _MPOX_SOURCES = [
     {
         'name': 'sandiego',
-        'path': 'pathogens/mpox/california/mpox_sd_weekly.csv',
+        'path': 'pathogens/mpox/california/mpox_sd_weekly_basic.csv',
         'latest': True,
     },
     {
