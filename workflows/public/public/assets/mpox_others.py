@@ -373,6 +373,11 @@ _MPOX_SOURCES = [
         'path': 'pathogens/mpox/usa/mpox_usa_weekly_basic.csv',
         'latest': True,
     },
+    {
+        'name': 'california',
+        'path': 'pathogens/mpox/california/mpox_california_weekly_basic.csv',
+        'latest': True,
+    },
 ]
 
 

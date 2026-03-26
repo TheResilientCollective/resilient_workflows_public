@@ -51,6 +51,7 @@ from .airnow import (get_aq_combined_kml, get_aq_forecast, get_aq_site, aq_combi
                      )
 from .purple_air import memberGroup, getGroupData, purple_air_schedule
 
+from .mpox_california import get_mpox_data, mpox_california_weekly
 from .mpox_others import mpox_la_powerbi, mpox_sf_weekly, mpox_counties_weekly_schedule, mpox_aggregated
 from .sandiego_epidemiology import (
 sandiego_epidemiology_workbook_download,
