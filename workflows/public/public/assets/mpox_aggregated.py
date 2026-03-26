@@ -8,6 +8,18 @@ s3_aggregated_latest = 'pathogens/mpox/aggregated'
 
 _MPOX_SOURCES = [
     {
+        'name': 'cdc',
+        'path': 'pathogens/mpox/usa/mpox_usa_weekly_basic.csv',
+        'latest': True,
+        'is_base': True,
+    },
+    {
+        'name': 'california',
+        'path': 'pathogens/mpox/california/mpox_california_weekly_basic.csv',
+        'latest': True,
+        'replaces_jurisdiction': 'California',
+    },
+    {
         'name': 'sandiego',
         'path': 'pathogens/mpox/california/mpox_sd_weekly_basic.csv',
         'latest': True,
@@ -22,17 +34,24 @@ _MPOX_SOURCES = [
         'path': 'pathogens/mpox/california/mpox_sf_weekly_basic.csv',
         'latest': True,
     },
-    {
-        'name': 'cdc',
-        'path': 'pathogens/mpox/usa/mpox_usa_weekly_basic.csv',
-        'latest': True,
-    },
-    {
-        'name': 'california',
-        'path': 'pathogens/mpox/california/mpox_california_weekly_basic.csv',
-        'latest': True,
-    },
 ]
+
+_COLUMNS = ['Jurisdiction', 'date_week_start', 'date_week_end', 'Week_Number',
+            'Year', 'Week_Year', 'Cases', 'Week_Type', 'source_name']
+
+
+def _load_source(source, s3_resource, latest_base, logger):
+    """Load a single source CSV from S3, returning a DataFrame or None."""
+    s3_path = f"{latest_base}/{source['path']}" if source.get('latest', True) else source['path']
+    try:
+        raw = s3_resource.getFile(s3_path)
+        df = pd.read_csv(io.BytesIO(raw) if isinstance(raw, bytes) else io.StringIO(raw.decode('utf-8')))
+        df['source_name'] = source['name']
+        logger.info(f"Loaded {len(df)} rows from {source['name']} ({s3_path})")
+        return df
+    except Exception as e:
+        logger.error(f"Could not load {source['name']} from {s3_path}: {e}")
+        return None
 
 
 @asset(
@@ -55,31 +74,39 @@ def mpox_aggregated(context):
     logger = get_dagster_logger()
     latest_base = store_assets.get_latest_basepath()
 
-    frames = []
-    for source in _MPOX_SOURCES:
-        s3_path = f"{latest_base}/{source['path']}" if source.get('latest', True) else source['path']
-        try:
-            raw = s3_resource.getFile(s3_path)
-            df = pd.read_csv(io.BytesIO(raw) if isinstance(raw, bytes) else io.StringIO(raw.decode('utf-8')))
-            df['source_name'] = source['name']
-            frames.append(df)
-            logger.info(f"Loaded {len(df)} rows from {source['name']} ({s3_path})")
-        except Exception as e:
-            logger.error(f"Could not load {source['name']} from {s3_path}: {e}")
+    # Step 1: Load the base source (CDC) first
+    base_source = next(s for s in _MPOX_SOURCES if s.get('is_base'))
+    base_df = _load_source(base_source, s3_resource, latest_base, logger)
+    if base_df is None:
+        raise ValueError("Could not load base CDC data — cannot build mpox_aggregated")
 
-    if not frames:
-        raise ValueError("No mpox source data could be loaded — cannot build mpox_aggregated")
+    # Step 2: Process override and additive sources
+    other_sources = [s for s in _MPOX_SOURCES if not s.get('is_base')]
+    additive_frames = []
 
-    _COLUMNS = ['Jurisdiction', 'date_week_start', 'date_week_end', 'Week_Number',
-                'Year', 'Week_Year', 'Cases', 'Week_Type', 'source_name']
+    for source in other_sources:
+        df = _load_source(source, s3_resource, latest_base, logger)
+        if df is None:
+            continue
 
-    combined = pd.concat(frames, ignore_index=True)
-    # Keep only the standard columns; fill any missing ones with NaN
+        replaces = source.get('replaces_jurisdiction')
+        if replaces:
+            # Drop matching jurisdiction rows from base, replace with this source
+            n_before = len(base_df)
+            base_df = base_df[base_df['Jurisdiction'] != replaces]
+            n_dropped = n_before - len(base_df)
+            logger.info(f"Replaced {n_dropped} '{replaces}' rows from base with {len(df)} rows from {source['name']}")
+        additive_frames.append(df)
+
+    # Step 3: Combine base + all other sources
+    combined = pd.concat([base_df] + additive_frames, ignore_index=True)
+
+    # Ensure standard columns exist
     for col in _COLUMNS:
         if col not in combined.columns:
             combined[col] = pd.NA
     aggregated = combined[_COLUMNS]
-    logger.info(f"Aggregated {len(aggregated)} rows from {len(frames)} sources")
+    logger.info(f"Aggregated {len(aggregated)} total rows")
 
     name = 'mpox_aggregated'
     metadata = store_assets.objectMetadata(
