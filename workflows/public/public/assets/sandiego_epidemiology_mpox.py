@@ -579,23 +579,41 @@ def sd_mpox(context, mpox_hyper_extraction: Dict[str, Any]) -> Dict[str, Any]:
         combined_df = disease_summary_df
         logger.info("No demographics to merge — storing disease summary only")
 
-    # --- Store ---
+    # --- Store combined dataset ---
     name = f'sd_mpox_{date_path}'
     metadata = store_assets.objectMetadata(
         name=name,
         description='San Diego MPOX combined dataset with CDC epiweek-aligned dates',
         source_url=config.url
     )
+    # with demographc
     store_dataframe_to_s3(
         df=combined_df,
         s3_resource=s3_resource,
         path=f"{s3_output_path}output/sd_mpox/{date_path}",
-        dataset_identifier='sd_mpox',
+        dataset_identifier='mpox_sd_basic',
         metadata=metadata,
-        latestdatasetpath="sandiego/sd_mpox",
-        enable_latest_path=True
+        latestdatasetpath="pathogens/california",
+        enable_latest_path=False
     )
     logger.info(f"Stored sd_mpox: {len(combined_df)} rows, {len(combined_df.columns)} columns")
+
+    # --- Store validated basic epidemiology data to mpox/california ---
+    metadata_basic = store_assets.objectMetadata(
+        name="mpox_sd_weekly",
+        description="San Diego County Mpox weekly data in basic epidemiology schema format",
+        source_url=config.url
+    )
+    store_dataframe_to_s3(
+        df=disease_summary_df,
+        s3_resource=s3_resource,
+        path=f"{s3_output_path}output/mpox_sd_weekly/{date_path}",
+        dataset_identifier='mpox_sd_weekly_basic',
+        metadata=metadata_basic,
+        latestdatasetpath="pathogens/mpox/california",
+        enable_latest_path=True
+    )
+    logger.info(f"Stored mpox_sd_weekly to mpox/california: {len(disease_summary_df)} rows")
 
     return {
         "date_path": date_path,
