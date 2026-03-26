@@ -48,6 +48,9 @@ def mpox_la_powerbi(context):
         json=payload
     )
     data = response.json()
+    filename = f"{s3_output_path}raw/mpox_la_weekly.json"
+    store_assets.text_to_s3(json.dumps(data,indent=2), filename, s3_resource, metadata=metadata, contenttype='application/json')
+
     rows = (
         data["results"][0]["result"]["data"]["dsr"]["DS"][0]["PH"][1]["DM1"]
     )
@@ -69,6 +72,8 @@ def mpox_la_powerbi(context):
             records.append({"week_start_date": date, "cases": None})
 
     df = pd.DataFrame(records)
+    df['isfill'] = df['cases'].apply(lambda x: 'false' if pd.notna(x) else 'true')
+    df['cases']=df['cases'].fillna(0)
 
     # Snap week_start_date to CDC epiweek Sunday start
     df['week_start_date'] = pd.to_datetime(df['week_start_date']).apply(
@@ -215,7 +220,7 @@ def mpox_sf_weekly(context):
     logger.info(f"🌉 Processing {len(mpox_df)} San Francisco County Mpox records with resilient epi schemas")
 
     # Store original format
-    filename = f"{s3_output_path}output/mpox_sf_weekly"
+    filename = f"{s3_output_path}raw/mpox_sf_weekly"
     store_assets.dataframe_to_s3(mpox_df, filename, s3_resource, metadata=metadata, formats=['csv','json'])
     logger.info(f"📊 Stored original SF Mpox data: {len(mpox_df)} rows")
 
