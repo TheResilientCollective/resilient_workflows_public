@@ -288,6 +288,28 @@ Based on the current data, these states had the most weeks with corrections:
 
 ---
 
-**Updated**: February 2, 2026  
-**Recommendation**: Use Split Columns approach (Cases_Added, Cases_Removed, Week_Type)  
-**For simple use**: Just use the Cases_Added column for all analyses
+**Updated**: February 2, 2026
+**Superseded**: March 27, 2026
+
+---
+
+## ⚠️ SUPERSEDED — Updated Methodology (March 2026)
+
+This guide describes the initial split-column approach. The pipeline has since been enhanced with:
+
+1. **Use `previous_YTD__cummulative` for prior years** — Provides corrected/finalized cumulative data, producing more accurate weekly rates than `current_YTD__cummulative` for historical years.
+
+2. **Windowed smoothing of negative adjustments** — Instead of simply clipping negatives to zero, the pipeline now redistributes negative corrections across neighboring weeks:
+   - Small negatives (|value| ≤ 3): averaged across a 3-week window
+   - Large negatives (|value| > 3): averaged across a 5-week window
+   - Residual negatives clamped to zero after smoothing
+
+3. **New primary columns**:
+   - **`adjusted_week`** — Smoothed weekly case count (replaces `Cases_Added` as the primary analytical column)
+   - **`adjusted_YTD__cummulative`** — Recalculated cumulative from adjusted weekly counts
+
+4. **Week_Type classification** — Now includes smoothing labels (`Smoothed_Small`, `Smoothed_Large`, `Smoothing_Neighbor`, `Smoothed_Residual_Zeroed`) and a `Preliminary_` prefix for current-year data.
+
+5. **Observation type classification** — Statistical extension records now use `corrected` (previous years), `preliminary estimate` (current year), and `reported` (raw CDC values).
+
+**For the full updated methodology, see: `docs/cdc_weekly_case_rate_methodology.md`**
