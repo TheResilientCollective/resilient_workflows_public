@@ -87,7 +87,13 @@ basic_epidemiology_schema = DataFrameSchema({
             Check(lambda s: s.str.len() > 0,
                   error="Week_Type cannot be empty")
         ],
-        description="Normal if current_week and cummulative YTD calculation matched. Adjustment if corrected, Adjustment_Cases_Removed if negative"
+        description=(
+            "Previous years (corrected): Normal, Adjustment, Adjustment_Cases_Removed, "
+            "Smoothed_Small (abs<=3, 3-week window), Smoothed_Large (abs>3, 5-week window), "
+            "Smoothed_Residual_Zeroed (clamped to 0), Smoothing_Neighbor (adjusted as neighbor). "
+            "Current year (preliminary): Preliminary_ prefix on all types "
+            "(e.g. Preliminary_Estimate, Preliminary_Adjustment, Preliminary_Smoothed_Small)."
+        )
     ),
 }, strict=True, description="Basic epidemiology data schema")
 
@@ -122,7 +128,7 @@ statistical_extension_schema_base = DataFrameSchema({
     "observation_type": Column(
         str,
         checks=[
-            Check.isin(['actual', 'partial-data estimate', 'prediction', 'forecast']),
+            Check.isin(['actual', 'partial-data estimate', 'preliminary estimate', 'corrected', 'reported', 'prediction', 'forecast']),
         ],
         description="Type of observation"
     ),

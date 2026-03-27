@@ -32,23 +32,98 @@ from ..utils.resilient_epi_schemas import (
 from epiweeks import Week, Year
 
 
-def calculate_correct_count(df, cumulative_col='current_YTD__cummulative', group_cols=None):
+def _smooth_negatives(df, group_cols):
     """
-    Calculate CorrectCount column by computing the weekly difference from cumulative values.
+    Smooth negative Raw_Difference values by redistributing across neighboring weeks.
 
-    For the first week of each year (week 1), the CorrectCount equals the cumulative value.
-    For subsequent weeks, CorrectCount = current_cumulative - previous_week_cumulative.
+    Small negatives (abs <= 3): average over 3-week window (1 prev + self + 1 next).
+    Large negatives (abs > 3): average over 5-week window (2 prev + self + 2 next).
+    Residual negatives after smoothing are clamped to zero.
+
+    Args:
+        df: DataFrame with Raw_Difference column
+        group_cols: Columns defining groups (smoothing stays within groups)
+
+    Returns:
+        DataFrame with Smoothed_Difference and _smoothing_applied columns added
+    """
+    logger = get_dagster_logger()
+    df['Smoothed_Difference'] = df['Raw_Difference'].copy()
+    df['_smoothing_applied'] = 'None'
+
+    for _, group_df in df.groupby(group_cols):
+        group_idx = group_df.index.tolist()
+        neg_indices = group_df[group_df['Smoothed_Difference'] < 0].index
+        if len(neg_indices) == 0:
+            continue
+
+        for idx in neg_indices:
+            val = df.loc[idx, 'Smoothed_Difference']
+            if val >= 0:
+                # May have been fixed by a prior neighbor smoothing
+                continue
+            pos = group_idx.index(idx)
+
+            # Window radius based on magnitude of negative
+            radius = 1 if abs(val) <= 3 else 2
+            start = max(0, pos - radius)
+            end = min(len(group_idx) - 1, pos + radius)
+            window_indices = group_idx[start:end + 1]
+
+            # Redistribute total across window as whole numbers
+            window_total = int(df.loc[window_indices, 'Smoothed_Difference'].sum())
+            n = len(window_indices)
+            avg = window_total // n
+            remainder = window_total - avg * n
+
+            new_vals = [avg] * n
+            for i in range(abs(remainder)):
+                new_vals[i] += 1 if remainder > 0 else -1
+
+            df.loc[window_indices, 'Smoothed_Difference'] = new_vals
+
+            # Label the negative week
+            label = 'Smoothed_Small' if abs(val) <= 3 else 'Smoothed_Large'
+            df.loc[idx, '_smoothing_applied'] = label
+
+            # Label neighbors that were adjusted
+            for nidx in window_indices:
+                if nidx != idx and df.loc[nidx, '_smoothing_applied'] == 'None':
+                    df.loc[nidx, '_smoothing_applied'] = 'Smoothing_Neighbor'
+
+    # Final pass: clamp any residual negatives to zero
+    still_neg = df['Smoothed_Difference'] < 0
+    if still_neg.any():
+        logger.warning(f"Clamping {still_neg.sum()} residual negative values to zero after smoothing")
+        df.loc[still_neg, 'Smoothed_Difference'] = 0
+        df.loc[still_neg, '_smoothing_applied'] = 'Smoothed_Residual_Zeroed'
+
+    return df
+
+
+def calculate_correct_count(df, cumulative_col='current_YTD__cummulative', group_cols=None,
+                            previous_cumulative_col=None):
+    """
+    Calculate weekly case counts by computing differences from cumulative values,
+    with smoothing for negative adjustments.
+
+    For previous years, uses previous_cumulative_col (corrected data) when available.
+    For the current year, uses cumulative_col (preliminary data).
+
+    Negative weekly diffs are smoothed:
+    - abs <= 3: redistributed over 3-week window
+    - abs > 3: redistributed over 5-week window
+    - Residual negatives clamped to zero
 
     Args:
         df: pandas DataFrame or GeoDataFrame with disease surveillance data
         cumulative_col: Name of the cumulative count column (default: 'current_YTD__cummulative')
         group_cols: List of columns to group by (default: ['label', 'location1', 'year'])
+        previous_cumulative_col: Name of the previous year cumulative column for corrected data
 
     Returns:
-        DataFrame with CorrectCount column added
-
-    Raises:
-        ValueError: If required columns are missing
+        DataFrame with Raw_Difference, Cases_Added, Cases_Removed, adjusted_week,
+        adjusted_YTD__cummulative, and Week_Type columns added
     """
     logger = get_dagster_logger()
 
@@ -64,6 +139,18 @@ def calculate_correct_count(df, cumulative_col='current_YTD__cummulative', group
 
     # Ensure cumulative column is numeric
     df[cumulative_col] = pd.to_numeric(df[cumulative_col], errors='coerce').fillna(0)
+
+    # Build effective cumulative: use previous_cumulative_col for prior years
+    current_year = str(datetime.now().year)
+    if previous_cumulative_col and previous_cumulative_col in df.columns:
+        df[previous_cumulative_col] = pd.to_numeric(df[previous_cumulative_col], errors='coerce').fillna(0)
+        is_previous_year = df['year'].astype(str) != current_year
+        df['_effective_cumulative'] = df[cumulative_col].copy()
+        df.loc[is_previous_year, '_effective_cumulative'] = df.loc[is_previous_year, previous_cumulative_col]
+        logger.info(f"Using {previous_cumulative_col} for {is_previous_year.sum()} previous-year rows, "
+                     f"{cumulative_col} for {(~is_previous_year).sum()} current-year rows")
+    else:
+        df['_effective_cumulative'] = df[cumulative_col].copy()
 
     # Create temporary integer columns for sorting to ensure proper chronological order
     # Critical: year and week must be sorted as integers, not strings
@@ -86,28 +173,51 @@ def calculate_correct_count(df, cumulative_col='current_YTD__cummulative', group
     df = df.drop(columns=['_sort_year', '_sort_week'])
 
     # Calculate difference within each group (disease, location, year)
-    df['Raw_Difference'] = df.groupby(group_cols)[cumulative_col].diff()
+    df['Raw_Difference'] = df.groupby(group_cols)['_effective_cumulative'].diff()
 
     # For the first row of each group (NaN after diff), use the cumulative value
-    df['Raw_Difference'] = df['Raw_Difference'].fillna(df[cumulative_col])
+    df['Raw_Difference'] = df['Raw_Difference'].fillna(df['_effective_cumulative'])
 
     # Explicitly set week 1 values to use cumulative (handles edge cases)
     week_1_mask = df['week'].astype(int) == 1
-    df.loc[week_1_mask, 'Raw_Difference'] = df.loc[week_1_mask, cumulative_col]
+    df.loc[week_1_mask, 'Raw_Difference'] = df.loc[week_1_mask, '_effective_cumulative']
 
-    df['Cases_Added'] = df['Raw_Difference'].clip(lower=0)  # Use this for case counts!
-    df['Cases_Removed'] = df['Raw_Difference'].clip(upper=0)  # Track corrections
+    # Drop temporary effective cumulative column
+    df = df.drop(columns=['_effective_cumulative'])
+
+    # Log negative values before smoothing
+    negative_counts = df[df['Raw_Difference'] < 0]
+    if len(negative_counts) > 0:
+        logger.warning(f"Found {len(negative_counts)} negative Raw_Difference values before smoothing.")
+        logger.warning(f"Sample records:\n{negative_counts[['label', 'location1', 'year', 'week', cumulative_col, 'Raw_Difference']].head()}")
+
+    # Smooth negatives
+    df = _smooth_negatives(df, group_cols)
+
+    # Audit columns
+    df['Cases_Added'] = df['Smoothed_Difference'].clip(lower=0)
+    df['Cases_Removed'] = df['Raw_Difference'].clip(upper=0)
+
+    # New adjusted columns (original CDC columns stay untouched)
+    df['adjusted_week'] = df['Smoothed_Difference'].clip(lower=0).astype(int)
+    df['adjusted_YTD__cummulative'] = df.groupby(group_cols)['adjusted_week'].cumsum().astype(int)
+
+    # Week_Type assignment
     df['Week_Type'] = 'Normal'
     df.loc[df['Cases_Added'] != df['current_week'], 'Week_Type'] = 'Adjustment'
     df.loc[df['Cases_Removed'] < 0, 'Week_Type'] = 'Adjustment_Cases_Removed'
 
-    # Ensure CorrectCount is non-negative (data quality check)
-    negative_counts = df[df['Raw_Difference'] < 0]
-    if len(negative_counts) > 0:
-        logger.warning(f"⚠️  Found {len(negative_counts)} negative CorrectCount values. This may indicate data quality issues.")
-        logger.warning(f"Sample records with negative counts:\n{negative_counts[['label', 'location1', 'year', 'week', cumulative_col, 'Raw_Difference']].head()}")
+    # Smoothing types override base types
+    smoothed = df['_smoothing_applied'] != 'None'
+    df.loc[smoothed, 'Week_Type'] = df.loc[smoothed, '_smoothing_applied']
+    df = df.drop(columns=['_smoothing_applied'])
 
-    logger.info(f"✅ Calculated CorrectCount for {len(df)} records")
+    # Prefix current year rows as preliminary (data not yet corrected)
+    is_current = df['year'].astype(str) == current_year
+    df.loc[is_current, 'Week_Type'] = 'Preliminary_' + df.loc[is_current, 'Week_Type']
+
+    logger.info(f"Calculated CorrectCount for {len(df)} records. "
+                f"Week_Type distribution:\n{df['Week_Type'].value_counts().to_string()}")
 
     return df
 
@@ -196,7 +306,8 @@ def mpox_weekly(context):
     mpox_df.drop(columns=["sort_order"], inplace=True)
 
     # Add CorrectCount column using the centralized function
-    mpox_df = calculate_correct_count(mpox_df, cumulative_col='current_YTD__cummulative')
+    mpox_df = calculate_correct_count(mpox_df, cumulative_col='current_YTD__cummulative',
+                                      previous_cumulative_col='previous_YTD__cummulative')
 
     logger = get_dagster_logger()
     epi_processor = ResilientEpiProcessor()
@@ -232,11 +343,11 @@ def mpox_weekly(context):
             jurisdiction = 'Unknown'
 
         try:
-            # Create basic epidemiology record for current week cases (including zero counts)
-            if pd.notna(row['Cases_Added']):
+            # Create basic epidemiology record using adjusted weekly count
+            if pd.notna(row['adjusted_week']):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
-                    'Count': [int(row['Cases_Added'])],
+                    'Count': [int(row['adjusted_week'])],
                     'Week_Type': [row['Week_Type']]
                 })
 
@@ -260,14 +371,23 @@ def mpox_weekly(context):
                 ('cases', 'net_cases', row['Raw_Difference']),
                 ('cases', 'cases_added', row['Cases_Added']),
                 ('cases', 'cases_removed', row['Cases_Removed']),
+                ('cases', 'adjusted_week', row['adjusted_week']),
+                ('cases', 'adjusted_YTD__cummulative', row['adjusted_YTD__cummulative']),
                 ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
                 ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
                 ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
             ]
 
+            is_current_year = str(row['year']) == str(datetime.now().year)
+
             for metric_type, observation_prefix, value in metrics_data:
                 if pd.notna(value) and value >= 0:
-                    observation_type = 'actual' if 'cases_added' in observation_prefix else 'partial-data estimate'
+                    if observation_prefix in ('adjusted_week', 'adjusted_YTD__cummulative'):
+                        observation_type = 'preliminary estimate' if is_current_year else 'corrected'
+                    elif observation_prefix == 'cases_added':
+                        observation_type = 'preliminary estimate' if is_current_year else 'corrected'
+                    else:
+                        observation_type = 'reported'
 
                     stat_record = create_statistical_extension_record(
                         jurisdiction=jurisdiction,
@@ -335,10 +455,10 @@ def mpox_weekly(context):
     #mpox_df["key"] = mpox_df["label"] + mpox_df["year"] +mpox_df["week"] +mpox_df["location1"]
     #keyfields = ['label', 'year', 'week', 'location1']
     mpox_df.drop('geometry', axis=1, inplace=True)
-    try:
-        at_resource.upsert2Table(AIRTABLE_TABLE_ID, mpox_df, keyfields=['key'])
-    except Exception as e:
-        get_dagster_logger().error(f" airtable failed measles_weekly {e} ")
+    # try:
+    #     at_resource.upsert2Table(AIRTABLE_TABLE_ID, mpox_df, keyfields=['key'])
+    # except Exception as e:
+    #     get_dagster_logger().error(f" airtable failed measles_weekly {e} ")
 
 
 @asset(group_name="pathogens", key_prefix="cdc",
@@ -409,7 +529,7 @@ def measles_weekly(context):
             print(e)
             get_dagster_logger().error(f"{i}: access failed:{ mpox_url} {e} ")
     # store raw
-    filename = f'{s3_output_path}/raw/measles/measles_raw'
+    filename = f'{s3_output_path}/raw/measles/measles_usa_raw'
     store_assets.dataframe_to_s3(disease_df, filename, s3_resource )
     disease_df["lat"] = disease_df.geometry.y
     disease_df["lon"] = disease_df.geometry.x
@@ -437,7 +557,8 @@ def measles_weekly(context):
     disease_df.drop(columns=["sort_order"], inplace=True)
 
     # Add CorrectCount column using the centralized function
-    disease_df = calculate_correct_count(disease_df, cumulative_col='current_YTD__cummulative')
+    disease_df = calculate_correct_count(disease_df, cumulative_col='current_YTD__cummulative',
+                                         previous_cumulative_col='previous_YTD__cummulative')
 
     logger = get_dagster_logger()
     epi_processor = ResilientEpiProcessor()
@@ -445,7 +566,7 @@ def measles_weekly(context):
     logger.info(f"🦠 Processing {len(disease_df)} Measles records with resilient epi schemas")
 
     # Store original format
-    filename = f'{s3_output_path}/output/measles_weekly'
+    filename = f'{s3_output_path}/output/measles_usa_weekly'
     store_assets.geodataframe_to_s3(disease_df, filename, s3_resource )
     logger.info(f"📊 Stored original Measles data: {len(disease_df)} rows")
 
@@ -480,11 +601,11 @@ def measles_weekly(context):
             disease_name = 'Measles (Imported)'
 
         try:
-            # Create basic epidemiology record for current week cases (including zero counts)
-            if pd.notna(row['Cases_Added']):
+            # Create basic epidemiology record using adjusted weekly count
+            if pd.notna(row['adjusted_week']):
                 basic_data = pd.DataFrame({
                     'Date': [row['date'].strftime('%Y-%m-%d')],
-                    'Count': [int(row['Cases_Added'])],
+                    'Count': [int(row['adjusted_week'])],
                     'Week_Type': [str(row['Week_Type'])]
                 })
 
@@ -509,15 +630,23 @@ def measles_weekly(context):
                 ('cases', 'net_cases', row['Raw_Difference']),
                 ('cases', 'cases_added', row['Cases_Added']),
                 ('cases', 'cases_removed', row['Cases_Removed']),
-
+                ('cases', 'adjusted_week', row['adjusted_week']),
+                ('cases', 'adjusted_YTD__cummulative', row['adjusted_YTD__cummulative']),
                 ('cases', 'previous_52_weeks__max', row['previous_52_weeks__max']),
                 ('cases', 'current_YTD__cummulative', row['current_YTD__cummulative']),
                 ('cases', 'previous_YTD__cummulative', row['previous_YTD__cummulative'])
             ]
 
+            is_current_year = str(row['year']) == str(datetime.now().year)
+
             for metric_type, observation_prefix, value in metrics_data:
                 if pd.notna(value) and value >= 0:
-                    observation_type = 'actual' if 'cases_added' in observation_prefix else 'partial-data estimate'
+                    if observation_prefix in ('adjusted_week', 'adjusted_YTD__cummulative'):
+                        observation_type = 'preliminary estimate' if is_current_year else 'corrected'
+                    elif observation_prefix == 'cases_added':
+                        observation_type = 'preliminary estimate' if is_current_year else 'corrected'
+                    else:
+                        observation_type = 'reported'
 
                     stat_record = create_statistical_extension_record(
                         jurisdiction=jurisdiction,
@@ -554,7 +683,7 @@ def measles_weekly(context):
             description="CDC Measles weekly data in basic epidemiology schema format",
             source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson"
         )
-        store_assets.store_dataframe_to_s3(combined_basic, filename_basic, "measles_weekly_basic", s3_resource,
+        store_assets.store_dataframe_to_s3(combined_basic, filename_basic, "measles_usa_weekly_basic", s3_resource,
                                                metadata=metadata_basic, formats=['csv', 'json'],
                                                enable_latest_path=True, latestdatasetpath=s3_latest_measles)
 
@@ -564,7 +693,7 @@ def measles_weekly(context):
         logger.info(f"✅ Created {len(combined_statistical)} statistical extension records")
         logger.info(f"🔍 Statistical extension schema validation passed for {len(statistical_extension_records)} record batches")
 
-        filename_statistical = f'{s3_output_path}/output/validated_epi_schema/measles_weekly_statistical'
+        filename_statistical = f'{s3_output_path}/output/validated_epi_schema/measles_usa_weekly_statistical'
         metadata_statistical = store_assets.objectMetadata(
             name="measles_weekly_statistical_extension",
             description="CDC Measles weekly data in statistical extension schema format",
@@ -587,17 +716,17 @@ def measles_weekly(context):
     #mpox_df["key"] = mpox_df["label"] + mpox_df["year"] +mpox_df["week"] +mpox_df["location1"]
     #keyfields = ['label', 'year', 'week', 'location1']
     disease_df.drop('geometry', axis=1, inplace=True)
-    try:
-        at_resource.upsert2Table(AIRTABLE_TABLE_ID, disease_df, keyfields=['key'])
-    except Exception as e:
-        get_dagster_logger().error(f" airtable failed measles_weekly {e} ")
+    # try:
+    #     at_resource.upsert2Table(AIRTABLE_TABLE_ID, disease_df, keyfields=['key'])
+    # except Exception as e:
+    #     get_dagster_logger().error(f" airtable failed measles_weekly {e} ")
 
 
-@asset_check(asset=AssetKey(["cdc", "mpox_weekly"]), description="Validates that no count columns contain negative values", required_resource_keys={"s3"})
+@asset_check(asset=AssetKey(["cdc", "mpox_weekly"]), description="Validates that adjusted count columns contain no negative values", required_resource_keys={"s3"})
 def check_mpox_weekly_no_negative_counts(context):
     """
-    Validates that count columns in mpox_weekly data do not contain negative values.
-    Checks: CorrectCount, current_week, current_YTD__cummulative, previous_YTD__cummulative
+    Validates that adjusted count columns in mpox_weekly data do not contain negative values.
+    Checks: adjusted_week, adjusted_YTD__cummulative
     """
     s3_resource = context.resources.s3
     logger = get_dagster_logger()
@@ -618,8 +747,8 @@ def check_mpox_weekly_no_negative_counts(context):
                 description="Could not read mpox_weekly data from S3 or data is empty"
             )
 
-        # Define count columns to check
-        count_columns = ['Raw_Difference', 'current_week', 'current_YTD__cummulative', 'previous_YTD__cummulative']
+        # Define adjusted count columns to check (should never be negative after smoothing)
+        count_columns = ['adjusted_week', 'adjusted_YTD__cummulative']
 
         # Check for negative values in each column
         negative_findings = {}
@@ -669,11 +798,11 @@ def check_mpox_weekly_no_negative_counts(context):
         )
 
 
-@asset_check(asset=AssetKey(["cdc", "measles_weekly"]), description="Validates that no count columns contain negative values", required_resource_keys={"s3"})
+@asset_check(asset=AssetKey(["cdc", "measles_weekly"]), description="Validates that adjusted count columns contain no negative values", required_resource_keys={"s3"})
 def check_measles_weekly_no_negative_counts(context):
     """
-    Validates that count columns in measles_weekly data do not contain negative values.
-    Checks: CorrectCount, current_week, current_YTD__cummulative, previous_YTD__cummulative
+    Validates that adjusted count columns in measles_weekly data do not contain negative values.
+    Checks: adjusted_week, adjusted_YTD__cummulative
     """
     s3_resource = context.resources.s3
     logger = get_dagster_logger()
@@ -694,8 +823,8 @@ def check_measles_weekly_no_negative_counts(context):
                 description="Could not read measles_weekly data from S3 or data is empty"
             )
 
-        # Define count columns to check
-        count_columns = ['Raw_Difference', 'current_week', 'current_YTD__cummulative', 'previous_YTD__cummulative']
+        # Define adjusted count columns to check (should never be negative after smoothing)
+        count_columns = ['adjusted_week', 'adjusted_YTD__cummulative']
 
         # Check for negative values in each column
         negative_findings = {}
@@ -802,7 +931,8 @@ def nndss_weekly_by_year(context):
     r_df['previous_YTD_cummulative'] =  r_df['m4']
 
     # Add CorrectCount column using the centralized function
-    r_df = calculate_correct_count(r_df, cumulative_col='current_YTD_cummulative')
+    r_df = calculate_correct_count(r_df, cumulative_col='current_YTD_cummulative',
+                                    previous_cumulative_col='previous_YTD_cummulative')
 
     filename = f'{s3_output_path}/raw/nndss_weekly_year/nndss_weekly_{filedate}'
     store_assets.geodataframe_to_s3(r_df, filename, s3_resource )
@@ -883,7 +1013,8 @@ def nndss_weekly(context):
     r_df['previous_YTD_cummulative'] =  r_df['m4'].fillna(0)
 
     # Add CorrectCount column using the centralized function
-    r_df = calculate_correct_count(r_df, cumulative_col='current_YTD_cummulative')
+    r_df = calculate_correct_count(r_df, cumulative_col='current_YTD_cummulative',
+                                    previous_cumulative_col='previous_YTD_cummulative')
 
     filename = f'{s3_output_path}/raw/nndss_weekly/nndss_weekly_{year}_{week}'
     store_assets.geodataframe_to_s3(r_df, filename, s3_resource )
