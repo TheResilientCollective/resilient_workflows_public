@@ -19,7 +19,7 @@ from ..utils import forecast_features
 from astral import LocationInfo
 from astral.sun import sun
 
-OUTPUT_PATH='tijuana/forecast/output/'
+OUTPUT_PATH='tijuana/forecast_data/output/'
 LATEST='tijuana/forecast_data'
 
 PARQUET_PATTERN='*.parquet'
