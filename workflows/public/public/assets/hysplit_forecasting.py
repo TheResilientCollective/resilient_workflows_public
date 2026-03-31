@@ -125,7 +125,7 @@ def add_wind_features(df, logger):
     if 'wind_direction_categorical' in df.columns:
         wind_direction_mapping = {'N': 0, 'NE': 1, 'E': 2, 'SE': 3, 'S': 4, 'SW': 5, 'W': 6, 'NW': 7}
         df['wind_direction_categorical_encoded'] = (
-            df['wind_direction_categorical'].map(wind_direction_mapping).fillna(-1).astype(int)
+            df['wind_direction_categorical'].map(wind_direction_mapping).fillna(0).astype(int)
         )
         logger.info("Encoded wind_direction_categorical to integers (N=0, NE=1, ..., NW=7)")
 
@@ -686,8 +686,11 @@ def data_for_models(context):
     total_filled = (~matched_df['h2s_measured']).sum()
     dagster_logger.info(f"Total H2S values filled across all sites: {total_filled}")
 
-    # H2S risk score using log-logistic (Hill) function: x^b / (x^b + c^b), c=5, b=1.23
-    matched_df['h2s_risk'] = matched_df['H2S'].pow(1.23) / (matched_df['H2S'].pow(1.23) + 5**1.23)
+    # H2S risk classification
+    matched_df['h2s_risk'] = 'GREEN'
+    matched_df.loc[matched_df['H2S'] > 5,  'h2s_risk'] = 'YELLOW_LOW'
+    matched_df.loc[matched_df['H2S'] > 10, 'h2s_risk'] = 'YELLOW_HIGH'
+    matched_df.loc[matched_df['H2S'] > 30, 'h2s_risk'] = 'ORANGE'
 
     if 'date_processed' in matched_df.columns:
             matched_df = matched_df.drop(columns=['date_processed'])
@@ -1096,6 +1099,9 @@ def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forec
     weather_df = weather_df.sort_values('time').reset_index(drop=True)
     if 'visibility' in weather_df.columns:
         weather_df = weather_df.drop(columns=['visibility'])
+    if 'wind_gusts_10m' not in weather_df.columns or weather_df['wind_gusts_10m'].isna().all():
+        weather_df['wind_gusts_10m'] = weather_df['wind_speed_10m'] * 1.8
+        logger.info("Estimated wind_gusts_10m as wind_speed_10m × 1.8 (no forecast gusts available)")
     weather_df = add_wind_features(weather_df, logger)
     now = pd.Timestamp.now(tz='America/Los_Angeles').floor('h')
     weather_df = weather_df[weather_df['time'] >= now].reset_index(drop=True)
