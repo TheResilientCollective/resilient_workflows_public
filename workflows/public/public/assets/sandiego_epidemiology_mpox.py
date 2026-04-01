@@ -38,7 +38,7 @@ class MPOXWorkbookConfig(Config):
 
 # S3 output path for MPOX data
 s3_output_path = 'pathogens/sandiego/mpox/'
-SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
+SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL_UPDATES", "#test")
 
 # Target workbooks from the plan: 'MPXV Disease Summary', 'Demographics (MPXV Disease Summary)'
 TARGET_WORKBOOKS = ['MPXV Disease Summary2', 'Demographics3 (MPXV Disease Summary)']

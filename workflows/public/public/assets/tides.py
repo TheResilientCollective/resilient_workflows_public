@@ -8,6 +8,7 @@ from dagster import (asset,
                      schedule,
                      MonthlyPartitionsDefinition, AssetIn, AutomationCondition, Field, AssetExecutionContext
                      )
+from noaa_coops.station import COOPSAPIError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
 from ..resources import minio
@@ -88,19 +89,24 @@ def tidal_data(station_id, start_date, end_date, product="predictions", datum="M
     print(f"Fetching historic data from {start_hist} to {end_hist}...")
     try:
         if product=='hourly_height':
-            # No interval
+
             df_hist = station.get_data(
-                begin_date=start_hist,
-                end_date=end_hist,
-                product="hourly_height",  # hourly_height
+            begin_date=start_hist,
+            end_date=end_hist,
+            product="hourly_height",  # hourly_height
 
-                datum="MLLW",
+            datum="MLLW",
 
-                units=units,
-                time_zone="gmt"
-            )
+            units=units,
+            time_zone="gmt"
+             )
         # Fetch predictions
         elif product=='predictions':
+            # for the first day, the preliminary is not available
+
+            if start_hist==end_hist:
+                start_hist = start_hist + " 00:00"
+                end_hist = end_hist + " 23:59"
             df_hist = station.get_data(
                 begin_date=start_hist,
                 end_date=end_hist,
@@ -114,6 +120,9 @@ def tidal_data(station_id, start_date, end_date, product="predictions", datum="M
         else:
             get_dagster_logger().error(f"Unsupported product {product}")
             return None
+    except COOPSAPIError as api_err:
+        get_dagster_logger().error(f"COOPSAPIError: {api_err}")
+        return pd.DataFrame()
     except Exception as e:
         get_dagster_logger().error(f"Error fetching data: {e}")
         raise e
@@ -149,7 +158,7 @@ def tidal_data(station_id, start_date, end_date, product="predictions", datum="M
        name="tidal_hourly", required_resource_keys={"s3"},
        metadata={
            "source": "https://api.tidesandcurrents.noaa.gov/api/prod/"
-       ,"description":"Hourly Tidal Height data from NOAA with ebb and flood states added"
+       ,"description":"Hourly Tidal Height Prediction data for from NOAA with ebb and flood states added. Hourly verified data is not available until the next month, so we will use the predictions for the current month until the hourly data is available"
 #,"variableMeasured":variableMeasured
        },
 )
@@ -160,13 +169,18 @@ def tides_hourly(context,):
     metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url)
 
     dataset_name = context.asset_key.path[-1]
-    """ Data is delayed by a couple  months, so we will use monlthy"""
+    """ Data is delayed by a couple  months. Monthly partition is deplyed by 60 days. 
+    this provides predictions for the next month. 
+    Hourly verified data is not available until the next month, so we will use the predictions for the current month until the hourly data is available.
+    """
     date =  datetime.datetime.now()
     s3_resource = context.resources.s3
     logger = get_dagster_logger()
-    start_date = f'{date.strftime('%Y%m')}01'
-    end_date = date.strftime('%Y%m%d')
-    tidal_df = tidal_data(station_id=STATION_ID, start_date=start_date, end_date=end_date)
+    start_date = monthly_partitions.end
+    start_date = f'{start_date.strftime('%Y%m')}01 00:00'
+    end_date = f'{date.strftime('%Y%m%d')} 23:59'
+    # verified hourly data is not available until the next month
+    tidal_df = tidal_data(product='predictions',station_id=STATION_ID, start_date=start_date, end_date=end_date)
     dataset_id = f"{dataset_name}_{date.strftime('%Y%m')}"
     output_path = f'{s3_output_path}'
     latest_path = f'{s3_latest_path}'
