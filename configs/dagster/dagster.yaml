@@ -40,8 +40,15 @@ schedule_storage:
 run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator
-  config:
-    #    max_concurrent_runs: 4
-    max_concurrent_runs: 2
+  #config:
+    #max_concurrent_runs: 4
+    #max_concurrent_runs: 2
+concurrency:
+  runs:
+    max_concurrent_runs: 4
+    tag_concurrency_limits:
+      - key: pipeline
+        value: h2s_mh_training
+        limit: 1
 telemetry:
   enabled: false
