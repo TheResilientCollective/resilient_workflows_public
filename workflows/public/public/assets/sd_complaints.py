@@ -27,7 +27,7 @@ import xml.etree.ElementTree as ET
 # docker env has RESILIENT_ prefix
 #             - SLACK_CHANNEL=${RESILIENT_SLACK_CHANNEL:-"#test"}
 #             - SLACK_TOKEN=${RESILIENT_SLACK_TOKEN}
-SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
+SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL_UPDATES", "#test")
 
 output_path="tijuana/sd_complaints"
 

@@ -26,7 +26,7 @@ import hashlib
 import json
 
 LLM_MODEL=os.environ.get("OPENAI_BASE_MODEL", "gemma3")
-SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
+SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL_UPDATES", "#test")
 
 baseurl = "https://beachwatch.waterboards.ca.gov/public/"
 reports_page=f"{baseurl}result.php"

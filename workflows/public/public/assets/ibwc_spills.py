@@ -27,7 +27,7 @@ import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 
 
-SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#test")
+SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL_UPDATES", "#test")
 
 baseurl = "https://beachwatch.waterboards.ca.gov/public/"
 reports_page=f"{baseurl}result.php"

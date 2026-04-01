@@ -27,7 +27,7 @@ from ..utils.store_assets import store_dataframe_to_s3
 
 s3_output_path = 'pathogens/sandiego/sandiego_wastewater/'
 # configure notebook url in utils/tableau_workbook
-SLACK_CHANNEL =  os.environ.get("SLACK_SIMS_CHANNEL", "#test")
+SLACK_CHANNEL =  os.environ.get("SLACK_CHANNEL_UPDATES", "#test")
 
 config= TableauWastewaterConfig()
 TimeSeriesTablePrefix="Time_Series"
