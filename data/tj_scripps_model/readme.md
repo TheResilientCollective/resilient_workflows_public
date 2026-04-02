@@ -34,15 +34,20 @@ S3 raw archive: `tijuana/oceanmodel/raw/scripps_pfm/{YYYYMMDD}/site_timeseries.c
 Five GeoJSON polygon files (`dye_contours_0` through `dye_contours_4`) plus a dense
 shoreline points GeoJSON. Each file is approximately 10 MB.
 
-**The meaning of the 5 contour index levels (0–4) is not yet confirmed.**
-Possibilities:
-- Different forecast time steps (e.g. t+0h through t+96h)
-- Different concentration threshold isopleths (low → high risk)
-- Different model ensemble members
+**Structure: Time-batched forecast data** ✓ CONFIRMED via Playwright analysis
 
-TODO: Inspect the pfmweb Observable source (https://pfmweb.ucsd.edu/) or contact
-Scripps to confirm what each index represents. This will determine how contours
-should be labeled and animated in the visualization.
+Each of the 5 files contains an **array of 25 time snapshots** (FeatureCollections):
+- `dye_contours_0.json`: Hours 0-24 of forecast
+- `dye_contours_1.json`: Hours 25-49 of forecast
+- `dye_contours_2.json`: Hours 50-74 of forecast
+- `dye_contours_3.json`: Hours 75-99 of forecast
+- `dye_contours_4.json`: Hours 100-120 of forecast (21 steps used)
+
+**Within each time snapshot:** 19 concentration contour polygons representing sewage
+percentage levels from 0.0005% (nearly pure ocean) to 10% (high sewage). Contour
+levels are defined in the `title` property as log10 ranges (e.g., "-5.50--5.25").
+
+**Total:** 5 files × 25 time steps = 125 snapshots (121 used by slider on pfmweb.ucsd.edu)
 
 S3 output: `tijuana/oceanmodel/output/pfm_dye_contours/dye_contours_{0-4}.geojson`
 S3 output: `tijuana/oceanmodel/output/pfm_dye_contours/shoreline_points.geojson`
