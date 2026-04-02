@@ -53,6 +53,26 @@ S3 output: `tijuana/oceanmodel/output/pfm_dye_contours/dye_contours_{0-4}.geojso
 S3 output: `tijuana/oceanmodel/output/pfm_dye_contours/shoreline_points.geojson`
 S3 raw archive: `tijuana/oceanmodel/raw/scripps_pfm/{YYYYMMDD}/dye_contours_{0-4}.geojson`
 
+### oceanmodel/pfm_hour0_contours
+**Static map tile for current forecast** - Extracts hour-0 (initial time) from the forecast
+for use as a static map layer without needing time animation.
+
+**Processing:**
+- Reads `dye_contours_0.geojson` from S3 (32 MB, contains hours 0-24)
+- Extracts first element (hour 0) → 19 concentration contour polygons
+- Simplifies geometry with 20-meter tolerance
+- Parses log10 concentration ranges to actual percentages (0.0005% to 10% sewage)
+
+**Output:** 19 MultiPolygon features representing current sewage concentration forecast.
+- Raw hour-0: 1.33 MB
+- Simplified: 0.43 MB GeoJSON (67% reduction from raw, 98.7% from full file)
+
+**Use case:** Display current forecast on TJ Dashboard as a static overlay without
+requiring time-slider controls or loading all 121 time steps.
+
+S3 output: `tijuana/oceanmodel/output/pfm_hour0_contours/hour0_contours.geojson`
+S3 raw archive: `tijuana/oceanmodel/raw/scripps_pfm/{YYYYMMDD}/hour0_contours.geojson`
+
 ### oceanmodel/pfm_shoreline_hazard
 Mobile-optimized shoreline hazard visualization asset. Converts the dense shoreline
 point data into simplified colored LineStrings grouped by risk level.

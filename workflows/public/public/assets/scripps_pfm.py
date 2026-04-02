@@ -215,9 +215,114 @@ pfm_job = define_asset_job(
         AssetKey(["oceanmodel", "pfm_site_markers"]),
         AssetKey(["oceanmodel", "pfm_site_timeseries"]),
         AssetKey(["oceanmodel", "pfm_dye_contours"]),
+        AssetKey(["oceanmodel", "pfm_hour0_contours"]),
         AssetKey(["oceanmodel", "pfm_shoreline_hazard"]),
     ],
 )
+
+
+@asset(
+    group_name="tijuana",
+    key_prefix="oceanmodel",
+    name="pfm_hour0_contours",
+    required_resource_keys={"s3"},
+    automation_condition=AutomationCondition.eager(),
+)
+def pfm_hour0_contours(context):
+    """
+    Scripps PFM hour-0 forecast contours - extracts the initial forecast time
+    snapshot from dye_contours_0 for static map tile visualization.
+
+    Provides a simplified, mobile-optimized version of the current forecast
+    without needing to animate through 121 time steps.
+    """
+    logger = get_dagster_logger()
+    s3_resource = context.resources.s3
+    today = datetime.now().strftime("%Y%m%d")
+
+    # Fetch dye_contours_0 which contains hours 0-24
+    logger.info("Loading dye_contours_0 from S3")
+    data = s3_resource.getFile("tijuana/oceanmodel/output/pfm_dye_contours/dye_contours_0.geojson")
+
+    # The file is an array of 25 time snapshots (hours 0-24)
+    # Parse the array and extract the first element (hour 0)
+    contours_array = json.loads(data.decode("utf-8"))
+
+    if not isinstance(contours_array, list) or len(contours_array) == 0:
+        raise ValueError(f"Expected array of contours, got {type(contours_array)}")
+
+    # Parse hour 0 (first element, which is a JSON-encoded FeatureCollection)
+    if isinstance(contours_array[0], str):
+        hour0_data = json.loads(contours_array[0])
+    else:
+        hour0_data = contours_array[0]
+
+    logger.info(f"Extracted hour-0 with {len(hour0_data.get('features', []))} concentration contours")
+
+    # Convert to GeoDataFrame for processing
+    gdf = gpd.GeoDataFrame.from_features(hour0_data["features"], crs="EPSG:4326")
+
+    # Simplify geometry for mobile (tolerance ~20 meters)
+    gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.0002, preserve_topology=True)
+
+    # Parse concentration range from title property (e.g., "-5.50--5.25")
+    # Convert log10 values to actual percentages
+    def parse_concentration_range(title):
+        if not title or not isinstance(title, str):
+            return None
+        parts = title.strip().split("--")
+        if len(parts) == 2:
+            try:
+                log_min = float(parts[0])
+                log_max = float(parts[1])
+                pct_min = 10 ** log_min
+                pct_max = 10 ** log_max
+                return {
+                    "log_min": log_min,
+                    "log_max": log_max,
+                    "pct_min": pct_min,
+                    "pct_max": pct_max,
+                    "pct_range": f"{pct_min:.6f}% - {pct_max:.6f}%"
+                }
+            except:
+                return None
+        return None
+
+    gdf["concentration"] = gdf["title"].apply(parse_concentration_range)
+
+    # Store raw archive
+    raw_path = f"tijuana/oceanmodel/raw/scripps_pfm/{today}/hour0_contours.geojson"
+    raw_geojson = json.dumps(hour0_data)
+    s3_resource.putFile_text(data=raw_geojson, path=raw_path, content_type="application/geo+json")
+
+    # Store simplified output
+    metadata = store_assets.objectMetadata(
+        name="pfm_hour0_contours",
+        description="Scripps PFM hour-0 forecast: sewage concentration contours at initial forecast time (19 concentration levels from 0.0005% to 10%)",
+        source_url=PFM_PAGE_URL,
+    )
+
+    store_assets.geodataframe_to_s3(
+        gdf,
+        "tijuana/oceanmodel/output/pfm_hour0_contours/hour0_contours",
+        s3_resource,
+        metadata=metadata,
+    )
+
+    # Calculate statistics
+    original_size = len(raw_geojson)
+    simplified_geojson = gdf.to_json()
+    simplified_size = len(simplified_geojson)
+    reduction = (1 - simplified_size / original_size) * 100
+
+    context.add_output_metadata({
+        "contour_count": len(gdf),
+        "original_size_mb": round(original_size / 1024 / 1024, 2),
+        "simplified_size_mb": round(simplified_size / 1024 / 1024, 2),
+        "size_reduction_pct": round(reduction, 1),
+    })
+
+    return gdf
 
 
 @asset(

@@ -129,6 +129,7 @@ from .scripps_pfm import (
     pfm_site_markers,
     pfm_site_timeseries,
     pfm_dye_contours,
+    pfm_hour0_contours,
     pfm_shoreline_hazard,
     scripps_pfm_sensor,
     pfm_job,
