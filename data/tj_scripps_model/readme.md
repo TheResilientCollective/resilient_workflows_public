@@ -15,11 +15,20 @@ All assets are in `workflows/public/public/assets/scripps_pfm.py`.
 Group: `tijuana`, key prefix: `oceanmodel`.
 Triggered by the `scripps_pfm_sensor` (hourly, fires when pfmweb.ucsd.edu deploys new data).
 
+**For TJ Dashboard integration:** Assets marked with ⭐ are stored in `latest/` paths.
+These always contain the most recent forecast without needing to know the date:
+- `latest/tijuana/oceanmodel/pfm_site_markers/`
+- `latest/tijuana/oceanmodel/pfm_hour0_contours/`
+- `latest/tijuana/oceanmodel/pfm_shoreline_hazard/`
+- `latest/tijuana/oceanmodel/pfm_site_timeseries/`
+
 ### oceanmodel/pfm_site_markers
 GeoJSON FeatureCollection of monitoring station Points along the TJ River / SD coast.
 Known stations: "Playas de Tijuana", "Imperial Beach pier", "Silver Strand",
 "Coronado Avenida Lunar".
-S3 output: `tijuana/oceanmodel/output/pfm_site_markers/site_markers.geojson`
+
+S3 output: `tijuana/oceanmodel/output/pfm_site_markers/site_markers_{YYYYMMDD}.geojson`
+S3 latest: `latest/tijuana/oceanmodel/pfm_site_markers/site_markers_{YYYYMMDD}.geojson` ⭐
 S3 raw archive: `tijuana/oceanmodel/raw/scripps_pfm/{YYYYMMDD}/site_markers.geojson`
 
 ### oceanmodel/pfm_site_timeseries
@@ -70,7 +79,8 @@ for use as a static map layer without needing time animation.
 **Use case:** Display current forecast on TJ Dashboard as a static overlay without
 requiring time-slider controls or loading all 121 time steps.
 
-S3 output: `tijuana/oceanmodel/output/pfm_hour0_contours/hour0_contours.geojson`
+S3 output: `tijuana/oceanmodel/output/pfm_hour0_contours/hour0_contours_{YYYYMMDD}.geojson`
+S3 latest: `latest/tijuana/oceanmodel/pfm_hour0_contours/hour0_contours_{YYYYMMDD}.geojson` ⭐
 S3 raw archive: `tijuana/oceanmodel/raw/scripps_pfm/{YYYYMMDD}/hour0_contours.geojson`
 
 ### oceanmodel/pfm_shoreline_hazard
@@ -87,8 +97,8 @@ point data into simplified colored LineStrings grouped by risk level.
 **Output:** 121 LineString features, each representing a shoreline segment colored by
 hazard level. Approximately 1.2 MB GeoJSON (vs. 22 MB raw points = ~95% size reduction).
 
-S3 output: `tijuana/oceanmodel/output/pfm_shoreline_hazard/shoreline_hazard.geojson`
-S3 output: `tijuana/oceanmodel/output/pfm_shoreline_hazard/shoreline_hazard.csv`
+S3 output: `tijuana/oceanmodel/output/pfm_shoreline_hazard/shoreline_hazard_{YYYYMMDD}.geojson`
+S3 latest: `latest/tijuana/oceanmodel/pfm_shoreline_hazard/shoreline_hazard_{YYYYMMDD}.geojson` ⭐
 
 ---
 

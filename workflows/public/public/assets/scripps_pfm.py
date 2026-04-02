@@ -100,11 +100,15 @@ def pfm_site_markers(context):
         source_url=PFM_PAGE_URL,
     )
 
-    store_assets.geodataframe_to_s3(
+    store_assets.store_dataframe_to_s3(
         gdf,
-        "tijuana/oceanmodel/output/pfm_site_markers/site_markers",
+        "tijuana/oceanmodel/output/pfm_site_markers",
+        f"site_markers_{today}",
         s3_resource,
         metadata=metadata,
+        enable_latest_path=True,
+        latestdatasetpath="tijuana/oceanmodel/pfm_site_markers",
+        formats=["geojson", "csv"],
     )
 
     context.add_output_metadata({"station_count": len(gdf), "hash_url": url})
@@ -302,11 +306,15 @@ def pfm_hour0_contours(context):
         source_url=PFM_PAGE_URL,
     )
 
-    store_assets.geodataframe_to_s3(
+    store_assets.store_dataframe_to_s3(
         gdf,
-        "tijuana/oceanmodel/output/pfm_hour0_contours/hour0_contours",
+        "tijuana/oceanmodel/output/pfm_hour0_contours",
+        f"hour0_contours_{today}",
         s3_resource,
         metadata=metadata,
+        enable_latest_path=True,
+        latestdatasetpath="tijuana/oceanmodel/pfm_hour0_contours",
+        formats=["geojson", "csv"],
     )
 
     # Calculate statistics
@@ -339,10 +347,11 @@ def pfm_shoreline_hazard(context):
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
+    today = datetime.now().strftime("%Y%m%d")
 
     # Fetch the shoreline points from S3
     logger.info("Loading shoreline points from S3")
-    data = s3_resource.getFile("oceanmodel/output/pfm_dye_contours/shoreline_points.geojson")
+    data = s3_resource.getFile("tijuana/oceanmodel/output/pfm_dye_contours/shoreline_points.geojson")
     shoreline_data = json.loads(data.decode("utf-8"))
 
     # shoreline_data is a list of JSON-encoded FeatureCollections (as strings)
@@ -396,11 +405,15 @@ def pfm_shoreline_hazard(context):
         source_url=PFM_PAGE_URL,
     )
 
-    store_assets.geodataframe_to_s3(
+    store_assets.store_dataframe_to_s3(
         gdf,
-        "tijuana/oceanmodel/output/pfm_shoreline_hazard/shoreline_hazard",
+        "tijuana/oceanmodel/output/pfm_shoreline_hazard",
+        f"shoreline_hazard_{today}",
         s3_resource,
         metadata=metadata,
+        enable_latest_path=True,
+        latestdatasetpath="tijuana/oceanmodel/pfm_shoreline_hazard",
+        formats=["geojson", "csv"],
     )
 
     context.add_output_metadata({
