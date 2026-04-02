@@ -1,14 +1,95 @@
-Pathogen Forecast Model Phase 1
+# Scripps PFM – Tijuana River Pathogen Forecast Model
 
-https://pfmweb.ucsd.edu/
+Source: https://pfmweb.ucsd.edu/
+Data provider: Scripps Institution of Oceanography, Cross-Border Pollution project
 
+Daily forecasts of pathogen concentrations in the Tijuana River, based on a mechanistic
+model of transport and decay. The model is calibrated using years of water quality monitoring
+data. Forecasts are updated daily and are public.
 
-Daily forecasts of pathogen concentrations in the Tijuana River, based on a mechanistic model of transport and decay. The model is calibrated using data from the Scripps Institution of Oceanography's Cross-Border Pollution project, which has been monitoring water quality in the Tijuana River for several years. The forecasts are updated daily and are available to the public.
+---
 
-https://pfmweb.ucsd.edu/_file/data/pfm_his_daily/site_timeseries.e0b45ee4.csv
-site markers
+## Dagster Assets
 
-https://pfmweb.ucsd.edu/_file/data/pfm_his_daily/site_markers.854742b3.json
+All assets are in `workflows/public/public/assets/scripps_pfm.py`.
+Group: `tijuana`, key prefix: `oceanmodel`.
+Triggered by the `scripps_pfm_sensor` (hourly, fires when pfmweb.ucsd.edu deploys new data).
 
-All shoreline points:
-https://pfmweb.ucsd.edu/_file/data/pfm_his_daily/computed_shoreline_points.38759e3f.json
+### oceanmodel/pfm_site_markers
+GeoJSON FeatureCollection of monitoring station Points along the TJ River / SD coast.
+Known stations: "Playas de Tijuana", "Imperial Beach pier", "Silver Strand",
+"Coronado Avenida Lunar".
+S3 output: `tijuana/oceanmodel/output/pfm_site_markers/site_markers.geojson`
+S3 raw archive: `tijuana/oceanmodel/raw/scripps_pfm/{YYYYMMDD}/site_markers.geojson`
+
+### oceanmodel/pfm_site_timeseries
+Hourly CSV timeseries with a timestamp column and one column per monitoring station.
+The numeric values appear to be tidal heights (negative values observed). Their exact
+relationship to pathogen concentration model output is not yet confirmed — the column
+semantics should be verified against the pfmweb source code or Scripps documentation.
+S3 output: `tijuana/oceanmodel/output/pfm_site_timeseries/site_timeseries_{YYYYMMDD}.csv/.json`
+S3 raw archive: `tijuana/oceanmodel/raw/scripps_pfm/{YYYYMMDD}/site_timeseries.csv`
+
+### oceanmodel/pfm_dye_contours
+Five GeoJSON polygon files (`dye_contours_0` through `dye_contours_4`) plus a dense
+shoreline points GeoJSON. Each file is approximately 10 MB.
+
+**The meaning of the 5 contour index levels (0–4) is not yet confirmed.**
+Possibilities:
+- Different forecast time steps (e.g. t+0h through t+96h)
+- Different concentration threshold isopleths (low → high risk)
+- Different model ensemble members
+
+TODO: Inspect the pfmweb Observable source (https://pfmweb.ucsd.edu/) or contact
+Scripps to confirm what each index represents. This will determine how contours
+should be labeled and animated in the visualization.
+
+S3 output: `tijuana/oceanmodel/output/pfm_dye_contours/dye_contours_{0-4}.geojson`
+S3 output: `tijuana/oceanmodel/output/pfm_dye_contours/shoreline_points.geojson`
+S3 raw archive: `tijuana/oceanmodel/raw/scripps_pfm/{YYYYMMDD}/dye_contours_{0-4}.geojson`
+
+### oceanmodel/pfm_shoreline_hazard
+Mobile-optimized shoreline hazard visualization asset. Converts the dense shoreline
+point data into simplified colored LineStrings grouped by risk level.
+
+**Processing:**
+- Reads the 121 FeatureCollections from shoreline_points.geojson
+- Each FeatureCollection contains Points with a `risk` property (red/yellow/green)
+- Converts each FeatureCollection's Points into a LineString
+- Simplifies geometry with 15-meter tolerance for mobile bandwidth
+- Adds hex color codes for visualization: red=#FF0000, yellow=#FFFF00, green=#00FF00
+
+**Output:** 121 LineString features, each representing a shoreline segment colored by
+hazard level. Approximately 1.2 MB GeoJSON (vs. 22 MB raw points = ~95% size reduction).
+
+S3 output: `tijuana/oceanmodel/output/pfm_shoreline_hazard/shoreline_hazard.geojson`
+S3 output: `tijuana/oceanmodel/output/pfm_shoreline_hazard/shoreline_hazard.csv`
+
+---
+
+## File URL Pattern
+
+The site uses Observable framework with hash-based file versioning.
+Hash IDs are embedded in the page JavaScript via `registerFile()` calls and change
+each daily deployment. The sensor scrapes the page to discover current IDs.
+
+Pattern: `https://pfmweb.ucsd.edu/_file/data/pfm_his_daily/{filename}.{hash}.{ext}`
+
+Example IDs captured on initial examination:
+- site_markers.854742b3.json
+- site_timeseries.e0b45ee4.csv
+- computed_shoreline_points.38759e3f.json
+- computed_dye_contours_0.2f5dd444.json
+- computed_dye_contours_1.a15ddcc3.json
+- computed_dye_contours_2.75aa5806.json
+- computed_dye_contours_3.2b8f6d85.json
+- computed_dye_contours_4.8d6eed68.json
+
+---
+
+## Future Work
+
+- Confirm contour index semantics with Scripps and update asset metadata/labels
+- Generate simplified/downsampled GeoJSON for mobile-first use on southregion.resilienthub.org
+- Generate daily PMTiles tileset from contour polygons (requires `pmtiles` dependency)
+- Integrate with TJ Dashboard visualization: https://github.com/TheResilientCollective/TJ-Dashboard
