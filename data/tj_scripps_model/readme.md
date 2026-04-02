@@ -1,26 +1,73 @@
 # Scripps PFM – Tijuana River Pathogen Forecast Model
 
-Source: https://pfmweb.ucsd.edu/
-Data provider: Scripps Institution of Oceanography, Cross-Border Pollution project
+**Source:** https://pfmweb.ucsd.edu/
+**Provider:** Scripps Institution of Oceanography, Cross-Border Pollution project
+**Update Frequency:** Daily (~6:30 AM Pacific)
 
-Daily forecasts of pathogen concentrations in the Tijuana River, based on a mechanistic
-model of transport and decay. The model is calibrated using years of water quality monitoring
-data. Forecasts are updated daily and are public.
+## Overview
+
+Daily forecasts of sewage/pathogen concentrations in the Tijuana River and San Diego coastal
+waters. The model predicts sewage dispersion as a percentage (0.0005% to 10%) using a
+mechanistic transport and decay model calibrated with years of water quality monitoring data.
+Forecasts extend 5 days (~120 hours) into the future.
+
+**Key Features:**
+- 5-day hourly forecast (121 time steps)
+- 19 concentration contour levels per time step
+- 4 monitoring station locations with detailed timeseries
+- Shoreline risk assessment (red/yellow/green zones)
+- Mobile-optimized data layers for low-bandwidth contexts
+
+---
+
+## Quick Start: TJ Dashboard Integration
+
+For **southregion.resilienthub.org**, use the `latest/` paths below. These always point to
+the most recent forecast without needing date logic:
+
+### Recommended Data Layers
+
+**1. Current Forecast Contours** (static overlay, no animation)
+```
+URL: {S3_BASE}/latest/tijuana/oceanmodel/pfm_hour0_contours/hour0_contours_{YYYYMMDD}.geojson
+Size: ~440 KB
+Features: 19 concentration polygons (0.0005% to 10% sewage)
+Use: Display current conditions without time-slider
+```
+
+**2. Shoreline Hazard Lines** (simplified risk zones)
+```
+URL: {S3_BASE}/latest/tijuana/oceanmodel/pfm_shoreline_hazard/shoreline_hazard_{YYYYMMDD}.geojson
+Size: ~1.2 MB
+Features: 121 colored line segments (red/yellow/green)
+Use: Show coastal risk zones at a glance
+```
+
+**3. Monitoring Stations** (reference points)
+```
+URL: {S3_BASE}/latest/tijuana/oceanmodel/pfm_site_markers/site_markers_{YYYYMMDD}.geojson
+Size: ~1.3 KB
+Features: 4 monitoring station points
+Use: Show forecast sampling locations
+```
+
+**4. Station Timeseries** (detailed forecast)
+```
+URL: {S3_BASE}/latest/tijuana/oceanmodel/pfm_site_timeseries/site_timeseries_{YYYYMMDD}.json
+Size: ~27 KB
+Data: Hourly forecast per station
+Use: Charts/graphs for specific locations
+```
 
 ---
 
 ## Dagster Assets
 
-All assets are in `workflows/public/public/assets/scripps_pfm.py`.
-Group: `tijuana`, key prefix: `oceanmodel`.
-Triggered by the `scripps_pfm_sensor` (hourly, fires when pfmweb.ucsd.edu deploys new data).
-
-**For TJ Dashboard integration:** Assets marked with ⭐ are stored in `latest/` paths.
-These always contain the most recent forecast without needing to know the date:
-- `latest/tijuana/oceanmodel/pfm_site_markers/`
-- `latest/tijuana/oceanmodel/pfm_hour0_contours/`
-- `latest/tijuana/oceanmodel/pfm_shoreline_hazard/`
-- `latest/tijuana/oceanmodel/pfm_site_timeseries/`
+**Location:** `workflows/public/public/assets/scripps_pfm.py`
+**Group:** `tijuana`
+**Key Prefix:** `oceanmodel`
+**Automation:** `scripps_pfm_sensor` checks pfmweb.ucsd.edu hourly for updates
+**Storage:** Dated archives + `latest/` links for easy integration
 
 ### oceanmodel/pfm_site_markers
 GeoJSON FeatureCollection of monitoring station Points along the TJ River / SD coast.
@@ -122,9 +169,168 @@ Example IDs captured on initial examination:
 
 ---
 
-## Future Work
+---
 
-- Confirm contour index semantics with Scripps and update asset metadata/labels
-- Generate simplified/downsampled GeoJSON for mobile-first use on southregion.resilienthub.org
-- Generate daily PMTiles tileset from contour polygons (requires `pmtiles` dependency)
-- Integrate with TJ Dashboard visualization: https://github.com/TheResilientCollective/TJ-Dashboard
+## Technical Details
+
+### Data Pipeline
+
+```
+pfmweb.ucsd.edu (Observable framework)
+    ↓ (hourly sensor check)
+scripps_pfm_sensor (detects hash ID changes)
+    ↓ (triggers materialization)
+5 Dagster Assets (fetch, process, simplify)
+    ↓ (store to S3/MinIO)
+Dated archives + latest/ links
+    ↓ (consumed by)
+TJ Dashboard (southregion.resilienthub.org)
+```
+
+### Hash-Based Versioning
+
+The pfmweb site uses Observable framework with content-addressed files:
+```
+Pattern: https://pfmweb.ucsd.edu/_file/data/pfm_his_daily/{filename}.{hash}.{ext}
+Example: computed_dye_contours_0.2f5dd444.json
+```
+
+Hash IDs change with each deployment (typically daily at 6:30 AM). Our sensor scrapes
+the page JavaScript (`registerFile()` calls) to discover current IDs, then triggers
+asset materialization when changes are detected.
+
+### Size Optimizations
+
+| Asset | Raw Size | Optimized | Reduction |
+|-------|----------|-----------|-----------|
+| Full 5-day animation | 180 MB | N/A | Not mobile-friendly |
+| Hour-0 contours | 32 MB (in array) | 440 KB | 98.7% |
+| Shoreline points | 22 MB | 1.2 MB (lines) | 95% |
+| Site markers | 806 bytes | 1.3 KB (styled) | N/A |
+
+**Techniques:**
+- Extract hour-0 from time-batched array (avoid loading 121 snapshots)
+- GeoPandas `.simplify()` with 15-20m tolerance
+- Convert dense point clouds to LineStrings
+- Stream large files via `BytesIO` to avoid memory issues
+
+### File Structure (S3/MinIO)
+
+```
+tijuana/oceanmodel/
+├── output/                          # Processed, dated outputs
+│   ├── pfm_site_markers/
+│   │   └── site_markers_20260402.geojson
+│   ├── pfm_site_timeseries/
+│   │   ├── site_timeseries_20260402.csv
+│   │   └── site_timeseries_20260402.json
+│   ├── pfm_dye_contours/
+│   │   ├── dye_contours_0.geojson       (32 MB, 25 hours)
+│   │   ├── dye_contours_1.geojson       (28 MB, 25 hours)
+│   │   ├── dye_contours_2.geojson       (30 MB, 25 hours)
+│   │   ├── dye_contours_3.geojson       (32 MB, 25 hours)
+│   │   ├── dye_contours_4.geojson       (34 MB, 21 hours)
+│   │   └── shoreline_points.geojson     (22 MB, 121 snapshots)
+│   ├── pfm_hour0_contours/
+│   │   └── hour0_contours_20260402.geojson (440 KB)
+│   └── pfm_shoreline_hazard/
+│       └── shoreline_hazard_20260402.geojson (1.2 MB)
+├── raw/scripps_pfm/{YYYYMMDD}/      # Dated archives (original format)
+└── (see latest/ below)
+
+latest/tijuana/oceanmodel/           # Dashboard-ready links ⭐
+├── pfm_site_markers/
+├── pfm_site_timeseries/
+├── pfm_hour0_contours/
+└── pfm_shoreline_hazard/
+```
+
+---
+
+## Integration Examples
+
+### Leaflet/Mapbox GL JS
+
+```javascript
+// Add hour-0 contours as GeoJSON layer
+fetch('{S3_BASE}/latest/tijuana/oceanmodel/pfm_hour0_contours/hour0_contours_{date}.geojson')
+  .then(r => r.json())
+  .then(data => {
+    L.geoJSON(data, {
+      style: feature => ({
+        fillColor: feature.properties.fill,
+        fillOpacity: feature.properties['fill-opacity'],
+        color: feature.properties.stroke,
+        weight: feature.properties['stroke-width']
+      })
+    }).addTo(map);
+  });
+
+// Add shoreline hazard with color coding
+fetch('{S3_BASE}/latest/tijuana/oceanmodel/pfm_shoreline_hazard/shoreline_hazard_{date}.geojson')
+  .then(r => r.json())
+  .then(data => {
+    L.geoJSON(data, {
+      style: feature => ({
+        color: feature.properties.color,
+        weight: 3,
+        opacity: 0.8
+      })
+    }).addTo(map);
+  });
+```
+
+### React Component
+
+```jsx
+import { useEffect, useState } from 'react';
+import { GeoJSON } from 'react-leaflet';
+
+function ScrippsForcast({ s3Base }) {
+  const [contours, setContours] = useState(null);
+
+  useEffect(() => {
+    // Fetch latest forecast (no date logic needed)
+    fetch(`${s3Base}/latest/tijuana/oceanmodel/pfm_hour0_contours/`)
+      .then(r => r.json())
+      .then(data => setContours(data));
+  }, [s3Base]);
+
+  if (!contours) return <div>Loading forecast...</div>;
+
+  return (
+    <GeoJSON
+      data={contours}
+      style={feature => ({
+        fillColor: feature.properties.fill,
+        fillOpacity: 0.6
+      })}
+    />
+  );
+}
+```
+
+---
+
+## Future Enhancements
+
+### Completed ✓
+- ✅ Confirm contour structure (time-batched, not concentration levels)
+- ✅ Generate simplified/mobile-optimized GeoJSON
+- ✅ Create static hour-0 tile for dashboard integration
+
+### Planned
+- PMTiles generation for vector tile serving (requires `pmtiles` dependency)
+- Time-slider animation support (load all 121 time steps progressively)
+- Concentration threshold alerts (email/Slack when >1% sewage forecast)
+- Historical archive comparison (month-over-month forecast accuracy)
+- Integration with real-time IBWC flow data for model calibration
+
+---
+
+## References
+
+- **Scripps PFM Site:** https://pfmweb.ucsd.edu/
+- **TJ Dashboard Repo:** https://github.com/TheResilientCollective/TJ-Dashboard
+- **Dagster Assets:** `workflows/public/public/assets/scripps_pfm.py`
+- **Contact:** ffeddersen@ucsd.edu (Scripps model questions)
