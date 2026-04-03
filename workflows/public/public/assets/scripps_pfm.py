@@ -103,7 +103,7 @@ def pfm_site_markers(context):
     store_assets.store_dataframe_to_s3(
         gdf,
         "tijuana/oceanmodel/output/pfm_site_markers",
-        f"site_markers_{today}",
+        "site_markers",
         s3_resource,
         metadata=metadata,
         enable_latest_path=True,
@@ -153,7 +153,7 @@ def pfm_site_timeseries(context):
     store_assets.store_dataframe_to_s3(
         df,
         "tijuana/oceanmodel/output/pfm_site_timeseries",
-        f"site_timeseries_{today}",
+        "site_timeseries",
         s3_resource,
         metadata=metadata,
         enable_latest_path=True,
@@ -309,7 +309,7 @@ def pfm_hour0_contours(context):
     store_assets.store_dataframe_to_s3(
         gdf,
         "tijuana/oceanmodel/output/pfm_hour0_contours",
-        f"hour0_contours_{today}",
+        "hour0_contours",
         s3_resource,
         metadata=metadata,
         enable_latest_path=True,
@@ -339,6 +339,7 @@ def pfm_hour0_contours(context):
     name="pfm_shoreline_hazard",
     required_resource_keys={"s3"},
     automation_condition=AutomationCondition.eager(),
+    deps=[AssetKey(["oceanmodel", "pfm_dye_contours"])], # shoreline_points pulled at same time as contours
 )
 def pfm_shoreline_hazard(context):
     """
@@ -347,45 +348,51 @@ def pfm_shoreline_hazard(context):
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
-    today = datetime.now().strftime("%Y%m%d")
 
     # Fetch the shoreline points from S3
     logger.info("Loading shoreline points from S3")
     data = s3_resource.getFile("tijuana/oceanmodel/output/pfm_dye_contours/shoreline_points.geojson")
     shoreline_data = json.loads(data.decode("utf-8"))
 
-    # shoreline_data is a list of JSON-encoded FeatureCollections (as strings)
-    # Parse each string, then convert Point features to LineStrings
+    # shoreline_data is an array of 121 time snapshots (same structure as dye_contours).
+    # Use only snapshot 0 (hour-0 / current conditions) to get an ordered south→north
+    # sequence of shoreline points without spurious cross-snapshot jumps.
+    fc_str = shoreline_data[0]
+    if isinstance(fc_str, str):
+        feature_collection = json.loads(fc_str)
+    else:
+        feature_collection = fc_str
+
+    all_points = [
+        f for f in feature_collection.get("features", [])
+        if f["geometry"]["type"] == "Point"
+    ]
+    logger.info(f"Using snapshot 0: {len(all_points)} shoreline points")
+
+    # Build line segments: a new segment starts each time risk changes
     all_lines = []
-    for fc_idx, fc_str in enumerate(shoreline_data):
-        # Parse the JSON string to get the FeatureCollection dict
-        if isinstance(fc_str, str):
-            feature_collection = json.loads(fc_str)
-        else:
-            feature_collection = fc_str
+    segment_id = 0
+    i = 0
+    while i < len(all_points):
+        current_risk = all_points[i]["properties"].get("risk", "unknown")
+        coords = [all_points[i]["geometry"]["coordinates"]]
+        i += 1
+        while i < len(all_points):
+            next_risk = all_points[i]["properties"].get("risk", "unknown")
+            if next_risk != current_risk:
+                # Bridge: include this point in the current segment so lines connect
+                coords.append(all_points[i]["geometry"]["coordinates"])
+                break
+            coords.append(all_points[i]["geometry"]["coordinates"])
+            i += 1
 
-        if not isinstance(feature_collection, dict):
-            continue
-        features = feature_collection.get("features", [])
-        if not features:
-            continue
-
-        # Extract coordinates and risk level
-        coords = []
-        risk_level = None
-        for feature in features:
-            if feature["geometry"]["type"] == "Point":
-                coords.append(feature["geometry"]["coordinates"])
-                if risk_level is None:
-                    risk_level = feature["properties"].get("risk", "unknown")
-
-        if len(coords) >= 2:  # Need at least 2 points for a line
-            line_geom = {"type": "LineString", "coordinates": coords}
+        if len(coords) >= 2:
             all_lines.append({
                 "type": "Feature",
-                "properties": {"risk": risk_level, "segment_id": fc_idx},
-                "geometry": line_geom
+                "properties": {"risk": current_risk, "segment_id": segment_id},
+                "geometry": {"type": "LineString", "coordinates": coords},
             })
+            segment_id += 1
 
     # Create GeoDataFrame from LineStrings
     gdf = gpd.GeoDataFrame.from_features(all_lines, crs="EPSG:4326")
@@ -408,7 +415,7 @@ def pfm_shoreline_hazard(context):
     store_assets.store_dataframe_to_s3(
         gdf,
         "tijuana/oceanmodel/output/pfm_shoreline_hazard",
-        f"shoreline_hazard_{today}",
+        "shoreline_hazard",
         s3_resource,
         metadata=metadata,
         enable_latest_path=True,

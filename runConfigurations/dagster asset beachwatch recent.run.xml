@@ -26,6 +26,7 @@
         <ENTRY IS_ENABLED="true" PARSER="env" IS_EXECUTABLE="false" PATH="workflows/.env" />
       </ENTRIES>
     </EXTENSION>
+    <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
     <option name="PARAMETERS" value="asset materialize --select waterquality/beachwatch_closures_recent,waterquality/sdbeachinfo_status_translation -m public" />
     <option name="SHOW_COMMAND_LINE" value="false" />
