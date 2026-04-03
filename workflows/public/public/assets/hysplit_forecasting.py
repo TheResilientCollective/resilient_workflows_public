@@ -490,11 +490,11 @@ def data_for_models(context):
             # Legacy CSVs (pre-refactor) have no site_name — they were single-site NESTOR-BES data
             missing = weather_df['site_name'].isna()
             if missing.any():
-                dagster_logger.warning(f"Filling {missing.sum()} rows with missing site_name as 'NESTOR - BES' (legacy data)")
-                weather_df.loc[missing, 'site_name'] = 'NESTOR - BES'
+                dagster_logger.warning(f"Filling {missing.sum()} rows with missing site_name as 'unknown' (legacy data)")
+                weather_df.loc[missing, 'site_name'] = 'unknown'
         else:
-            dagster_logger.warning("site_name column not found in weather data — assigning all rows to 'NESTOR - BES'")
-            weather_df['site_name'] = 'NESTOR - BES'
+            dagster_logger.warning("site_name column not found in weather data — assigning all rows to 'unknown'")
+            weather_df['site_name'] = 'unknown'
 
         weather_df = add_wind_features(weather_df, dagster_logger)
     except Exception as e:
