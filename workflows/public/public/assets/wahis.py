@@ -7,7 +7,7 @@ import io
 import pandas as pd
 import dask.dataframe as dd
 from dagster import SensorEvaluationContext, sensor, get_dagster_logger, RunRequest, RunConfig, asset, Config, \
-    define_asset_job, AssetKey, AssetIn
+    define_asset_job, AssetKey, AssetIn, AutomationCondition
 import duckdb
 
 from ..utils import store_assets
@@ -47,6 +47,7 @@ def getDuckDb(s3_resource, input_path=None, bucket=WAHIS_BUCKET):
                 key=AssetKey(['wahis','wahis_excel'])
             )
         },
+    automation_condition=AutomationCondition.eager()
 )
 def outbreak_by_pathogen(context, wahis_excel ):
     logger = get_dagster_logger()
@@ -135,6 +136,7 @@ def outbreak_by_pathogen(context, wahis_excel ):
                 key=AssetKey(['wahis','wahis_excel'])
             )
         },
+    automation_condition=AutomationCondition.eager()
 )
 def outbreak_summaries(context, wahis_excel ):
     logger = get_dagster_logger()
