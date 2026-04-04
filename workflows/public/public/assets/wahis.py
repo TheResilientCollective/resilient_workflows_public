@@ -226,7 +226,8 @@ def process_wahis_excel_file(context, config: WahisUploadConfig) -> dict:
         with  tempfile.NamedTemporaryFile() as filename :
             local_file = s3_resource.downloadFile(path=upload_path, bucket=WAHIS_BUCKET, filename=filename.name)
             dfs = pd.read_excel(local_file,
-                                [1, 'ADIS_events_match', 'ARAHIS_events']
+                                #[1, 'ADIS_events_match', 'ARAHIS_events'] # former had multiple sheets
+                                [1]
                                 )
 
             logger.info(f"read WAHIS Excel file: {upload_path}")
