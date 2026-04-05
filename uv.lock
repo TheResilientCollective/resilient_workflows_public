@@ -10,6 +10,16 @@ resolution-markers = [
     "python_full_version < '3.14' and sys_platform == 'emscripten'",
 ]
 
+[manifest]
+members = [
+    "epidemiology",
+    "pathogens",
+    "resilient-core",
+    "resilient-workflows-public",
+    "sim",
+    "tijuana",
+]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
@@ -1182,6 +1192,55 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ea/8d/a7121ffe5f402dc015277d2d31eb82d2187334503a011c18f2e78ecbb9b2/entrypoints-0.4.tar.gz", hash = "sha256:b706eddaa9218a19ebcd67b56818f05bb27589b1ca9e8d797b74affad4ccacd4", size = 13974, upload-time = "2022-02-02T21:30:28.172Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/35/a8/365059bbcd4572cbc41de17fd5b682be5868b218c3c5479071865cab9078/entrypoints-0.4-py3-none-any.whl", hash = "sha256:f174b5ff827504fd3cd97cc3f8649f3693f51538c7e4bdf3ef002c8429d42f9f", size = 5294, upload-time = "2022-02-02T21:30:26.024Z" },
+]
+
+[[package]]
+name = "epidemiology"
+version = "0.1.0"
+source = { editable = "workflows/epidemiology" }
+dependencies = [
+    { name = "dagster" },
+    { name = "dagster-aws" },
+    { name = "dagster-openai" },
+    { name = "dagster-slack" },
+    { name = "epiweeks" },
+    { name = "geopandas" },
+    { name = "office365-rest-python-client" },
+    { name = "openpyxl" },
+    { name = "pandas" },
+    { name = "pandera", extra = ["pandas"] },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "requests-cache" },
+    { name = "resilient-core" },
+    { name = "sharepoint" },
+    { name = "simplepbi" },
+    { name = "tableau-parser" },
+    { name = "tableaudocumentapi" },
+    { name = "tableauhyperapi" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dagster", specifier = ">=1.12.2" },
+    { name = "dagster-aws", specifier = ">=0.28.2" },
+    { name = "dagster-openai", specifier = "==0.28.2" },
+    { name = "dagster-slack", specifier = ">=0.28.2" },
+    { name = "epiweeks" },
+    { name = "geopandas" },
+    { name = "office365-rest-python-client", specifier = ">=2.6.2" },
+    { name = "openpyxl", specifier = ">=3.1.0" },
+    { name = "pandas", specifier = ">=2.2.0" },
+    { name = "pandera", extras = ["pandas"] },
+    { name = "pydantic", specifier = ">=2,<3.0.0" },
+    { name = "requests" },
+    { name = "requests-cache" },
+    { name = "resilient-core", editable = "workflows/resilient_core" },
+    { name = "sharepoint", specifier = ">=0.4.2" },
+    { name = "simplepbi", specifier = ">=1.0" },
+    { name = "tableau-parser" },
+    { name = "tableaudocumentapi" },
+    { name = "tableauhyperapi", specifier = "==0.0.22502" },
 ]
 
 [[package]]
@@ -3204,6 +3263,50 @@ wheels = [
 ]
 
 [[package]]
+name = "pathogens"
+version = "0.1.0"
+source = { editable = "workflows/pathogens" }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "dagster" },
+    { name = "dagster-aws" },
+    { name = "dagster-openai" },
+    { name = "dagster-slack" },
+    { name = "epiweeks" },
+    { name = "geopandas" },
+    { name = "lxml" },
+    { name = "openpyxl" },
+    { name = "pandas" },
+    { name = "pandera", extra = ["geopandas", "pandas"] },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "requests-cache" },
+    { name = "resilient-core" },
+    { name = "simplepbi" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4" },
+    { name = "dagster", specifier = ">=1.12.2" },
+    { name = "dagster-aws", specifier = ">=0.28.2" },
+    { name = "dagster-openai", specifier = "==0.28.2" },
+    { name = "dagster-slack", specifier = ">=0.28.2" },
+    { name = "epiweeks" },
+    { name = "geopandas" },
+    { name = "lxml" },
+    { name = "openpyxl", specifier = ">=3.1.0" },
+    { name = "pandas", specifier = ">=2.2.0" },
+    { name = "pandera", extras = ["geopandas"] },
+    { name = "pandera", extras = ["pandas"] },
+    { name = "pydantic", specifier = ">=2,<3.0.0" },
+    { name = "requests" },
+    { name = "requests-cache" },
+    { name = "resilient-core", editable = "workflows/resilient_core" },
+    { name = "simplepbi", specifier = ">=1.0" },
+]
+
+[[package]]
 name = "pathvalidate"
 version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4307,6 +4410,44 @@ wheels = [
 ]
 
 [[package]]
+name = "resilient-core"
+version = "0.1.0"
+source = { editable = "workflows/resilient_core" }
+dependencies = [
+    { name = "dagster" },
+    { name = "dagster-aws" },
+    { name = "foursquare-data-sdk" },
+    { name = "geopandas" },
+    { name = "minio" },
+    { name = "office365-rest-python-client" },
+    { name = "pandas" },
+    { name = "pandera", extra = ["geopandas", "pandas"] },
+    { name = "pyairtable" },
+    { name = "pyarrow" },
+    { name = "pydantic-schemaorg" },
+    { name = "requests" },
+    { name = "sharepoint" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dagster", specifier = ">=1.12.2" },
+    { name = "dagster-aws", specifier = ">=0.28.2" },
+    { name = "foursquare-data-sdk" },
+    { name = "geopandas" },
+    { name = "minio", specifier = "==7.1.13" },
+    { name = "office365-rest-python-client", specifier = ">=2.6.2" },
+    { name = "pandas", specifier = ">=2.2.0" },
+    { name = "pandera", extras = ["geopandas"] },
+    { name = "pandera", extras = ["pandas"] },
+    { name = "pyairtable", specifier = ">3" },
+    { name = "pyarrow", specifier = ">=20" },
+    { name = "pydantic-schemaorg", git = "https://github.com/TheResilientCollective/pydantic_schemaorg.git?rev=pydantic_v2" },
+    { name = "requests" },
+    { name = "sharepoint", specifier = ">=0.4.2" },
+]
+
+[[package]]
 name = "resilient-workflows-public"
 version = "0.1.0"
 source = { virtual = "." }
@@ -4821,6 +4962,59 @@ wheels = [
 ]
 
 [[package]]
+name = "sim"
+version = "0.1.0"
+source = { editable = "workflows/sim" }
+dependencies = [
+    { name = "awswrangler" },
+    { name = "boto3-stubs" },
+    { name = "dagster" },
+    { name = "dagster-aws" },
+    { name = "dagster-openai" },
+    { name = "dagster-slack" },
+    { name = "epiweeks" },
+    { name = "geopandas" },
+    { name = "gitpython" },
+    { name = "icecream" },
+    { name = "jinja2" },
+    { name = "minio" },
+    { name = "pandas" },
+    { name = "pandera", extra = ["pandas"] },
+    { name = "pyairtable" },
+    { name = "pydantic" },
+    { name = "pygithub" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "resilient-core" },
+    { name = "scikit-learn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "awswrangler" },
+    { name = "boto3-stubs", specifier = "~=1.41.1" },
+    { name = "dagster", specifier = ">=1.12.2" },
+    { name = "dagster-aws", specifier = ">=0.28.2" },
+    { name = "dagster-openai", specifier = "==0.28.2" },
+    { name = "dagster-slack", specifier = ">=0.28.2" },
+    { name = "epiweeks" },
+    { name = "geopandas" },
+    { name = "gitpython" },
+    { name = "icecream", specifier = ">=2.1.4" },
+    { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "minio", specifier = "==7.1.13" },
+    { name = "pandas", specifier = ">=2.2.0" },
+    { name = "pandera", extras = ["pandas"] },
+    { name = "pyairtable", specifier = ">3" },
+    { name = "pydantic", specifier = ">=2,<3.0.0" },
+    { name = "pygithub", specifier = ">=2.8.1" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "resilient-core", editable = "workflows/resilient_core" },
+    { name = "scikit-learn" },
+]
+
+[[package]]
 name = "simplejson"
 version = "3.20.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5099,6 +5293,76 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b7/4d/08c89e34946fce2aec4fbb45c9016efd5f4d7f24af8e5d93296e935631d8/threadpoolctl-3.6.0.tar.gz", hash = "sha256:8ab8b4aa3491d812b623328249fab5302a68d2d71745c8a4c719a2fcaba9f44e", size = 21274, upload-time = "2025-03-13T13:49:23.031Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/d5/f9a850d79b0851d1d4ef6456097579a9005b31fea68726a4ae5f2d82ddd9/threadpoolctl-3.6.0-py3-none-any.whl", hash = "sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083ea48dc3ab9f13c4a7fb", size = 18638, upload-time = "2025-03-13T13:49:21.846Z" },
+]
+
+[[package]]
+name = "tijuana"
+version = "0.1.0"
+source = { editable = "workflows/tijuana" }
+dependencies = [
+    { name = "aqicalc" },
+    { name = "astral" },
+    { name = "awswrangler" },
+    { name = "beautifulsoup4" },
+    { name = "dagster" },
+    { name = "dagster-aws" },
+    { name = "dagster-openai" },
+    { name = "dagster-slack" },
+    { name = "dask" },
+    { name = "foursquare-data-sdk" },
+    { name = "geopandas" },
+    { name = "geopy" },
+    { name = "jinja2" },
+    { name = "kml2geojson" },
+    { name = "lxml" },
+    { name = "matplotlib" },
+    { name = "noaa-coops" },
+    { name = "openmeteo-requests" },
+    { name = "pandas" },
+    { name = "pandera", extra = ["geopandas", "pandas"] },
+    { name = "playwright" },
+    { name = "pydantic" },
+    { name = "pydash" },
+    { name = "pyyaml" },
+    { name = "requests-cache" },
+    { name = "resilient-core" },
+    { name = "retry-requests" },
+    { name = "scikit-learn" },
+    { name = "tenacity" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aqicalc" },
+    { name = "astral", specifier = "==3.2" },
+    { name = "awswrangler" },
+    { name = "beautifulsoup4" },
+    { name = "dagster", specifier = ">=1.12.2" },
+    { name = "dagster-aws", specifier = ">=0.28.2" },
+    { name = "dagster-openai", specifier = "==0.28.2" },
+    { name = "dagster-slack", specifier = ">=0.28.2" },
+    { name = "dask", specifier = ">=2025.11.0" },
+    { name = "foursquare-data-sdk" },
+    { name = "geopandas" },
+    { name = "geopy" },
+    { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "kml2geojson" },
+    { name = "lxml" },
+    { name = "matplotlib" },
+    { name = "noaa-coops", specifier = ">=0.4.0" },
+    { name = "openmeteo-requests" },
+    { name = "pandas", specifier = ">=2.2.0" },
+    { name = "pandera", extras = ["geopandas"] },
+    { name = "pandera", extras = ["pandas"] },
+    { name = "playwright", specifier = ">=1.35.0" },
+    { name = "pydantic", specifier = ">=2,<3.0.0" },
+    { name = "pydash" },
+    { name = "pyyaml" },
+    { name = "requests-cache" },
+    { name = "resilient-core", editable = "workflows/resilient_core" },
+    { name = "retry-requests" },
+    { name = "scikit-learn" },
+    { name = "tenacity", specifier = "==9.1.4" },
 ]
 
 [[package]]

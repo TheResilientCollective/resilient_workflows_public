@@ -96,6 +96,98 @@ services:
             - traefik_proxy
 
 
+    dagster-code-tijuana:
+        hostname: dagster-code-${PROJECT}-tijuana
+        image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        environment: *env
+        command:
+            - "dagster"
+            - "code-server"
+            - "start"
+            - "-h"
+            - "0.0.0.0"
+            - "-p"
+            - "4000"
+            - "-m"
+            - "tijuana"
+            - "-d"
+            - "/usr/src/app/"
+        volumes: *codevol
+        depends_on:
+            - dagster-postgres
+        networks:
+            - dagster_host
+            - traefik_proxy
+
+    dagster-code-pathogens:
+        hostname: dagster-code-${PROJECT}-pathogens
+        image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        environment: *env
+        command:
+            - "dagster"
+            - "code-server"
+            - "start"
+            - "-h"
+            - "0.0.0.0"
+            - "-p"
+            - "4000"
+            - "-m"
+            - "pathogens"
+            - "-d"
+            - "/usr/src/app/"
+        volumes: *codevol
+        depends_on:
+            - dagster-postgres
+        networks:
+            - dagster_host
+            - traefik_proxy
+
+    dagster-code-epidemiology:
+        hostname: dagster-code-${PROJECT}-epidemiology
+        image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        environment: *env
+        command:
+            - "dagster"
+            - "code-server"
+            - "start"
+            - "-h"
+            - "0.0.0.0"
+            - "-p"
+            - "4000"
+            - "-m"
+            - "epidemiology"
+            - "-d"
+            - "/usr/src/app/"
+        volumes: *codevol
+        depends_on:
+            - dagster-postgres
+        networks:
+            - dagster_host
+            - traefik_proxy
+
+    dagster-code-sim:
+        hostname: dagster-code-${PROJECT}-sim
+        image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        environment: *env
+        command:
+            - "dagster"
+            - "code-server"
+            - "start"
+            - "-h"
+            - "0.0.0.0"
+            - "-p"
+            - "4000"
+            - "-m"
+            - "sim"
+            - "-d"
+            - "/usr/src/app/"
+        volumes: *codevol
+        depends_on:
+            - dagster-postgres
+        networks:
+            - dagster_host
+            - traefik_proxy
+
     dagster-code-restricted:
         hostname:  dagster-code-${PROJECT}-restricted
         image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}

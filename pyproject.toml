@@ -90,3 +90,19 @@ dev = [
 
 [tool.dg]
 directory_type = "project"
+
+[tool.uv.workspace]
+members = [
+    "workflows/resilient_core",
+    "workflows/tijuana",
+    "workflows/pathogens",
+    "workflows/epidemiology",
+    "workflows/sim",
+]
+
+[tool.uv.sources]
+resilient_core = { workspace = true }
+tijuana = { workspace = true }
+pathogens = { workspace = true }
+epidemiology = { workspace = true }
+sim = { workspace = true }

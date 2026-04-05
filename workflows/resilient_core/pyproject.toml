@@ -1,0 +1,31 @@
+[project]
+name = "resilient_core"
+version = "0.1.0"
+description = "Shared utilities and resources for Resilient Collective Dagster projects"
+requires-python = ">=3.12"
+dependencies = [
+    "dagster>=1.12.2",
+    "dagster-aws>=0.28.2",
+    "pandas>=2.2.0",
+    "geopandas",
+    "pyarrow>=20",
+    "minio==7.1.13",
+    "pyairtable>3",
+    "requests",
+    "pandera[pandas]",
+    "pandera[geopandas]",
+    "office365-rest-python-client>=2.6.2",
+    "sharepoint>=0.4.2",
+    "foursquare-data-sdk",
+    "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/resilient_core"]
