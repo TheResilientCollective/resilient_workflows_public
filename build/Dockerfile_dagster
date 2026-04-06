@@ -15,7 +15,7 @@ RUN pip install uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 WORKDIR /usr/src/app
 COPY pyproject.toml uv.lock ./
-RUN   uv sync  --no-install-project
+RUN   uv sync   --no-cache
 
 ## this add the code
 #
