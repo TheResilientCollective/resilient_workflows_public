@@ -21,6 +21,7 @@ services:
     dagster-code-tijuana:
         hostname: dagster-code-${PROJECT}-tijuana
         image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        platform: linux/amd64
         environment: &env
             - DEBUG_CONTAINER=${DEBUG_CONTAINER:-false}
             - PROJECT=${PROJECT}
@@ -97,6 +98,7 @@ services:
     dagster-code-pathogens:
         hostname: dagster-code-${PROJECT}-pathogens
         image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        platform: linux/amd64
         environment: *env
         command:
             - "dagster"
@@ -120,6 +122,7 @@ services:
     dagster-code-epidemiology:
         hostname: dagster-code-${PROJECT}-epidemiology
         image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        platform: linux/amd64
         environment: *env
         command:
             - "dagster"
@@ -143,6 +146,7 @@ services:
     dagster-code-sim:
         hostname: dagster-code-${PROJECT}-sim
         image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
+        platform: linux/amd64
         environment: *env
         command:
             - "dagster"
