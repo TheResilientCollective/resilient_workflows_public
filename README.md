@@ -2,26 +2,32 @@
 
 "Software Defined Assets" developed using [Dagster](https://dagster.io)
 
-The first step is to rewrite the 'digests' as a news and publications workflow that are
-more easily maintainable and customizable, and not bound to the code project that runs the user interface
+The project is organized as a uv workspace with multiple Dagster code locations:
+- **tijuana** — regional/border environmental monitoring
+- **pathogens** — CDC NNDSS, mpox, WAHIS surveillance
+- **epidemiology** — San Diego disease surveillance
+- **sim** — epidemic forecasting (ResilientSims)
+- **resilient_core** — shared utilities and resources
 
 
 ## Deployment
-Deployment will be done with containers where each workfow will run in separate  code container.
+Deployment will be done with containers where each workflow will run in a separate code container.
 This will allow for workflows to be developed independently and be isolated in case constraints come up.
 ### Running the Application
 ```bash
-# Start from public workflow directory
-cd deployment
-docker compose -f dagster_core.yml -f dagster_workflows.yml up 
+cd deploy
+docker compose -f dagster_core.yml -f dagster_workflows.yml up
 ```
 
 ## Development Commands
 
 ### Running the Application
 ```bash
-# Start from public workflow directory
-cd workflows/public && dagster dev -m public
+# All code locations via workspace
+uv run dagster dev
+
+# Single code location
+uv run dagster dev -m tijuana
 ```
 
 ### Installation and Setup
@@ -29,9 +35,9 @@ cd workflows/public && dagster dev -m public
 # Create virtual environment
 uv venv
 
-# Install all dependencies with all extras for development
-uv sync --all-extras
-source .venv/bin/active
+# Install all workspace packages for development
+uv sync --all-packages
+source .venv/bin/activate
 ```
 
 ### Configuration
@@ -46,24 +52,25 @@ export MINIO_ENDPOINT="your_endpoint"
 export MINIO_ACCESS_KEY="your_access_key"
 export MINIO_SECRET_KEY="your_secret_key"
 ```
-`ex`port $(grep -v '^#' workflows/.env | xargs)`
+`export $(grep -v '^#' workflows/.env | xargs)`
 
 ### Asset Testing
 ```bash
-# Materialize specific assets
-cd workflows/public
-dagster asset materialize --select airnow_current_conditions -m public
-dagster asset materialize --select beach_water_quality -m public
-dagster asset materialize --select ibwc_spills -m public
+# Materialize specific assets (tijuana code location)
+dagster asset materialize --select airnow_current_conditions -m tijuana
+dagster asset materialize --select beach_water_quality -m tijuana
+dagster asset materialize --select ibwc_spills -m tijuana
 
 # Materialize asset groups
-dagster asset materialize --select tag:tijuana -m public
-dagster asset materialize --select tag:waterquality -m public
+dagster asset materialize --select tag:tijuana -m tijuana
+dagster asset materialize --select tag:waterquality -m tijuana
 ```
 ### Development Server
 ```bash
-# Materialize specific assets
-cd workflows/public
-dagster dev -m public
+# All code locations
+uv run dagster dev
+
+# Single code location
+uv run dagster dev -m tijuana
 ```
 go to http://localhost:3000/

@@ -1,14 +1,21 @@
 load_from:
-
-  # module starting out with the definitions api
-  # - python_module: "workflows.tasks.tasks"
-
   - grpc_server:
-      host: dagster-code-resilient-public
+      host: dagster-code-${PROJECT}-tijuana
       port: 4000
-      location_name: "resilient-tasks"
+      location_name: "tijuana"
+  - grpc_server:
+      host: dagster-code-${PROJECT}-pathogens
+      port: 4000
+      location_name: "pathogens"
+  - grpc_server:
+      host: dagster-code-${PROJECT}-epidemiology
+      port: 4000
+      location_name: "epidemiology"
+  - grpc_server:
+      host: dagster-code-${PROJECT}-sim
+      port: 4000
+      location_name: "sim"
 #  - grpc_server:
-#      host: dagster-code-resilient-restricted
+#      host: dagster-code-${PROJECT}-restricted
 #      port: 4000
-#      location_name: "resilient-restricted"
-
+#      location_name: "restricted"

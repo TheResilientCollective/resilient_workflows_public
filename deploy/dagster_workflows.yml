@@ -18,8 +18,8 @@ services:
 ## GRPC servers are not just serving the code
 # they need to compile it, so same image for all dagster-*
 # for this a PROJECT IS REQUIRED to allow for multiple communities
-    dagster-code-public:
-        hostname: dagster-code-${PROJECT}-public
+    dagster-code-tijuana:
+        hostname: dagster-code-${PROJECT}-tijuana
         image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
         environment: &env
             - DEBUG_CONTAINER=${DEBUG_CONTAINER:-false}
@@ -44,7 +44,7 @@ services:
             - RESILIENT_DEFAULT_SCHEDULE_TIMEZONE=${RESILIENT_DEFAULT_SCHEDULE_TIMEZONE:-America/Los_Angeles}
             - RESILIENT_WORKSPACE_CONFIG_PATH=${RESILIENT_WORKSPACE_CONFIG_PATH}
             - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-            # these SLACK_ are evn variables used by the Dagster slack library
+            # these SLACK_ are env variables used by the Dagster slack library
             - SLACK_CHANNEL=${SLACK_CHANNEL:-"#test"}
             - SLACK_TOKEN=${SLACK_TOKEN}
             - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -83,36 +83,11 @@ services:
             - "-p"
             - "4000"
             - "-m"
-            - "workflows.public.public"
-            - "-d"
-            - "/usr/src/app/"
-
-        volumes: &codevol
-            - dagster-storage:/usr/src/app/storage
-        depends_on:
-            - dagster-postgres
-        networks:
-            - dagster_host
-            - traefik_proxy
-
-
-    dagster-code-tijuana:
-        hostname: dagster-code-${PROJECT}-tijuana
-        image: docker.io/resilientucsd/dagster-resilient-workflows:${CONTAINER_CODE_TAG:-latest}
-        environment: *env
-        command:
-            - "dagster"
-            - "code-server"
-            - "start"
-            - "-h"
-            - "0.0.0.0"
-            - "-p"
-            - "4000"
-            - "-m"
             - "tijuana"
             - "-d"
             - "/usr/src/app/"
-        volumes: *codevol
+        volumes: &codevol
+            - dagster-storage:/usr/src/app/storage
         depends_on:
             - dagster-postgres
         networks:
