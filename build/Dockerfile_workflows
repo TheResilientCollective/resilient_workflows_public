@@ -27,6 +27,7 @@ COPY workflows/tijuana/pyproject.toml workflows/tijuana/pyproject.toml
 COPY workflows/pathogens/pyproject.toml workflows/pathogens/pyproject.toml
 COPY workflows/epidemiology/pyproject.toml workflows/epidemiology/pyproject.toml
 COPY workflows/sim/pyproject.toml workflows/sim/pyproject.toml
+COPY workflows/resilient_core/src workflows/resilient_core/src
 RUN uv venv .venv
 RUN chmod +x .venv/bin/activate && .venv/bin/activate && \
     uv sync --all-packages --extra workflows
