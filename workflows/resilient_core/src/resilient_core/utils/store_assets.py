@@ -1,0 +1,320 @@
+import logging
+import json
+from typing import List, Optional
+
+import pandas as pd
+import geopandas as gpd
+import csv
+import os
+from datetime import datetime, timedelta
+import pytz
+
+import awswrangler as wr
+from dagster import get_dagster_logger
+from foursquare.data_sdk.models import DatasetMetadata
+
+from pydantic_schemaorg.Dataset import Dataset
+from pydantic_schemaorg.DataDownload import DataDownload
+from pydantic_schemaorg.URL import URL
+from pydantic_schemaorg.Organization import Organization
+from pydantic_schemaorg.PropertyValue import PropertyValue
+from ..resources.minio import S3Resource
+def getTodayAsIso():
+    return datetime.now(pytz.timezone('America/Los_Angeles')).isoformat()
+def fix_col_types(df, date_format=None):
+    columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
+    for col in columns:
+        get_dagster_logger().debug(f'fixing col {col} to {date_format}')
+        df[col] = df[col].apply(lambda x: x.strftime(date_format) if pd.notnull(x) and date_format else x.isoformat() if pd.notnull(x) else None)
+    return df
+def addLastUpdatedGeojson(json_str, date_str) -> str:
+    json_obj = json.loads(json_str)
+    json_obj['lastUpdated'] = date_str
+    return json.dumps(json_obj, indent=2)
+def addLastUpdatedRecords(json_str, date_str) -> str:
+    json_obj = json.loads(json_str)
+    new_json = {'lastUpdated': date_str, 'data': json_obj}
+    return json.dumps(new_json, indent=2)
+def get_latest_basepath() -> str:
+    """Get the LATEST_BASEPATH environment variable with fallback."""
+    latest= os.environ.get('LATEST_BASEPATH', 'latest')
+    if latest.endswith('/'):
+        latest = latest[:-1]
+    return latest
+
+def text_to_s3(textdata, path_w_name, s3_resource: S3Resource
+              , contenttype='text/plain'
+              , metadata=None,):
+    '''This will write out objectMetadata to as a file'''
+    object= s3_resource.putFile_text(data=textdata, path=f"{path_w_name}"
+                        , content_type=contenttype
+                        )
+    if metadata is not None:
+        metadata.distribution = distribution(contenttype, object)
+        metadata_to_s3(metadata, path_w_name, s3_resource)
+
+
+def raw_to_s3(rawdata, path_w_name, s3_resource:S3Resource
+              ,contenttype='application/octet-stream'
+              , metadata=None):
+
+    '''This will write out objectMetadata to as a file'''
+    object =s3_resource.putFile(data=rawdata, path=f"{path_w_name}"
+                             , content_type=contenttype
+                    )
+    if metadata is not None:
+        metadata.distribution = distribution(contenttype, object)
+        metadata_to_s3(metadata, path_w_name, s3_resource) # just append the metadata.json to the end of the path
+
+'''
+This stores a dataframe or a geodataframe to  s3
+If enable_lastest_path is true, a copy will be stored in the latest path
+
+'''
+def store_dataframe_to_s3(
+    df: pd.DataFrame,
+    path: str,
+    dataset_identifier:str,
+    s3_resource: S3Resource,
+    metadata=None,
+    latestdatasetpath=None,
+    enable_latest_path: bool = False,
+    formats=['csv', 'json']
+
+):
+    """
+    Helper function to store a DataFrame to S3 in two locations:
+    1. The original asset-defined path
+    2. The latest basepath + asset path (if enable_latest_path is True)
+
+    Handles GeoDataFrame conversion and metadata. Will output all default formats.
+    """
+    logger = get_dagster_logger()
+
+
+    if latestdatasetpath and latestdatasetpath.endswith('/'):
+        latestdatasetpath = latestdatasetpath[:-1]
+    if path and path.endswith('/'):
+        path = path[:-1]
+    path_w_basename =f"{path}/{dataset_identifier}"
+    if enable_latest_path:
+        latestdatasetpath_basename = f"{get_latest_basepath()}/{latestdatasetpath}/{dataset_identifier}"
+        lastest_metadtata = metadata.copy()
+        lastest_metadtata.name = f"latest {metadata.name}"
+        if lastest_metadtata.alternateName:
+            lastest_metadtata.alternateName = f"latest {metadata.alternateName}"
+        lastest_metadtata.description = f"latest {metadata.description}"
+
+    if isinstance(df, gpd.GeoDataFrame):
+        gdf = df
+        logger.info(
+            f"is a GeoDataFrame for {dataset_identifier} ")
+        # Step 1: Store in original asset-defined path
+        geodataframe_to_s3(gdf, path_w_basename, s3_resource, metadata=metadata, formats=formats)
+        logger.info(f"Stored GeoDataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
+
+        # Step 2: Store in latest basepath + asset path
+        if enable_latest_path:
+
+            geodataframe_to_s3(gdf, latestdatasetpath_basename, s3_resource, metadata=lastest_metadtata, formats=formats)
+            logger.info(f"Stored GeoDataFrame for {dataset_identifier} to latest path: s3://{s3_resource.S3_BUCKET}/{latestdatasetpath_basename}")
+
+    else:
+        logger.info(
+            f"Normal DataFrame for {dataset_identifier} ")
+
+        # Step 1: Store in original asset-defined path
+        dataframe_to_s3(df, path_w_basename, s3_resource, metadata=metadata, formats=formats)
+        logger.info(f"Stored DataFrame for {dataset_identifier} to S3: s3://{s3_resource.S3_BUCKET}/{path_w_basename}")
+
+        # Step 2: Store in latest basepath + asset path
+        if enable_latest_path:
+            dataframe_to_s3(df, latestdatasetpath_basename, s3_resource, metadata=lastest_metadtata, formats=formats)
+            logger.info(f"Stored DataFrame for {dataset_identifier} to latest path: s3://{s3_resource.S3_BUCKET}/{latestdatasetpath_basename}")
+
+def geodataframe_to_s3(geodataframe, path_w_basename, s3_resource:S3Resource,
+                       formats=[
+                             'geojson',
+                             'csv',
+                           #'json' # write a non-geometry json
+                            # 'parquet',
+                             # 'arrow',
+                         ], metadata=None
+
+                       ):
+    date = getTodayAsIso()
+    distributions:List[distribution]=[]
+    for format in formats:
+       if format == 'geojson':
+            df = fix_col_types(geodataframe)
+            gdf_json = df.to_json()
+            new_json = addLastUpdatedGeojson(gdf_json, date)
+            path = f"{path_w_basename}.geojson"
+            object = s3_resource.putFile_text(data=new_json, path=path)
+            distributions.append(distribution('geojson',object))
+       elif format == 'json':
+           df = fix_col_types(geodataframe)
+           new_df= df.drop(columns='geometry')
+           #gdf_json = df.to_json()
+           records= new_df.to_dict(orient='records')
+           cleaned_data = [
+               {k: v for k, v in record.items() if pd.notna(v)}
+               for record in records
+           ]
+           json_records = json.dumps(cleaned_data)
+           new_json =addLastUpdatedRecords(json_records, date)
+
+           path = f"{path_w_basename}.records.json"
+           object = s3_resource.putFile_text(data=new_json, path=path)
+           distributions.append(distribution('json', object))
+       elif format == 'csv':
+           complaints_csv = geodataframe.to_csv(index=False)
+           path = f"{path_w_basename}.csv"
+           object= s3_resource.putFile_text(data=complaints_csv, path=path)
+           distributions.append(distribution('csv', object))
+       elif format == 'parquet':
+           # https://github.com/aws/aws-sdk-pandas
+           # get the url to the minio, somewhere from the client.
+           get_dagster_logger().info("geodataframe_to_parquet removes geometry column")
+           dataframe = geodataframe.drop(columns='geometry')
+           dataframe = pd.DataFrame(dataframe)
+           path = f"{path_w_basename}.parquet"
+           parquet_object = dataframe.to_parquet()
+           object = s3_resource.putFile(data=parquet_object, path=path, content_type='application/vnd.apache.parquet')
+           distributions.append(distribution('parquet', object))
+           # path = f"{path_w_basename}.parquet"
+           # this wants an output path, aka file so some tempfile work needed
+           # parquet_object = geodataframe.to_parquet(output_path)
+           # object = s3_resource.putFile(data=parquet_object, path=path, content_type='application/vnd.apache.parquet')
+           # distributions.append(distribution('parquet', object))
+
+            # this would be writing a file directly to an Amazon Athena table
+           # object= wr.s3.to_parquet(
+           #     df=geodataframe,
+           #     path="s3://bucket/dataset/",
+           #     dataset=True,
+           #     database="my_db",
+           #     table="my_table"
+           # )
+           #distributions.append(distribution('parquet', object.name))
+    if metadata is not None:
+        metadata.distribution = distributions
+        metadata_to_s3(metadata, path_w_basename, s3_resource)
+
+def dataframe_to_s3(dataframe, path_w_basename, s3_resource:S3Resource,
+                         formats=[
+                             'csv',
+                             'json',
+
+                            # 'parquet',
+                             # 'arrow',
+                         ], metadata=None
+
+                          ):
+    date = getTodayAsIso()
+    distributions: List[distribution] = []
+    for format in formats:
+       if format == 'json':
+            if isinstance(dataframe, gpd.GeoDataFrame):
+                get_dagster_logger().info("dataframe_to_s3, pass format['csv','json','geojson] to get a flat json ")
+            df = fix_col_types(dataframe)
+            try:
+                gdf_json = df.to_json(orient='records')
+                new_json =addLastUpdatedRecords(gdf_json, date)
+
+                path = f"{path_w_basename}.json"
+                object= s3_resource.putFile_text(data=new_json, path=path)
+                distributions.append(distribution('json', object))
+            except Exception as e:
+                get_dagster_logger().info(f"dataframe_to_s3,failed to write json  {e}")
+       elif format == 'csv':
+           complaints_csv = dataframe.to_csv(index=False, date_format='%Y-%m-%dT%H:%M:%SZ')
+           path = f"{path_w_basename}.csv"
+           object= s3_resource.putFile_text(data=complaints_csv, path=path)
+           distributions.append(distribution('csv', object))
+       elif format == 'parquet':
+           # https://github.com/aws/aws-sdk-pandas
+           # get the url to the minio, somewhere from the client.
+           path = f"{path_w_basename}.parquet"
+           parquet_object = dataframe.to_parquet()
+           object = s3_resource.putFile(data=parquet_object, path=path, content_type='application/vnd.apache.parquet')
+           distributions.append(distribution('parquet', object))
+    if metadata is not None:
+        metadata.distribution = distributions
+        metadata_to_s3(metadata, path_w_basename, s3_resource)
+def series_to_s3(pdseries, path_w_basename, s3_resource:S3Resource,
+                         formats=[
+                             'csv',
+                             'json',
+
+                            # 'parquet',
+                             # 'arrow',
+                         ], metadata=None
+
+                          ):
+    date = getTodayAsIso()
+    distributions: List[distribution] = []
+    for format in formats:
+       if format == 'json':
+            if isinstance(pdseries, gpd.GeoDataFrame) or isinstance(pdseries, pd.DataFrame):
+                get_dagster_logger().info("series_to_s3, is for pandas series")
+            series  = pdseries #fix_col_types(dataframe)
+            gdf_json = series.to_json(orient='records')
+            new_json =addLastUpdatedRecords(gdf_json, date)
+
+            path = f"{path_w_basename}.json"
+            object= s3_resource.putFile_text(data=new_json, path=path)
+            distributions.append(distribution('json', object))
+       elif format == 'csv':
+           complaints_csv = pdseries.to_csv(index=False, date_format='%Y-%m-%dT%H:%M:%SZ')
+           path = f"{path_w_basename}.csv"
+           object= s3_resource.putFile_text(data=complaints_csv, path=path)
+           distributions.append(distribution('csv', object))
+       # elif format == 'parquet':
+       #     # https://github.com/aws/aws-sdk-pandas
+       #     # get the url to the minio, somewhere from the client.
+       #     pass
+       #     wr.s3.to_parquet(
+       #         df=pdseries,
+       #         path="s3://bucket/dataset/",
+       #         dataset=True,
+       #         database="my_db",
+       #         table="my_table"
+       #     )
+    if metadata is not None:
+        if metadata.distribution is not None and len(metadata.distribution ) >0:
+            metadata.distribution.extend(distributions)
+        else:
+            metadata.distribution = distributions
+        metadata_to_s3(metadata, path_w_basename, s3_resource)
+
+#### METADATA
+def variable(name=None,description=None,measurementTechnique=None,propertyID=None):
+    property = PropertyValue(name=None,description=None,measurementTechnique=None,propertyID=None)
+    return property
+
+def distribution(format, url):
+    download = DataDownload(encodingFormat=format, contentUrl=url)
+    return download
+def objectMetadata(name=None,altName=None, description=None,distribution:List[DataDownload]=[],
+                   source:Organization=None,
+                   variableMeasured=None, source_url=None) -> Dataset:
+    if source is not None:
+        url = URL(url=source_url)
+    else:
+        url= None
+    return Dataset(name=name,alternateName=altName, description=description,distribution=distribution,source=source,
+                   variableMeasured=variableMeasured,isBasedOn=url)
+
+def metadata_to_s3(metadata:objectMetadata, path_w_basename, s3_resource,):
+    '''This will write out objectMetadata to as a file'''
+
+    s3_resource.putFile_text(data=metadata.json(indent=2), path=f"{path_w_basename}.metadata.json")
+
+
+
+def metadata_to_airtable(metadata: objectMetadata, airtable_basename, formats=['csv'],  ):
+    '''This will write out objectMetadata to airtable'''
+    name = metadata.name
+
+    pass
