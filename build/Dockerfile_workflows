@@ -29,7 +29,7 @@ COPY workflows/epidemiology/pyproject.toml workflows/epidemiology/pyproject.toml
 COPY workflows/sim/pyproject.toml workflows/sim/pyproject.toml
 RUN uv venv .venv
 RUN chmod +x .venv/bin/activate && .venv/bin/activate && \
-    uv sync --all-packages --extra workflows --no-install-project
+    uv sync --all-packages --extra workflows
 
 # Stage 2: Create the runtime image
 FROM --platform=linux/amd64 python:3.12-slim
