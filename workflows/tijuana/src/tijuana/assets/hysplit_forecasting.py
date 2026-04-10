@@ -1519,3 +1519,114 @@ def modeldata_forecast_15min(
         formats=["csv", "parquet"], metadata=metadata,
     )
     return merged
+
+
+@asset(
+    group_name="tijuana",
+    key_prefix="h2sforecast",
+    name="modeldata_h2s_15min_24hour",
+    required_resource_keys={"s3"},
+    ins={
+        "modeldata_forecast_15min": AssetIn(key=AssetKey(["h2sforecast", "modeldata_forecast_15min"])),
+    },
+    metadata={
+        "source": "San Diego APCD H2S sensors, OpenMeteo 15-min forecast",
+        "description": (
+            "Past 24 h of H2S observations merged with 15-min meteorological context "
+            "for emission source analysis. Includes wind regime, atmospheric stability, "
+            "tidal state, streamflow, and SBIWTP effluent."
+        ),
+        "variableMeasured": ["H2S", "Wind Direction", "Wind Speed", "Source Regime"],
+    },
+    automation_condition=AutomationCondition.eager(),
+)
+def modeldata_h2s_15min_24hour(context, modeldata_forecast_15min):
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    variableMeasured = meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(
+        name=str(context.asset_key.path[-1]),
+        description=description,
+        source_url=source_url,
+        variableMeasured=variableMeasured,
+    )
+
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    # --- Step 1: Filter 15-min data to past rows only ---
+    # forecast_features.engineer_features converts time to UTC; normalize back to LA for consistency.
+    now = pd.Timestamp.now(tz="America/Los_Angeles")
+    modeldata_forecast_15min = modeldata_forecast_15min.copy()
+    modeldata_forecast_15min["time"] = pd.to_datetime(
+        modeldata_forecast_15min["time"], utc=True
+    ).dt.tz_convert("America/Los_Angeles")
+    past_df = modeldata_forecast_15min[modeldata_forecast_15min["time"] <= now].copy()
+    logger.info(f"Past 15-min rows: {len(past_df)} up to {now}")
+
+    # --- Step 2: Load H2S observations from S3 ---
+    duckdb_con = duckdb_connection(s3_resource)
+    h2s_files = f"s3://{s3_resource.S3_BUCKET}/{H2S_PATH}/{PARQUET_PATTERN}"
+    try:
+        h2s_raw = duckdb_con.read_parquet(h2s_files).df()
+    except Exception as e:
+        logger.error(f"Failed to load H2S parquet files {h2s_files}: {e}")
+        raise
+
+    try:
+        h2s_raw["time"] = pd.to_datetime(h2s_raw["Date with time"], utc=True).dt.tz_convert("America/Los_Angeles")
+        h2s_raw = h2s_raw.rename(columns={"SiteName": "site_name", "Result": "H2S"})
+        h2s_raw["site_name"] = h2s_raw["site_name"].str.strip()
+        cutoff = now - pd.Timedelta(hours=24)
+        h2s_raw = h2s_raw[h2s_raw["time"] >= cutoff]
+        h2s_raw = (
+            h2s_raw.sort_values("time")
+            .drop_duplicates(subset=["time", "site_name"], keep="last")
+        )
+        logger.info(f"H2S observations: {len(h2s_raw)} rows across sites {h2s_raw['site_name'].unique().tolist()}")
+    except Exception as e:
+        logger.error(f"Failed to process H2S data: {e}")
+        raise
+
+    # --- Step 3: Merge H2S onto 15-min met context ---
+    merged = pd.merge_asof(
+        past_df.sort_values("time"),
+        h2s_raw[["time", "site_name", "H2S"]].sort_values("time"),
+        on="time",
+        by="site_name",
+        direction="nearest",
+        tolerance=pd.Timedelta("30min"),
+    )
+    logger.info(f"Merged rows: {len(merged)}, H2S non-null: {merged['H2S'].notna().sum()}")
+
+    # --- Step 4: H2S risk classification ---
+    merged["h2s_risk"] = "GREEN"
+    merged.loc[merged["H2S"] > 5,  "h2s_risk"] = "YELLOW_LOW"
+    merged.loc[merged["H2S"] > 10, "h2s_risk"] = "YELLOW_HIGH"
+    merged.loc[merged["H2S"] > 30, "h2s_risk"] = "ORANGE"
+
+    # --- Step 5: Select source-analysis columns (keep only what exists) ---
+    desired_cols = [
+        "time", "site_name", "H2S", "h2s_risk",
+        "day_night", "is_night", "source_regime", "stable_atm",
+        "wind_direction_10m", "wind_direction_categorical", "wind_speed_10m", "wind_gusts_10m",
+        "temperature_2m", "relative_humidity_2m", "dewpoint_2m", "precipitation",
+        "surface_pressure", "cloud_cover",
+        "tide_height", "tidal_state_encoded",
+        "Flow (m^3/s)--Border",
+        "sbiwtp_flow_mgd", "sbiwtp_sli",
+        "hour_sin", "hour_cos", "month_sin", "month_cos",
+    ]
+    output_cols = [c for c in desired_cols if c in merged.columns]
+    missing = [c for c in desired_cols if c not in merged.columns]
+    if missing:
+        logger.warning(f"Columns not available, skipped: {missing}")
+    merged = merged[output_cols]
+
+    store_assets.store_dataframe_to_s3(
+        merged, OUTPUT_PATH, "modeldata_h2s_15min_24hour", s3_resource,
+        latestdatasetpath=LATEST, enable_latest_path=True,
+        formats=["csv", "parquet"], metadata=metadata,
+    )
+    return merged

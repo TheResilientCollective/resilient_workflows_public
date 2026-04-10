@@ -50,6 +50,7 @@ from .hysplit_forecasting import (
     h2s_exceedance_periods_filter,
     model_forecast,
     modeldata_forecast_15min,
+    modeldata_h2s_15min_24hour,
 )
 from .tides import (
     tides_all_job,
