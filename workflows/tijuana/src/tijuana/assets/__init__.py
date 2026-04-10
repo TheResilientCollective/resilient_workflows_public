@@ -35,7 +35,8 @@ from .ibwc_spills import (
     spills, spills_last, spills_latest_sensor, spills_reports, spills_all, spills_historic_schedule)
 from .openmeteo import (forecast,
                         weather_historical,
-weather_current_year,
+                        weather_current_year,
+                        forecast_15min,
                         weather_all_schedule)
 from .gis import subregions, tracts
 from .airnow import (get_aq_combined_kml, get_aq_forecast, get_aq_site, aq_combined_geojson
@@ -48,6 +49,7 @@ from .hysplit_forecasting import (
     h2s_peaks_analysis,
     h2s_exceedance_periods_filter,
     model_forecast,
+    modeldata_forecast_15min,
 )
 from .tides import (
     tides_all_job,

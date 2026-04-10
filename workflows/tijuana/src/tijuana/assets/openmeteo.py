@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
+import json
 import re
 
 import openmeteo_requests
@@ -388,10 +389,135 @@ def weather_current_year(context):
     return combined_df
 
 
+MINUTELY_15_VARIABLES = [
+    "temperature_2m",
+    "relative_humidity_2m",
+    "dew_point_2m",
+    "precipitation",
+    "is_day",
+    "wind_gusts_10m",
+    "wind_speed_10m",
+    "wind_direction_10m",
+    "weather_code",
+]
+
+
+@asset(
+    group_name="tijuana",
+    key_prefix="weather",
+    name="openmeteo_15min_forecast",
+    required_resource_keys={"s3"},
+    automation_condition=AutomationCondition.eager(),
+    metadata={
+        "source": "https://api.open-meteo.com/v1/forecast",
+        "description": "15-minute resolution weather for SD APCD sites: past 24 h and next 24 h",
+    },
+)
+def forecast_15min(context):
+    """Fetch 15-minute weather data (±96 intervals = ±24 h) for all SD APCD sites in a single
+    batch call and store per-site and combined outputs to S3."""
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    metadata = store_assets.objectMetadata(
+        name=str(context.asset_key.path[-1]),
+        description=description,
+        source_url=source_url,
+    )
+
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    locations = load_sites()
+    locations = locations[locations["site_name"] != "EL CAJON LES"].reset_index(drop=True)
+
+    cache_session = requests_cache.CachedSession(".cache", expire_after=900)
+    retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
+    openmeteo = openmeteo_requests.Client(session=retry_session)
+
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": locations["lat"].tolist(),
+        "longitude": locations["lon"].tolist(),
+        "minutely_15": MINUTELY_15_VARIABLES,
+        "forecast_minutely_15": 96,
+        "past_minutely_15": 96,
+        "elevation": [0.0] * len(locations),
+    }
+
+    # Store raw API response before processing
+    raw_params = {
+        "latitude": ",".join(str(x) for x in params["latitude"]),
+        "longitude": ",".join(str(x) for x in params["longitude"]),
+        "minutely_15": ",".join(MINUTELY_15_VARIABLES),
+        "forecast_minutely_15": 96,
+        "past_minutely_15": 96,
+        "elevation": ",".join(str(x) for x in params["elevation"]),
+    }
+    raw_response = cache_session.get(url, params=raw_params)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    raw_path = f"{s3_output_path}/raw/forecast_15min/forecast_15min_{timestamp}.json"
+    s3_resource.putFile_text(
+        raw_response.text,
+        path=raw_path,
+        content_type="application/json",
+    )
+    logger.info(f"Stored raw 15-min response to {raw_path}")
+
+    responses = openmeteo.weather_api(url, params=params)
+
+    all_frames = []
+    for i, response in enumerate(responses):
+        site_name = locations.loc[i, "site_name"]
+        logger.info(f"Processing 15-min data for {site_name} ({response.Latitude()}°N {response.Longitude()}°E)")
+
+        m15 = response.Minutely15()
+        timestamps = pd.date_range(
+            start=pd.to_datetime(m15.Time(), unit="s", utc=True),
+            end=pd.to_datetime(m15.TimeEnd(), unit="s", utc=True),
+            freq=pd.Timedelta(seconds=m15.Interval()),
+            inclusive="left",
+        )
+
+        frame_data = {"time": timestamps}
+        for j, var_name in enumerate(MINUTELY_15_VARIABLES):
+            frame_data[var_name] = m15.Variables(j).ValuesAsNumpy()
+        frame_data["site_name"] = site_name
+
+        site_df = pd.DataFrame(frame_data)
+        all_frames.append(site_df)
+
+        site_slug = site_name_to_slug(site_name)
+        store_assets.store_dataframe_to_s3(
+            site_df,
+            f"{s3_output_path}/output/forecast_15min/{site_slug}/",
+            "forecast_15min",
+            s3_resource,
+            metadata=metadata,
+            enable_latest_path=True,
+            latestdatasetpath=f"{s3_output_path}_15min/{site_slug}",
+            formats=["csv", "parquet"],
+        )
+
+    combined_df = pd.concat(all_frames, ignore_index=True)
+    store_assets.store_dataframe_to_s3(
+        combined_df,
+        f"{s3_output_path}/output/forecast_15min/all/",
+        "forecast_15min",
+        s3_resource,
+        metadata=metadata,
+        enable_latest_path=True,
+        latestdatasetpath=f"{s3_output_path}_15min",
+        formats=["csv", "parquet"],
+    )
+    return combined_df
+
+
 weather_all_job = define_asset_job(
     "weather_all", selection=[
         AssetKey(["weather", "openmeteo_forecast"]),
         AssetKey(["weather", "openmeteo_current_year"]),
+        AssetKey(["weather", "openmeteo_15min_forecast"]),
     ]
 )
 

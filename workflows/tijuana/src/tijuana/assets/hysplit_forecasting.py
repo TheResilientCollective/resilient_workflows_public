@@ -1263,3 +1263,259 @@ def model_forecast(context, openmeteo_forecast, tidal_forecast, streamflow_forec
         formats=['csv', 'parquet'], metadata=metadata,
     )
     return merged
+
+
+@asset(
+    group_name="tijuana",
+    key_prefix="h2sforecast",
+    name="modeldata_forecast_15min",
+    required_resource_keys={"s3"},
+    ins={
+        "openmeteo_15min_forecast": AssetIn(key=AssetKey(["weather", "openmeteo_15min_forecast"])),
+        "openmeteo_forecast": AssetIn(key=AssetKey(["weather", "openmeteo_forecast"])),
+        "tidal_forecast": AssetIn(key=AssetKey(["tides", "tidal_forecast"])),
+        "streamflow_forecast": AssetIn(key=AssetKey(["streamflow", "streamflow_forecast"])),
+        "modeldata_h2s_nofill": AssetIn(key=AssetKey(["h2sforecast", "modeldata_h2s_nofill"])),
+    },
+    metadata={
+        "source": "OpenMeteo 15-min forecast, NOAA tidal predictions, IBWC streamflow forecast",
+        "description": (
+            "15-minute resolution forecast feature dataset (±24 h). "
+            "Past 24 h for emission source analysis; future 24 h for model predictions."
+        ),
+        "variableMeasured": ["Wind Direction", "Wind Speed", "Tide Height", "Streamflow"],
+    },
+    automation_condition=AutomationCondition.eager(),
+)
+def modeldata_forecast_15min(
+    context,
+    openmeteo_15min_forecast,
+    openmeteo_forecast,
+    tidal_forecast,
+    streamflow_forecast,
+    modeldata_h2s_nofill,
+):
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    variableMeasured = meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(
+        name=str(context.asset_key.path[-1]),
+        description=description,
+        source_url=source_url,
+        variableMeasured=variableMeasured,
+    )
+
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    # --- Weather (15-min) ---
+    weather_df = openmeteo_15min_forecast.copy()
+    weather_df["time"] = weather_df["time"].dt.tz_convert("America/Los_Angeles")
+    weather_df["site_name"] = weather_df["site_name"].str.strip()
+    # Rename for MODEL_FEATURES compatibility (hourly uses dewpoint_2m)
+    if "dew_point_2m" in weather_df.columns:
+        weather_df = weather_df.rename(columns={"dew_point_2m": "dewpoint_2m"})
+    weather_df = weather_df.sort_values(["site_name", "time"]).reset_index(drop=True)
+
+    # --- Merge surface_pressure and cloud_cover from hourly forecast (nearest-neighbor) ---
+    hourly_df = openmeteo_forecast.copy()
+    hourly_df = hourly_df.rename(columns={"date": "time"})
+    hourly_df["time"] = hourly_df["time"].dt.tz_convert("America/Los_Angeles")
+    hourly_df["site_name"] = hourly_df["site_name"].str.strip()
+    hourly_cols = ["time", "site_name"] + [
+        c for c in ("surface_pressure", "cloud_cover") if c in hourly_df.columns
+    ]
+    hourly_df = hourly_df[hourly_cols].sort_values(["site_name", "time"]).reset_index(drop=True)
+    weather_df = pd.merge_asof(
+        weather_df.sort_values("time"),
+        hourly_df.sort_values("time"),
+        on="time",
+        by="site_name",
+        direction="nearest",
+    )
+    logger.info("Merged surface_pressure and cloud_cover from hourly forecast")
+
+    # Wind direction trig/categorical features (add_wind_features uses row-count windows)
+    weather_df = add_wind_features(weather_df, logger)
+
+    # Overwrite rolling windows with time-correct values: 8/12/16 rows = 2h/3h/4h at 15-min
+    for n_rows, label in [(8, "2h"), (12, "3h"), (16, "4h")]:
+        weather_df[f"wind_speed_10m_avg_{label}"] = (
+            weather_df.groupby("site_name")["wind_speed_10m"]
+            .transform(lambda x: x.rolling(window=n_rows, min_periods=1).mean())
+        )
+        weather_df[f"wind_gusts_10m_max_{label}"] = (
+            weather_df.groupby("site_name")["wind_gusts_10m"]
+            .transform(lambda x: x.rolling(window=n_rows, min_periods=1).max())
+        )
+
+    # Derive day_night from OpenMeteo is_day flag (avoids re-computing astral sunrise/sunset)
+    weather_df["day_night"] = weather_df["is_day"].map({1: "day", 0: "night"}).fillna("night")
+
+    # Guard: wind_direction_10m is required by add_inference_features but may be absent
+    # in data materialized before it was added to MINUTELY_15_VARIABLES.
+    # NaN wind direction causes source_regime to return 0 (all comparisons with NaN are False).
+    if "wind_direction_10m" not in weather_df.columns:
+        logger.warning(
+            "wind_direction_10m not found in 15-min data — source_regime will default to 0. "
+            "Re-materialize openmeteo_15min_forecast to restore full functionality."
+        )
+        weather_df["wind_direction_10m"] = np.nan
+
+    weather_df = weather_df.sort_values("time").reset_index(drop=True)
+    logger.info(
+        f"15-min weather: {len(weather_df)} rows "
+        f"({weather_df['time'].min()} → {weather_df['time'].max()}), "
+        f"sites: {weather_df['site_name'].unique().tolist()}"
+    )
+
+    # --- Tidal ---
+    tidal_df = tidal_forecast.copy()
+    tidal_df["time"] = (
+        pd.to_datetime(tidal_df["time"]).dt.tz_localize("UTC").dt.tz_convert("America/Los_Angeles")
+    )
+    tidal_df = add_tidal_encoding(tidal_df)
+    tidal_df = tidal_df.sort_values("time").reset_index(drop=True)
+    logger.info(f"Tidal forecast: {len(tidal_df)} rows")
+
+    # --- Streamflow ---
+    streamflow_df = streamflow_forecast.copy()
+    streamflow_df["time"] = (
+        pd.to_datetime(streamflow_df["time"]).dt.tz_localize("UTC").dt.tz_convert("America/Los_Angeles")
+    )
+    streamflow_df = streamflow_df.rename(columns={"Average (m^3/s)": "Flow (m^3/s)--Border"})
+    streamflow_df = streamflow_df.sort_values("time").reset_index(drop=True)
+    logger.info(f"Streamflow forecast: {len(streamflow_df)} rows")
+
+    # --- Merge (nearest-neighbor; tidal and streamflow are hourly) ---
+    merged = pd.merge_asof(weather_df, tidal_df, on="time", direction="nearest")
+    merged = pd.merge_asof(merged, streamflow_df, on="time", direction="nearest")
+    logger.info(f"Merged 15-min forecast: {len(merged)} rows")
+
+    # --- Inference features (temporal cyclicals, source regime, flow transforms) ---
+    merged = add_inference_features(merged, logger)
+
+    # --- SBIWTP effluent flow persistence forecast ---
+    now = pd.Timestamp.now(tz="America/Los_Angeles").floor("15min")
+    try:
+        duckdb_con = duckdb_connection(s3_resource)
+        effluent_today_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_TODAY}/{CSV_PATTERN}"
+        effluent_today_df = duckdb_con.read_csv(effluent_today_files, null_padding=True).df()
+
+        time_col = next(
+            (c for c in effluent_today_df.columns if "timestamp" in c.lower() or "time" in c.lower()),
+            None,
+        )
+        if not time_col:
+            index_name = effluent_today_df.index.name
+            if index_name and isinstance(index_name, str) and (
+                "timestamp" in index_name.lower() or "time" in index_name.lower()
+            ):
+                time_col = index_name
+                effluent_today_df = effluent_today_df.reset_index()
+
+        value_col = next(
+            (
+                c for c in effluent_today_df.columns
+                if c != time_col and pd.api.types.is_numeric_dtype(effluent_today_df[c])
+            ),
+            None,
+        )
+        if time_col and value_col:
+            effluent_today_df["time"] = (
+                pd.to_datetime(effluent_today_df[time_col])
+                .dt.tz_localize("Etc/GMT+8")
+                .dt.tz_convert("America/Los_Angeles")
+            )
+            today_mgd = effluent_today_df[value_col].mean()
+            logger.info(f"SBIWTP today's mean effluent flow: {today_mgd:.2f} MGD")
+
+            effluent_current_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}/{PARQUET_PATTERN}"
+            effluent_hist_df = duckdb_con.read_parquet(effluent_current_files, union_by_name=True).df()
+            hist_time_col = next(
+                (c for c in effluent_hist_df.columns if "timestamp" in c.lower() or "time" in c.lower()),
+                None,
+            )
+            if not hist_time_col:
+                hist_index_name = effluent_hist_df.index.name
+                if hist_index_name and isinstance(hist_index_name, str) and (
+                    "timestamp" in hist_index_name.lower() or "time" in hist_index_name.lower()
+                ):
+                    hist_time_col = hist_index_name
+                    effluent_hist_df = effluent_hist_df.reset_index()
+
+            hist_value_col = next(
+                (
+                    c for c in effluent_hist_df.columns
+                    if c != hist_time_col and pd.api.types.is_numeric_dtype(effluent_hist_df[c])
+                ),
+                None,
+            )
+            if hist_time_col and hist_value_col:
+                effluent_hist_df["time"] = (
+                    pd.to_datetime(effluent_hist_df[hist_time_col])
+                    .dt.tz_localize("Etc/GMT+8")
+                    .dt.tz_convert("America/Los_Angeles")
+                )
+                hist_series = effluent_hist_df.set_index("time")[hist_value_col].rename("sbiwtp_flow_mgd")
+                mean_30d = hist_series.last("30D").mean()
+            else:
+                hist_series = pd.Series(dtype=float)
+                mean_30d = today_mgd
+
+            forecast_dates = merged["time"].dt.normalize().unique()
+            today_date = now.normalize()
+            mgd_by_date = {}
+            for d in forecast_dates:
+                hours_ahead = (d - today_date).total_seconds() / 3600
+                if hours_ahead <= 24:
+                    mgd_by_date[d] = today_mgd
+                elif hours_ahead <= 48:
+                    mgd_by_date[d] = today_mgd
+                else:
+                    days_beyond = (hours_ahead - 48) / 24
+                    decay_factor = np.exp(-np.log(2) / 2.5 * days_beyond)
+                    mgd_by_date[d] = today_mgd * decay_factor + mean_30d * (1 - decay_factor)
+
+            sbiwtp_forecast_series = pd.Series(
+                {d: mgd_by_date.get(d, mean_30d) for d in forecast_dates},
+                name="sbiwtp_flow_mgd",
+            )
+            combined_series = pd.concat([hist_series, sbiwtp_forecast_series.rename("sbiwtp_flow_mgd")])
+            merged = add_sbiwtp_features(merged, combined_series, logger)
+        else:
+            logger.warning("Could not parse SBIWTP today CSV — skipping SBIWTP forecast features")
+            for col in ["sbiwtp_flow_mgd", "sbiwtp_anomaly", "sbiwtp_deficit",
+                        "sbiwtp_flow_x_temp", "sbiwtp_hourly_mgd", "sbiwtp_sli"]:
+                merged[col] = np.nan
+    except Exception as e:
+        logger.warning(f"SBIWTP forecast features failed, continuing without them: {e}")
+        for col in ["sbiwtp_flow_mgd", "sbiwtp_anomaly", "sbiwtp_deficit",
+                    "sbiwtp_flow_x_temp", "sbiwtp_hourly_mgd", "sbiwtp_sli"]:
+            merged[col] = np.nan
+
+    # --- Feature engineering: H2S persistence seeded from last observations ---
+    try:
+        obs_df = modeldata_h2s_nofill.copy()
+        obs_df = obs_df[(obs_df["h2s_measured"] == True) & (obs_df["H2S"] <= 500)]
+        cutoff = now - pd.Timedelta(hours=48)
+        obs_df = obs_df[obs_df["time"] >= cutoff]
+        logger.info(f"Using {len(obs_df)} observation rows for feature engineering")
+        merged = forecast_features.engineer_features(merged, obs_df)
+        missing = [f for f in forecast_features.MODEL_FEATURES if f not in merged.columns]
+        if missing:
+            logger.warning(f"Still missing features after engineering: {missing}")
+        else:
+            logger.info("All MODEL_FEATURES successfully populated")
+    except Exception as e:
+        logger.warning(f"Feature engineering failed, some features may be missing: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+    store_assets.store_dataframe_to_s3(
+        merged, OUTPUT_PATH, "modeldata_forecast_15min", s3_resource,
+        latestdatasetpath=LATEST, enable_latest_path=True,
+        formats=["csv", "parquet"], metadata=metadata,
+    )
+    return merged
