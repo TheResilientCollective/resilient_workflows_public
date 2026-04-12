@@ -792,10 +792,10 @@ def data_for_hysplit(context, data_for_models):
     key_prefix="h2sforecast",
     name="h2s_peaks",
     required_resource_keys={"s3"},
-    deps=[AssetKey(["h2sforecast", 'modeldata_h2s'])],
+    deps=[AssetKey(["h2sforecast", 'modeldata_h2s_nofill'])],
     ins={
         "modeldata_h2s": AssetIn(
-            key=AssetKey(['h2sforecast', 'modeldata_h2s'])
+            key=AssetKey(['h2sforecast', 'modeldata_h2s_nofill'])
         )
     },
     metadata={
@@ -915,13 +915,13 @@ def h2s_peaks_analysis(context, modeldata_h2s):
     key_prefix="h2sforecast",
     name="h2s_exceedance_periods",
     required_resource_keys={"s3"},
-    deps=[AssetKey(["h2sforecast", 'h2s_peaks']), AssetKey(["h2sforecast", 'modeldata_h2s'])],
+    deps=[AssetKey(["h2sforecast", 'h2s_peaks']), AssetKey(["h2sforecast", 'modeldata_h2s_nofill'])],
     ins={
         "h2s_peaks": AssetIn(
             key=AssetKey(['h2sforecast', 'h2s_peaks'])
         ),
         "modeldata_h2s": AssetIn(
-            key=AssetKey(['h2sforecast', 'modeldata_h2s'])
+            key=AssetKey(['h2sforecast', 'modeldata_h2s_nofill'])
         )
     },
     metadata={
