@@ -251,8 +251,28 @@ def highh2s(context, current_apcd: gpd.GeoDataFrame):
         automation_condition=AutomationCondition.eager()
        )
 def hs2_latest(context, current_apcd: gpd.GeoDataFrame):
+    """Produce yesterday+today H2S readings for all APCD sites.
 
+    Writes `hs2_current` (one row per site, latest value) and `hs2_lastday`
+    (all rows for yesterday+today) to the public S3 prefix.
 
+    Sensor-watch contract
+    ---------------------
+    The `hs2_lastday.csv` file produced here is consumed by
+    `apcd_sensor_watch_sensor` in the `tj_h2s_prediction` repo
+    (projects/h2s/src/h2s/defs/apcd_sensor_watch.py). That sensor polls
+    every 5 minutes, correlates readings with model predictions, and fires
+    Slack alerts + archives structured event reports at
+    `tijuana/forecast/sensor_events/`.
+
+    The following columns are part of the contract and MUST NOT be renamed
+    or removed without coordinating with the downstream consumer:
+      - ``Site Name`` (string, APCD site)
+      - ``Parameter`` (string, filtered to ``07 H2S PPB``)
+      - ``Result`` (numeric, ppb)
+      - ``Date with time`` (timezone-aware timestamp)
+      - ``level`` (categorical: green/yellow/orange/purple)
+    """
     s3_resource = context.resources.s3
     slack = context.resources.slack
 
