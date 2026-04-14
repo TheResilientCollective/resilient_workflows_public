@@ -1,6 +1,9 @@
 import io
 import os
 import tempfile
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from operator import truediv
 
 import dagster
@@ -65,6 +68,14 @@ FORECAST_NETLIFY_REJECT_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_MESSAGE"
 FORECAST_NETLIFY_REJECT_2_MESSAGE=os.environ.get("FORECAST_NETLIFY_REJECT_2_MESSAGE","Editing interface is being worked on." )
 
 TRIGGER_PREVIEW_HOOK=os.environ.get("TRIGGER_PREVIEW_HOOK")
+
+# Email configuration
+EMAIL_SMTP_SERVER = os.environ.get("EMAIL_SMTP_SERVER", "smtp.gmail.com")
+EMAIL_SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", 587))
+EMAIL_FROM = os.environ.get("EMAIL_FROM")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+EMAIL_TO = os.environ.get("EMAIL_TO")
+EMAIL_ENABLED = os.environ.get("EMAIL_ENABLED", "false").lower() == "true"
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDID=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDID","rec4NITTQNAONirhd")
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME","CoSD-ILI-Report")
 FORECAST_AIRTABLE_RSV_UPDATES_TABLE_ID=os.environ.get("FORECAST_AIRTABLE_UPDATES_TABLE_ID","Updates") # Updates
@@ -995,6 +1006,23 @@ def resilientllm_by_disease_asset(context):
         # except:
         #     pass
 
+        # Send email notification after LLM call
+        try:
+            email_subject = f"Resilient LLM forecast generated — {date_path}"
+            email_body = f"The ResilientLLM forecast for San Diego epidemiology has been generated on {date_path}.\n\nDiseases: {', '.join(diseases_config.keys())}\n\nThis is an automated notification from the Resilient Workflows system."
+            email_html = f"""<!DOCTYPE html>
+<html>
+<body>
+    <p>The ResilientLLM forecast for San Diego epidemiology has been generated on {date_path}.</p>
+    <p><strong>Diseases:</strong> {', '.join(diseases_config.keys())}</p>
+    <hr>
+    <small>This is an automated notification from the Resilient Workflows system.</small>
+</body>
+</html>"""
+            send_email(email_subject, email_body, email_html)
+        except Exception as e:
+            get_dagster_logger().error(f"Email notification failed: {e}")
+
         # Create deployment configuration and trigger deploy
         deploy_config = DeployConfig(
             asset_name=f"resilientllm_sd_disease new layout {date_path}",
@@ -1100,6 +1128,35 @@ def create_deploy_config(asset_name: str, metadata: Optional[str] = "optional-me
         deploy_url=FORECAST_NETLIFY_PRODUCTION_URL,
         reject_message=FORECAST_NETLIFY_REJECT_MESSAGE
     )
+
+
+def send_email(subject: str, body: str, html_body: str | None = None) -> bool:
+    """Send an email notification via SMTP."""
+    logger = get_dagster_logger()
+    if not EMAIL_ENABLED or not EMAIL_FROM or not EMAIL_TO:
+        logger.info("Email not configured or disabled, skipping email notification")
+        return False
+    if not EMAIL_PASSWORD:
+        logger.error("EMAIL_PASSWORD not configured")
+        return False
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['From'] = EMAIL_FROM
+        msg['Subject'] = subject
+        recipients = [addr.strip() for addr in EMAIL_TO.split(',')]
+        msg['To'] = ', '.join(recipients)
+        msg.attach(MIMEText(body, 'plain'))
+        if html_body:
+            msg.attach(MIMEText(html_body, 'html'))
+        with smtplib.SMTP(EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_FROM, EMAIL_PASSWORD)
+            server.send_message(msg, to_addrs=recipients)
+        logger.info(f"Email sent to {', '.join(recipients)}")
+        return True
+    except Exception as e:
+        logger.error(f"Error sending email: {e}")
+        return False
 
 
 def trigger_deploy(config: DeployConfig) -> bool:
