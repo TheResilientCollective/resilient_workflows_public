@@ -27,7 +27,7 @@ source .venv/bin/activate
 ```
 
 ### Configuration
-Environment variables are pre-configured in `workflows/.env` for development. Load them using:
+Environment variables are pre-configured in `workflows/.env` for development (use `workflows/.env.example` as a template). Load them using:
 ```bash
 export $(grep -v '^#' workflows/.env | xargs)
 ```
@@ -39,6 +39,7 @@ The workflows/.env file contains all necessary API keys and configuration:
 - **Slack**: SLACK_TOKEN, SLACK_CHANNEL, SLACK_SIMS_CHANNEL
 - **ResilientSims**: RESILIENTSIMS_* configuration variables
 - **Forecast/Netlify**: Various webhook and portal URLs
+- **Email**: EMAIL_ENABLED, EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT, EMAIL_FROM, EMAIL_PASSWORD, EMAIL_TO — used by `workflows/sim` (LLM forecast notification) and `netlify_triggers` (deployment approval notification). Set `EMAIL_ENABLED=true` to activate; supports Gmail SMTP and Office 365 OAuth2 (via `netlify_triggers/email_oauth.py`).
 
 For manual setup, you can also set individual environment variables:
 ```bash
