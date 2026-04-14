@@ -1,7 +1,37 @@
 import io
+import os
+
+import geopandas as gpd
 import pandas as pd
+import requests
 from dagster import asset, AutomationCondition, AssetKey, get_dagster_logger
 from resilient_core.utils import store_assets
+
+# Direct GeoJSON URLs — no zip extraction needed, readable via requests + BytesIO
+NE_STATES_URL = os.environ.get(
+    "NE_STATES_URL",
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_1_states_provinces.geojson",
+)
+# TIGERweb REST API returns GeoJSON directly for California (FIPS 06) counties
+TIGER_CA_COUNTIES_URL = os.environ.get(
+    "TIGER_CA_COUNTIES_URL",
+    "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query"
+    "?where=STATE%3D%2706%27&outFields=NAME&f=geojson&resultRecordCount=100",
+)
+
+# Jurisdictions that are California counties, not states
+_COUNTY_JURISDICTIONS = {"San Diego", "Los Angeles", "San Francisco"}
+
+
+def _fetch_geodataframe(url: str, timeout: int = 60) -> gpd.GeoDataFrame:
+    """Fetch a GeoJSON URL and return a GeoDataFrame.
+
+    Uses requests so that both plain GeoJSON files and REST API endpoints
+    work reliably without relying on GDAL's /vsicurl/ handler.
+    """
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return gpd.read_file(io.BytesIO(resp.content))
 
 s3_aggregated_path = 'pathogens/diseases/mpox/aggregated'
 s3_aggregated_latest = 'pathogens/mpox/aggregated'
@@ -125,3 +155,90 @@ def mpox_aggregated(context):
         enable_latest_path=True,
         latestdatasetpath=s3_aggregated_latest,
     )
+
+
+@asset(
+    group_name="pathogens",
+    key_prefix="mpox",
+    name="mpox_aggregated_geo",
+    deps=[AssetKey(["mpox", "mpox_aggregated"])],
+    required_resource_keys={"s3"},
+    automation_condition=AutomationCondition.eager(),
+    description=(
+        "GeoJSON of aggregated MPOX data — all weeks, one polygon feature per "
+        "jurisdiction per week. States use Natural Earth 50m boundaries; "
+        "San Diego, Los Angeles, and San Francisco use Census TIGERweb county polygons."
+    ),
+)
+def mpox_aggregated_geo(context):
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+    latest_base = store_assets.get_latest_basepath()
+
+    # ── Load aggregated mpox data ─────────────────────────────────────────────
+    csv_path = f"{latest_base}/{s3_aggregated_latest}/mpox_aggregated.csv"
+    raw = s3_resource.publicUrl(csv_path)
+    # raw = s3_resource.getFile(csv_path)
+    # df = pd.read_csv(
+    #     io.BytesIO(raw) if isinstance(raw, bytes) else io.StringIO(raw.decode("utf-8"))
+    # )
+    df = pd.read_csv(raw)
+    logger.info(f"Loaded {len(df)} rows from mpox_aggregated")
+
+    # ── Load state polygons (Natural Earth via GitHub raw GeoJSON) ───────────
+    logger.info("Loading US state boundaries from Natural Earth")
+    states_gdf = _fetch_geodataframe(NE_STATES_URL)
+    us_states = (
+        states_gdf[states_gdf["admin"] == "United States of America"][["name", "geometry"]]
+        .copy()
+        .to_crs("EPSG:4326")
+    )
+    us_states['name'] = us_states['name'].str.replace(" ", "")  # Normalize for matching
+    # ── Load CA county polygons (Census TIGERweb REST → GeoJSON) ─────────────
+    logger.info("Loading California county boundaries from TIGERweb")
+    ca_counties = (
+        _fetch_geodataframe(TIGER_CA_COUNTIES_URL)[["NAME", "geometry"]]
+        .copy()
+        .rename(columns={"NAME": "name"})
+        .to_crs("EPSG:4326")
+    )
+    ca_counties['name'] = ca_counties['name'].str.replace(" ", "")
+
+    # ── Merge polygons onto mpox data ─────────────────────────────────────────
+    county_mask = df["Jurisdiction"].isin(_COUNTY_JURISDICTIONS)
+    df_states_geo = df[~county_mask].merge(us_states, left_on="Jurisdiction", right_on="name", how="left")
+    df_counties_geo = df[county_mask].merge(ca_counties, left_on="Jurisdiction", right_on="name", how="left")
+
+    combined = pd.concat([df_states_geo, df_counties_geo], ignore_index=True).drop(
+        columns=["name"], errors="ignore"
+    )
+
+    n_before = len(combined)
+    combined = combined.dropna(subset=["geometry"])
+    n_missing = n_before - len(combined)
+    if n_missing:
+        logger.warning(f"{n_missing} rows had no matching geometry and were dropped")
+
+    gdf = gpd.GeoDataFrame(combined, geometry="geometry", crs="EPSG:4326")
+    logger.info(f"Created GeoDataFrame with {len(gdf)} features across {gdf['Jurisdiction'].nunique()} jurisdictions")
+
+    # ── Store to S3 ───────────────────────────────────────────────────────────
+    geo_metadata = store_assets.objectMetadata(
+        name="mpox_aggregated_geo",
+        description="Aggregated MPOX data with state and county geometries (all weeks)",
+        source_url="https://data.cdc.gov/resource/x9gk-5huc.geojson",
+    )
+    store_assets.geodataframe_to_s3(
+        gdf,
+        f"{s3_aggregated_path}_geo/mpox_aggregated_geo",
+        s3_resource,
+        metadata=geo_metadata,
+    )
+    store_assets.geodataframe_to_s3(
+        gdf,
+        f"{s3_aggregated_latest}/mpox_aggregated_geo",
+        s3_resource,
+        metadata=geo_metadata,
+    )
+
+    return gdf

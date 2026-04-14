@@ -12,4 +12,9 @@ _epidemiology_keys = [
     AssetKey(["sandiego", "sandiego_epidemiology_hyper_extraction"]),
 ]
 
-all_source_assets = [SourceAsset(key=k) for k in _epidemiology_keys]
+# Produced by the `pathogens` code location
+_mpox_keys = [
+    AssetKey(["mpox", "mpox_aggregated"]),
+]
+
+all_source_assets = [SourceAsset(key=k) for k in _epidemiology_keys + _mpox_keys]

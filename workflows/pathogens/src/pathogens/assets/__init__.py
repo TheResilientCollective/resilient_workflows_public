@@ -7,7 +7,7 @@ from .cdc_nnds import (
 )
 from .mpox_california import get_mpox_data, mpox_california_weekly
 from .mpox_others import mpox_la_powerbi, mpox_sf_weekly, mpox_counties_weekly_schedule
-from .mpox_aggregated import mpox_aggregated
+from .mpox_aggregated import mpox_aggregated, mpox_aggregated_geo
 from .cdc_data_quality_checks import (
     check_mpox_weekly_completeness,
     check_measles_weekly_completeness,

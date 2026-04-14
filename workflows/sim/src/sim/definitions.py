@@ -32,6 +32,7 @@ all_assets = load_assets_from_modules([assets_pkg])
 all_sensors = [
     slack_on_run_failure,
     assets_pkg.epidemiology_forecasts_sensor,
+    assets_pkg.mpox_aggregated_sensor,
 ]
 
 minio = S3Resource(
@@ -57,6 +58,14 @@ resilientsims_config = ResilientSimsResource(
     RESILIENTSIMS_BUCKET=os.environ.get("RESILIENTSIMS_BUCKET", "resilientseasonal"),
     RESILIENTSIMS_SIMULATOR_ID=EnvVar.int("RESILIENTSIMS_SIMULATOR_ID"),
 )
+mpox_resilientsims_config = ResilientSimsResource(
+    RESILIENTSIMS_SERVER_URL=os.environ.get("RESILIENTSIMS_SERVER_URL", "https://sims.resilientservice.mooo.com"),
+    RESILIENTSIMS_API_PATH=os.environ.get("RESILIENTSIMS_API_PATH", "/api/v1"),
+    RESILIENTSIMS_USERNAME=EnvVar("RESILIENTSIMS_USERNAME"),
+    RESILIENTSIMS_PASSWORD=EnvVar("RESILIENTSIMS_PASSWORD"),
+    RESILIENTSIMS_BUCKET=os.environ.get("MPOX_RESILIENTSIMS_BUCKET", "resilientmpox"),
+    RESILIENTSIMS_SIMULATOR_ID=int(os.environ.get("MPOX_RESILIENTSIMS_SIMULATOR_ID", "49")),
+)
 resilientllm_config = ResilientLLMResource(
     token=EnvVar("RESILIENTLLM_API_TOKEN"),
 )
@@ -67,6 +76,7 @@ base_resources = {
     "slack": SlackResource(token=EnvVar("SLACK_TOKEN")),
     "openai": openai_resource,
     "resilientsims": resilientsims_config,
+    "mpox_resilientsims": mpox_resilientsims_config,
     "resilientllm": resilientllm_config,
 }
 
