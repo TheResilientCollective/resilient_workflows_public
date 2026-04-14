@@ -9,7 +9,7 @@ import geopandas as gpd
 from dagster import ( asset, op,
                      get_dagster_logger,
                       AssetKey,sensor,
-DailyPartitionsDefinition, define_asset_job,job, RunRequest, schedule,
+DailyPartitionsDefinition, TimeWindowPartitionsDefinition, define_asset_job,job, RunRequest, schedule,
 AutomationCondition,
 SensorEvaluationContext,AssetCheckSpec,
                       AssetCheckResult,
@@ -37,6 +37,13 @@ output_path="tijuana/sd_complaints"
 
 sd_complaints_arcgis_base = "https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/"
 
+sd_complaints_yearly_partitions = TimeWindowPartitionsDefinition(
+    start=datetime.datetime(2023, 1, 1),
+    fmt="%Y",
+    cron_schedule="@yearly",
+    end_offset=1
+)
+
 def dropUnnecessaryColumns(df):
     return df.drop( columns=['response_duration__hours_',
                             "investigation_outcome",
@@ -45,34 +52,41 @@ def dropUnnecessaryColumns(df):
                             ]
                     )
 
-@asset(group_name="tijuana",key_prefix="complaints",
+@asset(group_name="tijuana", key_prefix="complaints",
        name="sd_complaints_raw",
-       required_resource_keys={"s3"} ,
-       automation_condition=AutomationCondition.eager() )
-def get_sd_complaints(context  ) -> str:
-    #sd_complaints_arcgis_base="https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/"
-    sd_complaints_arcgis_action="query"
-    sd_complaints_parmam1="where=1%3D1&objectIds=&time=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&distance=&units=esriSRUnit_Foot&relationParam="
-    sd_complaints_fields= "outFields=nature_of_complaint%2C+date_received%2C+record_number%2C+record_status%2Cinvestigation_outcome%2C+response_duration__hours_%2C+x_coordinate%2C+y_coordinate%2C+cross_street___intersection%2C+zip%2C+city"
-    sd_complaints_parmam2="&returnGeometry=true&maxAllowableOffset=&geometryPrecision=&outSR=&havingClause=&gdbVersion=&historicMoment=&returnDistinctValues=false&returnIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&returnZ=false&returnM=false&multipatchOption=xyFootprint&resultOffset=&resultRecordCount=&returnTrueCurves=false&returnCentroid=false&timeReferenceUnknownClient=false&sqlFormat=none&resultType=&datumTransformation=&lodType=geohash&lod=&lodSR=&f=geojson"
-    sd_complaints_url=f"{sd_complaints_arcgis_base}/{sd_complaints_arcgis_action}?{sd_complaints_parmam1}&{sd_complaints_fields}&{sd_complaints_parmam2}"
-    sd_complaints_url = "https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/query?where=1%3D1&objectIds=&time=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&distance=&units=esriSRUnit_Foot&relationParam=&outFields=nature_of_complaint%2C+date_received%2C+record_number%2C+record_status%2Cinvestigation_outcome%2C+response_duration__hours_%2C+x_coordinate%2C+y_coordinate%2C+cross_street___intersection%2C+zip%2C+city&returnGeometry=true&maxAllowableOffset=&geometryPrecision=&outSR=&havingClause=&gdbVersion=&historicMoment=&returnDistinctValues=false&returnIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&returnZ=false&returnM=false&multipatchOption=xyFootprint&resultOffset=&resultRecordCount=&returnTrueCurves=false&returnCentroid=false&timeReferenceUnknownClient=false&sqlFormat=none&resultType=&datumTransformation=&lodType=geohash&lod=&lodSR=&f=geojson&resultOffset=3000"
-    path=f"{output_path}/raw/complaints.json"
-    s3_resource = context.resources.s3
-    sd_complaints_response = requests.get(sd_complaints_url)
-    sd_complaints = sd_complaints_response.text
+       partitions_def=sd_complaints_yearly_partitions,
+       required_resource_keys={"s3"},
+       automation_condition=AutomationCondition.eager())
+def get_sd_complaints(context) -> None:
+    year = int(context.asset_partition_key_for_output())
+    where = (
+        f"date_received >= timestamp '{year}-01-01 00:00:00' "
+        f"AND date_received < timestamp '{year + 1}-01-01 00:00:00'"
+    )
+    params = {
+        "where": where,
+        "outFields": (
+            "nature_of_complaint,date_received,record_number,record_status,"
+            "investigation_outcome,response_duration__hours_,x_coordinate,"
+            "y_coordinate,cross_street___intersection,zip,city"
+        ),
+        "returnGeometry": "true",
+        "f": "geojson",
+    }
+    url = f"{sd_complaints_arcgis_base}/query"
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    data = response.json()
+    if data.get("exceededTransferLimit"):
+        get_dagster_logger().warning(f"exceededTransferLimit for year {year} — consider finer partitioning")
+    path = f"{output_path}/raw/complaints_{year}.json"
+    context.resources.s3.putFile_text(response.text, path=path)
 
-    s3_resource.putFile_text( sd_complaints, path=path)
-    return sd_complaints
-
-@asset(group_name="tijuana",key_prefix="complaints",
+@asset(group_name="tijuana", key_prefix="complaints",
        name="sd_complaints",
        required_resource_keys={"s3"},
-       ins={
-           "sd_complaints_raw": AssetIn(key=AssetKey(["complaints","sd_complaints_raw"])),
-       },
        automation_condition=AutomationCondition.eager())
-def sd_complaints(context, sd_complaints_raw: str):
+def sd_complaints(context):
     name='sd_complaints'
     description='''
     Data from San Diego Air Pollution Control District Complaints ArcGIS service
@@ -80,8 +94,14 @@ def sd_complaints(context, sd_complaints_raw: str):
     source_url='https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/'
     metadata = store_assets.objectMetadata(name=name,description=description, source_url=source_url)
     s3_resource = context.resources.s3
-    json_txt = sd_complaints_raw
-    featueres = json.loads(json_txt)
+    all_features = []
+    for obj in s3_resource.listPath(f"{output_path}/raw/"):
+        obj_name = obj.object_name
+        if "complaints_" in obj_name and obj_name.endswith(".json"):
+            raw = s3_resource.getFile(obj_name)
+            data = json.loads(raw)
+            all_features.extend(data.get("features", []))
+    featueres = {"type": "FeatureCollection", "features": all_features}
     complaints_gdf = gpd.GeoDataFrame.from_features(featueres)
     complaints_gdf['datetime'] = pd.to_datetime(complaints_gdf['date_received'], unit='ms')
     complaints_gdf['datetime']=complaints_gdf['datetime'].dt.tz_localize('US/Pacific')
@@ -350,7 +370,10 @@ def complaints_data_sensor(context: SensorEvaluationContext):
                 slack.get_client().chat_postMessage(channel=SLACK_CHANNEL, text=f'complaints updated to {create_date}')
             except Exception as e:
                 get_dagster_logger().error('Slack post error for complaints updated')
-            yield RunRequest(run_key=f"property_{create_date}")
+            yield RunRequest(
+                run_key=f"property_{create_date}",
+                partition_key=str(datetime.datetime.now().year)
+            )
             #slack.get_client().chat_postMessage(channel=SLACK_CHANNEL, text=f'complaints updated to {create_date}')
         else:
             return

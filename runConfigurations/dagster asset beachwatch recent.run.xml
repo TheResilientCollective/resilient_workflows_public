@@ -28,7 +28,7 @@
     </EXTENSION>
     <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="asset materialize --select waterquality/beachwatch_closures_recent,waterquality/sdbeachinfo_status_translation -m public" />
+    <option name="PARAMETERS" value="asset materialize --select waterquality/beachwatch_closures_recent,waterquality/sdbeachinfo_status_translation -m tijuana" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />
