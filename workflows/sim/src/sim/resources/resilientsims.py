@@ -129,22 +129,22 @@ class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
             logger.error(f"Failed to list simulators: {e}")
             raise
 
-    def verify_simulator_exists(self, simulator_id: str) -> bool:
+    def verify_simulator_exists(self, simulator_id: str) -> Optional[Dict[str, Any]]:
         """
-        Verify that a simulator with given ID exists
+        Verify that a simulator with given ID exists.
+        Returns the simulator dict if found, or None if not found.
         """
-        RESILIENTSIMS_BASE_URL = f"{self.RESILIENTSIMS_SERVER_URL}{self.RESILIENTSIMS_API_PATH}"
         logger = get_dagster_logger()
         simulators = self.list_simulators()
 
-        # Check if simulator_id exists in the list
         for sim in simulators:
             if str(sim.get('id')) == str(simulator_id) or sim.get('pk') == simulator_id:
-                logger.info(f"Simulator {simulator_id} found")
-                return True
+                name = sim.get('name', simulator_id)
+                logger.info(f"Simulator {simulator_id} ({name}) found")
+                return sim
 
         logger.warning(f"Simulator {simulator_id} not found")
-        return False
+        return None
 
     def create_configuration(self, simulator_pk: str, config_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -168,7 +168,7 @@ class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
             logger.error(f"Failed to create configuration for simulator {simulator_pk}: {e}")
             raise
 
-    def run_simulator(self, simulator_pk: str, run_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def run_simulator(self, simulator_pk: str, run_data: Optional[Dict[str, Any]] = None, simulator_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Run a simulator
         POST /api/v1/simulators/{simulator_pk}/runs/
@@ -188,7 +188,8 @@ class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
 
             run_info = response.json()
             run_id = run_info.get('id')
-            logger.info(f"Started simulator {simulator_pk} run with ID {run_id}")
+            name_label = f" ({simulator_name})" if simulator_name else ""
+            logger.info(f"Started simulator {simulator_pk}{name_label} run with ID {run_id}")
             return run_info
 
         except requests.RequestException as e:
@@ -335,8 +336,10 @@ Duration: {time.time() - start_time:.0f} seconds
         logger = get_dagster_logger()
 
         # Step 1: Verify simulator exists
-        if not self.verify_simulator_exists(simulator_pk):
+        simulator = self.verify_simulator_exists(simulator_pk)
+        if simulator is None:
             raise ValueError(f"Simulator {simulator_pk} does not exist")
+        simulator_name = simulator.get('name', simulator_pk)
 
         # Step 2: Create configuration if provided
         config_info = None
@@ -347,11 +350,11 @@ Duration: {time.time() - start_time:.0f} seconds
         # Step 3: Run simulator
         message=f"""
         🆕 Simulator Run Starting
-        Simulator: {simulator_pk}
+        Simulator: {simulator_pk} ({simulator_name})
         """
         slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
                                                      text=message)
-        run_info = self.run_simulator(simulator_pk, run_data)
+        run_info = self.run_simulator(simulator_pk, run_data, simulator_name=simulator_name)
         run_id = run_info.get('id')
 
         # Step 4: Monitor if requested
