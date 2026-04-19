@@ -47,6 +47,7 @@ from .hysplit_forecasting import (
     data_for_hysplit,
     h2s_locations,
     h2s_peaks_analysis,
+    h2s_wind_lag_analysis,
     h2s_exceedance_periods_filter,
     model_forecast,
     modeldata_forecast_15min,

@@ -913,6 +913,128 @@ def h2s_peaks_analysis(context, modeldata_h2s):
 @asset(
     group_name="tijuana",
     key_prefix="h2sforecast",
+    name="h2s_wind_lag_analysis",
+    required_resource_keys={"s3"},
+    deps=[AssetKey(["h2sforecast", 'modeldata_h2s_nofill'])],
+    ins={
+        "modeldata_h2s": AssetIn(
+            key=AssetKey(['h2sforecast', 'modeldata_h2s_nofill'])
+        )
+    },
+    metadata={
+        "source": "San Diego APCD H2S vs OpenMeteo wind cross-correlation",
+        "description": (
+            "Per-site Pearson cross-correlation between H2S(t) and wind features at lags 0..12h. "
+            "Used to decide whether to add negative-lag wind features to the forecast model "
+            "(i.e. wind at t-k predicting H2S at t, reflecting advection transit time from source to sensor)."
+        ),
+        "variableMeasured": ["H2S", "Wind Speed", "Wind Direction", "Wind Gusts", "Lag (hours)", "Pearson r"],
+    },
+    automation_condition=AutomationCondition.eager(),
+)
+def h2s_wind_lag_analysis(context, modeldata_h2s):
+    """Compute per-site H2S vs wind cross-correlation over lags 0..12 hours.
+
+    For each site and each wind feature, shift the wind series forward by k hours
+    (so wind[t-k] aligns with H2S[t]) and compute Pearson r on the overlap. Only
+    rows with measured H2S and valid wind are used. Emits one row per
+    (site_name, wind_feature, lag_hours) plus a per-site "best" summary row.
+    """
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    variableMeasured = meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(
+        name=str(context.asset_key.path[-1]),
+        description=description,
+        source_url=source_url,
+        variableMeasured=variableMeasured,
+    )
+
+    s3_resource = context.resources.s3
+    dagster_logger = get_dagster_logger()
+
+    df = modeldata_h2s.copy()
+    if df.empty:
+        dagster_logger.warning("modeldata_h2s_nofill is empty; skipping lag analysis")
+        return pd.DataFrame()
+
+    df = df.reset_index()
+    if 'h2s_measured' in df.columns:
+        df = df[df['h2s_measured'] == True]  # noqa: E712
+    df = df[df['H2S'].notna() & (df['H2S'] <= 500)]
+
+    wind_features = [
+        'wind_speed_10m',
+        'wind_direction_sin',
+        'wind_direction_cos',
+        'wind_gusts_10m',
+    ]
+    wind_features = [c for c in wind_features if c in df.columns]
+    if not wind_features:
+        dagster_logger.error("No wind feature columns found in modeldata_h2s_nofill")
+        return pd.DataFrame()
+
+    lags = list(range(0, 13))
+    rows = []
+    for site, g in df.groupby('site_name'):
+        g = g.sort_values('time').set_index('time')
+        # resample to hourly in case of irregular sampling — take mean within each hour
+        g_hourly = g[['H2S'] + wind_features].resample('1h').mean()
+        y = g_hourly['H2S']
+        for feat in wind_features:
+            x = g_hourly[feat]
+            for k in lags:
+                # wind[t-k] vs H2S[t]: shift wind forward by k so that index t carries wind from t-k
+                pair = pd.concat([y, x.shift(k)], axis=1).dropna()
+                n = len(pair)
+                if n < 50:
+                    r = np.nan
+                else:
+                    r = pair.iloc[:, 0].corr(pair.iloc[:, 1])
+                rows.append({
+                    'site_name': site,
+                    'wind_feature': feat,
+                    'lag_hours': k,
+                    'pearson_r': r,
+                    'abs_r': abs(r) if pd.notna(r) else np.nan,
+                    'n_samples': n,
+                })
+
+    results = pd.DataFrame(rows)
+    if results.empty:
+        dagster_logger.warning("Lag analysis produced no rows")
+        return results
+
+    # per (site, feature) best lag by |r|
+    best = (results.dropna(subset=['abs_r'])
+                   .sort_values('abs_r', ascending=False)
+                   .groupby(['site_name', 'wind_feature'], as_index=False)
+                   .first()
+                   .rename(columns={'lag_hours': 'best_lag_hours',
+                                    'pearson_r': 'best_pearson_r'})
+                   [['site_name', 'wind_feature', 'best_lag_hours', 'best_pearson_r', 'n_samples']])
+    best['summary_type'] = 'best_lag_by_abs_r'
+    results['summary_type'] = 'per_lag'
+
+    dagster_logger.info("Best wind lag per site/feature:\n" + best.to_string(index=False))
+
+    store_assets.store_dataframe_to_s3(
+        results, OUTPUT_PATH, 'h2s_wind_lag_analysis', s3_resource,
+        latestdatasetpath=LATEST, enable_latest_path=True,
+        formats=['csv', 'parquet'], metadata=metadata,
+    )
+    store_assets.store_dataframe_to_s3(
+        best, OUTPUT_PATH, 'h2s_wind_lag_best', s3_resource,
+        latestdatasetpath=LATEST, enable_latest_path=True,
+        formats=['csv'], metadata=metadata,
+    )
+    return results
+
+
+@asset(
+    group_name="tijuana",
+    key_prefix="h2sforecast",
     name="h2s_exceedance_periods",
     required_resource_keys={"s3"},
     deps=[AssetKey(["h2sforecast", 'h2s_peaks']), AssetKey(["h2sforecast", 'modeldata_h2s_nofill'])],
