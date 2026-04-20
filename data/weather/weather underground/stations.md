@@ -2,7 +2,7 @@
 https://www.wunderground.com/wundermap
 
 NESTOR
-https://www.wunderground.com/dashboard/pws/KCASANYS3
+https://www.wunderground.com/dashboard/pws/KCAIMPER28
 
 San Ysidro
 https://www.wunderground.com/dashboard/pws/KCASANYS3
