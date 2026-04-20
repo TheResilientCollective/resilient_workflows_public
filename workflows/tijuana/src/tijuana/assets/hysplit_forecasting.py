@@ -394,48 +394,54 @@ def h2s_locations(context):
 
 
 
-@asset(
-    group_name="tijuana",
-    key_prefix="h2sforecast",
-    name="modeldata_h2s",
-    required_resource_keys={"s3"},
-    deps=[AssetKey(["apcd", 'yearly_aggregated_h2s']),
-          AssetKey(['streamflow', 'boundary_cms_yearly']),
-          AssetKey(['streamflow', 'boundary_cms']),
-          AssetKey(['weather', 'openmeteo_historical']),
-          AssetKey(['weather', 'openmeteo_current_year']),
-          AssetKey(['ibwc', 'effluent_flow_current_year']),
-          AssetKey(['ibwc', 'effluent_flow_today']),
-          ],
-       metadata={
-           "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
-           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days). THIS IS UP TO DATE DAILY. Not hourly. "
-           , "variableMeasured": ["H2S", 'Wind Direction', 'Wind Speed', "Streamflow"]
-       },
-       automation_condition=AutomationCondition.eager()
-)
-def data_for_models(context):
-    meta = context.assets_def.metadata_by_key[context.asset_key]
-    description = meta["description"]  # -> "value"
-    source_url = meta.get("source")  # -> "data-eng"
-    variableMeasured= meta.get("variableMeasured")
-    metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url,variableMeasured=variableMeasured)
+WU_WEATHER_BASE = 'latest/tijuana/weather_wu'
 
-    s3_resource = context.resources.s3
-    dagster_logger = get_dagster_logger()
-    duckdb_con=duckdb_connection(s3_resource)
-    # filename = f'{apcd_s3_output_path}/h2s.csv'
-    # apcd_s3_output_path='tijuana/sd_apcd_air/output'
-    # h2surl = s3_resource.publicUrl(path=f'{apcd_s3_output_path}/h2s.csv', bucket=s3_resource.S3_BUCKET)
-    # dagster_logger.info(f"Downloading {h2surl}")
-    # h2s_sensor_data_all = pd.read_csv(h2surl)
+
+def load_and_prepare_weather(duckdb_con, s3_resource, weather_base, csv_pattern, logger):
+    """Load weather CSVs from S3, convert timezone, add wind features.
+
+    Shared by data_for_models (Open-Meteo) and data_for_models_wu (Weather Underground).
+    """
+    weather_files = f"s3://{s3_resource.S3_BUCKET}/{weather_base}/{csv_pattern}"
+    try:
+        weather_df = duckdb_con.read_csv(weather_files, null_padding=True).df()
+    except Exception as e:
+        logger.error(f"Error reading weather csv files {weather_files} {e}")
+        raise e
+    try:
+        weather_df = weather_df.rename(columns={'date': 'time'})
+        weather_df["time"] = weather_df["time"].dt.tz_convert("America/Los_Angeles")
+        weather_df = weather_df.set_index(pd.DatetimeIndex(weather_df['time']))
+        weather_df = weather_df.drop(['time'], axis=1)
+        weather_df.index = weather_df.index.astype("datetime64[ns, America/Los_Angeles]")
+        weather_df = weather_df.sort_index()
+        if 'site_name' in weather_df.columns:
+            weather_df['site_name'] = weather_df['site_name'].str.strip()
+            missing = weather_df['site_name'].isna()
+            if missing.any():
+                logger.warning(f"Filling {missing.sum()} rows with missing site_name as 'unknown' (legacy data)")
+                weather_df.loc[missing, 'site_name'] = 'unknown'
+        else:
+            logger.warning("site_name column not found in weather data — assigning all rows to 'unknown'")
+            weather_df['site_name'] = 'unknown'
+
+        weather_df = add_wind_features(weather_df, logger)
+    except Exception as e:
+        logger.error(f"Error processing weather data {e}")
+        raise e
+
+    logger.info(f"Loaded {weather_df.shape[0]} weather rows from {weather_base}")
+    return weather_df
+
+
+def load_h2s_data(duckdb_con, s3_resource, logger):
+    """Load and deduplicate H2S sensor data from S3 parquet files."""
     hs2_files = f"s3://{s3_resource.S3_BUCKET}/{H2S_PATH}/{PARQUET_PATTERN}"
     try:
          h2s_sensor_data_all = duckdb_con.read_parquet(hs2_files).df()
     except Exception as e:
-        dagster_logger.error(f"Error reading apcd parquet files {hs2_files} {e}")
+        logger.error(f"Error reading apcd parquet files {hs2_files} {e}")
         raise e
-    # using names causes a parsing error, do just drop after loading
     try:
         h2s_sensor_data_all = h2s_sensor_data_all.drop(
             ['Original Value', 'Icons', 'level', 'Parameter', 'LongName', 'Site Name', 'Latitude', 'Longitude',
@@ -446,7 +452,6 @@ def data_for_models(context):
         h2s_sensor_data_all["time"] = h2s_sensor_data_all["time"].dt.tz_convert("America/Los_Angeles")
         h2s_sensor_data_all = h2s_sensor_data_all.rename(columns={'Result': 'H2S', 'Qualifier': 'H2S_qualifier'})
 
-        # 2s_sensor_data_all.index = pd.to_datetime(h2s_sensor_data_all['Date with time']).dt.tz_localize('America/Los_Angeles', ambiguous=True)
         h2s_sensor_data_all = h2s_sensor_data_all.drop('Date with time', axis=1)
         h2s_sensor_data_all = h2s_sensor_data_all.set_index(pd.DatetimeIndex(h2s_sensor_data_all['time']))
         h2s_sensor_data_all = h2s_sensor_data_all.drop('time', axis=1)
@@ -458,51 +463,20 @@ def data_for_models(context):
                                .drop_duplicates(subset=['time', 'site_name'], keep='last')
                                .set_index('time'))
         h2s_sensor_data_all.index = h2s_sensor_data_all.index.astype("datetime64[ns, America/Los_Angeles]")
-        dagster_logger.info(f"Deduplicated h2s: {pre_dedup} -> {h2s_sensor_data_all.shape[0]} rows")
+        logger.info(f"Deduplicated h2s: {pre_dedup} -> {h2s_sensor_data_all.shape[0]} rows")
     except Exception as e:
-        dagster_logger.error(f"Error processing h2s data {e}")
+        logger.error(f"Error processing h2s data {e}")
         raise e
-    dagster_logger.info(f"Matched {h2s_sensor_data_all.shape[0]} rows")
+    logger.info(f"Loaded {h2s_sensor_data_all.shape[0]} H2S rows")
+    return h2s_sensor_data_all
 
-    # weather_df = pd.DataFrame()
-    # for wurl in weather_urls:
-    #     wyear_df = pd.read_csv(wurl)
-    #     wyear_df['time'] = pd.to_datetime(wyear_df['date'], utc=True)
-    #     # forecast_df["time"] = forecast_df["time"].dt.tz_localize("America/Los_Angeles", ambiguous=True)
-    #     wyear_df = wyear_df.set_index(pd.DatetimeIndex(wyear_df['time']))
-    #     wyear_df = wyear_df.drop(['time', 'date'], axis=1)
-    #     weather_df = pd.concat([weather_df, wyear_df], )
-    weather_files = f"s3://{s3_resource.S3_BUCKET}/{WEATHER_BASE}/{CSV_PATTERN}"
-    try:
-        weather_df = duckdb_con.read_csv(weather_files, null_padding=True).df()
-    except Exception as e:
-        dagster_logger.error(f"Error reading weather csv files {weather_files} {e}")
-        raise e
-    try:
-        weather_df = weather_df.rename(columns={'date': 'time'})
-        weather_df["time"] = weather_df["time"].dt.tz_convert("America/Los_Angeles")
-        weather_df = weather_df.set_index(pd.DatetimeIndex(weather_df['time']))
-        weather_df = weather_df.drop(['time'], axis=1)
-        weather_df.index = weather_df.index.astype("datetime64[ns, America/Los_Angeles]")
-        weather_df = weather_df.sort_index()
-        if 'site_name' in weather_df.columns:
-            weather_df['site_name'] = weather_df['site_name'].str.strip()
-            # Legacy CSVs (pre-refactor) have no site_name — they were single-site NESTOR-BES data
-            missing = weather_df['site_name'].isna()
-            if missing.any():
-                dagster_logger.warning(f"Filling {missing.sum()} rows with missing site_name as 'unknown' (legacy data)")
-                weather_df.loc[missing, 'site_name'] = 'unknown'
-        else:
-            dagster_logger.warning("site_name column not found in weather data — assigning all rows to 'unknown'")
-            weather_df['site_name'] = 'unknown'
 
-        weather_df = add_wind_features(weather_df, dagster_logger)
-    except Exception as e:
-        dagster_logger.error(f"Error processing weather data {e}")
-        raise e
+def build_modeldata(h2s_sensor_data_all, weather_df, s3_resource, duckdb_con, logger, output_name, metadata):
+    """Merge H2S + weather + streamflow + tidal + effluent, engineer features, store to S3.
 
-    dagster_logger.info(f"Matched {weather_df.shape[0]} rows")
-    # merged_df = pd.merge(h2s_sensor_data_all, weather_df, on="time", how="inner")
+    Shared pipeline used by both data_for_models and data_for_models_wu.
+    Returns the final matched_df.
+    """
     try:
         h2s_reset = h2s_sensor_data_all.reset_index()
         weather_reset = weather_df.reset_index()
@@ -516,25 +490,17 @@ def data_for_models(context):
             direction='nearest'
         )
     except Exception as e:
-        dagster_logger.error(f"Error merging weather and h2s data {e}")
+        logger.error(f"Error merging weather and h2s data {e}")
         raise e
-    dagster_logger.info(f"Matched {matched_df.shape[0]} rows")
+    logger.info(f"Matched {matched_df.shape[0]} rows")
     # border streamflow - load yearly historical data
     streamflow_border_files = f"s3://{s3_resource.S3_BUCKET}/{STREAMFLOW_BASE}/{STREAMFLOW_SITE_YEARLY}/{PARQUET_PATTERN}"
     try:
         streamflow_border_df = duckdb_con.read_parquet(streamflow_border_files).df()
-        dagster_logger.info(f"Loaded {streamflow_border_df.shape[0]} yearly streamflow records")
+        logger.info(f"Loaded {streamflow_border_df.shape[0]} yearly streamflow records")
     except Exception as e:
-        dagster_logger.error(f"Error reading streamflow parquet files {streamflow_border_files} {e}")
+        logger.error(f"Error reading streamflow parquet files {streamflow_border_files} {e}")
         raise e
-    # also load recent boundary_cms (last 30 days) and combine for a complete flow record
-    # try:
-    #     streamflow_recent_files = f"s3://{s3_resource.S3_BUCKET}/{STREAMFLOW_BASE}/{STREAMFLOW_SITE_RECENT}/{CSV_PATTERN}"
-    #     streamflow_recent_df = duckdb_con.read_csv(streamflow_recent_files).df()
-    #     dagster_logger.info(f"Loaded {streamflow_recent_df.shape[0]} recent boundary_cms records")
-    #     streamflow_border_df = pd.concat([streamflow_border_df, streamflow_recent_df], ignore_index=True)
-    # except Exception as e:
-    #     dagster_logger.warning(f"Could not load recent boundary_cms data, continuing with yearly only: {e}")
     try:
         streamflow_border_df['time'] = pd.to_datetime(streamflow_border_df['End of Interval (UTC-08:00)'])
         # Data is UTC-8 fixed offset (no DST) — localize to fixed offset, then convert to LA
@@ -546,22 +512,22 @@ def data_for_models(context):
         # deduplicate - recent data takes precedence over yearly
         streamflow_border_df = streamflow_border_df[~streamflow_border_df.index.duplicated(keep='last')]
         streamflow_border_df = streamflow_border_df.sort_index()
-        dagster_logger.info(f"Combined streamflow has {streamflow_border_df.shape[0]} records after dedup")
+        logger.info(f"Combined streamflow has {streamflow_border_df.shape[0]} records after dedup")
     except Exception as e:
-        dagster_logger.error(f"Error processing streamflow files {streamflow_border_files} {e}")
+        logger.error(f"Error processing streamflow files {streamflow_border_files} {e}")
         raise e
     try:
         streamflow_reset = streamflow_border_df.reset_index().sort_values('time')
         matched_df = pd.merge_asof(matched_df, streamflow_reset, on='time', direction='nearest')
     except Exception as e:
-        dagster_logger.error(f"Error merging weather and h2s  AND STREAMFLOW data {e}")
+        logger.error(f"Error merging weather and h2s  AND STREAMFLOW data {e}")
         raise e
     # add tides
     try:
         tidal_files = f"s3://{s3_resource.S3_BUCKET}/{TIDAL_BASE}/{PARQUET_PATTERN}"
         tidal_df = duckdb_con.read_parquet(tidal_files).df()
     except Exception as e:
-        dagster_logger.error(f"Error reading tidal_files  files {tidal_files} {e}")
+        logger.error(f"Error reading tidal_files  files {tidal_files} {e}")
         raise e
     try:
         tidal_df['time'] = pd.to_datetime(tidal_df['time'], utc=False)
@@ -577,20 +543,20 @@ def data_for_models(context):
         tidal_df = add_tidal_encoding(tidal_df)
         tidal_df = tidal_df.sort_index()
     except Exception as e:
-        dagster_logger.error(f"Error reading tidals   files {tidal_df} {e}")
+        logger.error(f"Error reading tidals   files {tidal_df} {e}")
         raise e
     try:
         tidal_reset = tidal_df.reset_index().sort_values('time')
         matched_df = pd.merge_asof(matched_df, tidal_reset, on='time', direction='nearest')
     except Exception as e:
-        dagster_logger.error(f"Error merging with tidal files data {e}")
+        logger.error(f"Error merging with tidal files data {e}")
         raise e
 
     # --- SBIWTP effluent flow features ---
     try:
         effluent_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}/{PARQUET_PATTERN}"
         effluent_df = duckdb_con.read_parquet(effluent_files, union_by_name=True).df()
-        dagster_logger.info(f"Loaded {len(effluent_df)} effluent flow records with columns: {effluent_df.columns.tolist()}")
+        logger.info(f"Loaded {len(effluent_df)} effluent flow records with columns: {effluent_df.columns.tolist()}")
 
         # Find the timestamp column (check both columns and index)
         time_col = next(
@@ -617,31 +583,31 @@ def data_for_models(context):
             None
         )
         if value_col is None:
-            dagster_logger.error(f"Available columns: {effluent_df.columns.tolist()}")
-            dagster_logger.error(f"Column dtypes: {effluent_df.dtypes.to_dict()}")
+            logger.error(f"Available columns: {effluent_df.columns.tolist()}")
+            logger.error(f"Column dtypes: {effluent_df.dtypes.to_dict()}")
             raise ValueError("No numeric value column found in effluent flow data")
 
-        dagster_logger.info(f"Using effluent time column: {time_col} -> 'time', value column: {value_col}")
+        logger.info(f"Using effluent time column: {time_col} -> 'time', value column: {value_col}")
         effluent_series = effluent_df.set_index('time')[value_col].rename('sbiwtp_flow_mgd')
-        dagster_logger.info(f"Effluent series: {len(effluent_series)} records from {effluent_series.index.min()} to {effluent_series.index.max()}")
-        matched_df = add_sbiwtp_features(matched_df, effluent_series, dagster_logger)
+        logger.info(f"Effluent series: {len(effluent_series)} records from {effluent_series.index.min()} to {effluent_series.index.max()}")
+        matched_df = add_sbiwtp_features(matched_df, effluent_series, logger)
     except Exception as e:
-        dagster_logger.error(f"Could not load SBIWTP effluent flow, skipping features: {e}")
+        logger.error(f"Could not load SBIWTP effluent flow, skipping features: {e}")
         import traceback
-        dagster_logger.error(traceback.format_exc())
+        logger.error(traceback.format_exc())
         for col in ['sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
                     'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli']:
             matched_df[col] = np.nan
 
-    matched_df = add_day_night(matched_df, dagster_logger)
-    matched_df = add_inference_features(matched_df, dagster_logger)
+    matched_df = add_day_night(matched_df, logger)
+    matched_df = add_inference_features(matched_df, logger)
     # H2S lags are computed on pre-fill H2S so that train_models_auto.py can filter
     # filled rows via h2s_measured; the fill step happens below.
-    matched_df = add_h2s_lag_features(matched_df, dagster_logger)
+    matched_df = add_h2s_lag_features(matched_df, logger)
 
     # Fill missing H2S values for each site_name based on min/max time ranges
     # and flag filled values
-    dagster_logger.info("Filling missing H2S values for each site_name based on min/max time ranges")
+    logger.info("Filling missing H2S values for each site_name based on min/max time ranges")
 
     # Add flag column to track measured vs filled values
     matched_df['h2s_measured'] = True
@@ -671,11 +637,11 @@ def data_for_models(context):
                 # Flag the filled values as not measured
                 site_df.loc[site_df[missing_mask].index, 'h2s_measured'] = False
 
-                dagster_logger.info(f"Filled {missing_mask.sum()} missing H2S values for site {site_name} between {min_time} and {max_time}")
+                logger.info(f"Filled {missing_mask.sum()} missing H2S values for site {site_name} between {min_time} and {max_time}")
             else:
-                dagster_logger.info(f"No missing H2S values to fill for site {site_name}")
+                logger.info(f"No missing H2S values to fill for site {site_name}")
         else:
-            dagster_logger.warning(f"No valid H2S data found for site {site_name}")
+            logger.warning(f"No valid H2S data found for site {site_name}")
 
         filled_dfs.append(site_df)
 
@@ -684,7 +650,7 @@ def data_for_models(context):
 
     # Log summary of filling operation
     total_filled = (~matched_df['h2s_measured']).sum()
-    dagster_logger.info(f"Total H2S values filled across all sites: {total_filled}")
+    logger.info(f"Total H2S values filled across all sites: {total_filled}")
 
     # H2S risk classification
     matched_df['h2s_risk'] = 'GREEN'
@@ -700,10 +666,115 @@ def data_for_models(context):
         matched_df = matched_df.drop(columns=['H2S_qualifier'])
     if 'visibility' in matched_df.columns:
         matched_df = matched_df.drop(columns=['visibility'])
-    store_assets.store_dataframe_to_s3( matched_df, OUTPUT_PATH,'modeldata_h2s', s3_resource,
+    store_assets.store_dataframe_to_s3( matched_df, OUTPUT_PATH, output_name, s3_resource,
                                        latestdatasetpath=LATEST,enable_latest_path=True,
                                        formats=[ 'csv', 'parquet'], metadata=metadata )
     return matched_df
+
+
+@asset(
+    group_name="tijuana",
+    key_prefix="h2sforecast",
+    name="modeldata_h2s",
+    required_resource_keys={"s3"},
+    deps=[AssetKey(["apcd", 'yearly_aggregated_h2s']),
+          AssetKey(['streamflow', 'boundary_cms_yearly']),
+          AssetKey(['streamflow', 'boundary_cms']),
+          AssetKey(['weather', 'openmeteo_historical']),
+          AssetKey(['weather', 'openmeteo_current_year']),
+          AssetKey(['ibwc', 'effluent_flow_current_year']),
+          AssetKey(['ibwc', 'effluent_flow_today']),
+          ],
+       metadata={
+           "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
+           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days). THIS IS UP TO DATE DAILY. Not hourly. "
+           , "variableMeasured": ["H2S", 'Wind Direction', 'Wind Speed', "Streamflow"]
+       },
+       automation_condition=AutomationCondition.eager()
+)
+def data_for_models(context):
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    variableMeasured = meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url, variableMeasured=variableMeasured)
+
+    s3_resource = context.resources.s3
+    dagster_logger = get_dagster_logger()
+    duckdb_con = duckdb_connection(s3_resource)
+
+    h2s_sensor_data_all = load_h2s_data(duckdb_con, s3_resource, dagster_logger)
+    weather_df = load_and_prepare_weather(duckdb_con, s3_resource, WEATHER_BASE, CSV_PATTERN, dagster_logger)
+
+    return build_modeldata(h2s_sensor_data_all, weather_df, s3_resource, duckdb_con, dagster_logger, 'modeldata_h2s', metadata)
+
+
+@asset(
+    group_name="tijuana",
+    key_prefix="h2sforecast",
+    name="modeldata_h2s_wu",
+    required_resource_keys={"s3"},
+    deps=[AssetKey(["apcd", 'yearly_aggregated_h2s']),
+          AssetKey(['streamflow', 'boundary_cms_yearly']),
+          AssetKey(['streamflow', 'boundary_cms']),
+          AssetKey(['weather_wu', 'wu_historical']),
+          AssetKey(['weather_wu', 'wu_current_year']),
+          AssetKey(['weather', 'openmeteo_historical']),
+          AssetKey(['weather', 'openmeteo_current_year']),
+          AssetKey(['ibwc', 'effluent_flow_current_year']),
+          AssetKey(['ibwc', 'effluent_flow_today']),
+          ],
+    metadata={
+        "source": "San Diego APCD, IBWC Streamflow, Weather Underground PWS (KCASANYS3, KCAIMPER28, KCAIMPER32) with OpenMeteo fallback"
+        , "description": "Data for Forecast Modeling of H2S using Weather Underground PWS station data. Falls back to OpenMeteo when WU data is unavailable."
+        , "variableMeasured": ["H2S", 'Wind Direction', 'Wind Speed', "Streamflow"]
+    },
+    automation_condition=AutomationCondition.eager()
+)
+def data_for_models_wu(context):
+    meta = context.assets_def.metadata_by_key[context.asset_key]
+    description = meta["description"]
+    source_url = meta.get("source")
+    variableMeasured = meta.get("variableMeasured")
+    metadata = store_assets.objectMetadata(name=str(context.asset_key.path[-1]), description=description, source_url=source_url, variableMeasured=variableMeasured)
+
+    s3_resource = context.resources.s3
+    dagster_logger = get_dagster_logger()
+    duckdb_con = duckdb_connection(s3_resource)
+
+    h2s_sensor_data_all = load_h2s_data(duckdb_con, s3_resource, dagster_logger)
+
+    # Load WU weather (primary) and Open-Meteo weather (fallback)
+    try:
+        wu_weather = load_and_prepare_weather(duckdb_con, s3_resource, WU_WEATHER_BASE, CSV_PATTERN, dagster_logger)
+        dagster_logger.info(f"Loaded {wu_weather.shape[0]} WU weather rows")
+    except Exception as e:
+        dagster_logger.warning(f"Could not load WU weather data, using Open-Meteo only: {e}")
+        wu_weather = None
+
+    om_weather = load_and_prepare_weather(duckdb_con, s3_resource, WEATHER_BASE, CSV_PATTERN, dagster_logger)
+
+    if wu_weather is not None and not wu_weather.empty:
+        # WU takes priority, Open-Meteo fills gaps (station downtime, missing fields like cloud_cover)
+        # Drop wu_station_id before combining if present
+        if 'wu_station_id' in wu_weather.columns:
+            wu_weather = wu_weather.drop(columns=['wu_station_id'])
+
+        wu_indexed = wu_weather.reset_index().set_index(['time', 'site_name'])
+        om_indexed = om_weather.reset_index().set_index(['time', 'site_name'])
+        weather_df = wu_indexed.combine_first(om_indexed).reset_index()
+        weather_df = weather_df.set_index(pd.DatetimeIndex(weather_df['time']))
+        weather_df = weather_df.drop(['time'], axis=1)
+        weather_df.index = weather_df.index.astype("datetime64[ns, America/Los_Angeles]")
+        weather_df = weather_df.sort_index()
+        # Re-apply wind features after combining sources
+        weather_df = add_wind_features(weather_df, dagster_logger)
+        dagster_logger.info(f"Combined WU+OpenMeteo weather: {weather_df.shape[0]} rows")
+    else:
+        dagster_logger.warning("No WU weather data available, using Open-Meteo only for modeldata_h2s_wu")
+        weather_df = om_weather
+
+    return build_modeldata(h2s_sensor_data_all, weather_df, s3_resource, duckdb_con, dagster_logger, 'modeldata_h2s_wu', metadata)
 
 @asset(
     group_name="tijuana",

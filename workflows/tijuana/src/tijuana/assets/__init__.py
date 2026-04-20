@@ -38,6 +38,11 @@ from .openmeteo import (forecast,
                         weather_current_year,
                         forecast_15min,
                         weather_all_schedule)
+from .wunderground import (
+    wu_historical,
+    wu_current_year,
+    wu_weather_daily_schedule,
+)
 from .gis import subregions, tracts
 from .airnow import (get_aq_combined_kml, get_aq_forecast, get_aq_site, aq_combined_geojson
                      )
@@ -45,6 +50,7 @@ from .purple_air import memberGroup, getGroupData, purple_air_schedule
 from .hysplit_forecasting import (
     data_for_models,modeldata_h2s_nofill,
     data_for_hysplit,
+    data_for_models_wu,
     h2s_locations,
     h2s_peaks_analysis,
     h2s_exceedance_periods_filter,
