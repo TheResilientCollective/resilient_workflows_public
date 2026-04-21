@@ -85,7 +85,8 @@ def get_sd_complaints(context) -> None:
 @asset(group_name="tijuana", key_prefix="complaints",
        name="sd_complaints",
        required_resource_keys={"s3"},
-       automation_condition=AutomationCondition.eager())
+       automation_condition=AutomationCondition.eager(),
+       deps=[AssetKey(["complaints", "sd_complaints_raw"])])
 def sd_complaints(context):
     name='sd_complaints'
     description='''
@@ -164,7 +165,7 @@ def sd_complaints_freshness_check(context: AssetCheckExecutionContext, sd_compla
     time_difference = current_datetime - most_recent_datetime
 
     # Check if the difference is greater than three days
-    passed = time_difference <= datetime.timedelta(days=3)
+    passed = time_difference <= datetime.timedelta(days=4)
 
     metadata = {
         "most_recent_datetime": str(most_recent_datetime),
