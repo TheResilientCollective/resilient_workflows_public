@@ -101,7 +101,7 @@ def guam_run_epidemic_simulation(context):
     jinja = Environment(loader=templateLoader, autoescape=select_autoescape())
 
     try:
-        template_config = jinja.get_template("guam_forecast_config.yaml")
+        template_config = jinja.get_template("guam_forecast_config_v2.yaml")
         config_config_str = template_config.render(
             DATE="variables",
             LONG_DATE="here",

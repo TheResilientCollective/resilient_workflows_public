@@ -1,0 +1,33 @@
+name: "EpiNow2 Guam ILI Forecasting - {{ DATE }}"
+description: "Weekly forecasting input for Influenza using Guam surveillance data updated {{ LONG_DATE }}"
+content:
+  "CurrentData/COVID.csv":
+    type: "cloud_storage"
+    provider: "s3"
+    bucket: "{{ PUBLIC_BUCKET }}"
+    key: "pathogens/sandiego/sandiego_epidemiology/output/sandiego_epidemiology/20251231_19/processed_by_disease/COVID.csv"
+  "CurrentData/FLU.csv":
+    type: "cloud_storage"
+    provider: "s3"
+    bucket: "{{ PUBLIC_BUCKET }}"
+    key: "pathogens/guam/FLU_Guam_26NOV2025_epi_schema.csv"
+  "CurrentData/RSV.csv":
+    type: "cloud_storage"
+    provider: "s3"
+    bucket: "{{ PUBLIC_BUCKET }}"
+    key: "pathogens/sandiego/sandiego_epidemiology/output/sandiego_epidemiology/20251231_19/processed_by_disease/RSV.csv"
+  "ReportDelays/report-delays-COVID.RDS":
+    type: "cloud_storage"
+    provider: "s3"
+    bucket: "{{  sims.RESILIENTSIMS_BUCKET }}"
+    key: "report_delays/report-delays-COVID.RDS"
+  "ReportDelays/report-delays-Influenza.RDS":
+    type: "cloud_storage"
+    provider: "s3"
+    bucket: "{{  sims.RESILIENTSIMS_BUCKET }}"
+    key: "report_delays/report-delays-Influenza.RDS"
+  "ReportDelays/report-delays-RSV.RDS":
+    type: "cloud_storage"
+    provider: "s3"
+    bucket: "{{  sims.RESILIENTSIMS_BUCKET }}"
+    key: "report_delays/report-delays-RSV.RDS"
