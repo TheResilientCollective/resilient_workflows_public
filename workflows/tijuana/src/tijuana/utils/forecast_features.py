@@ -22,6 +22,8 @@ MODEL_FEATURES = [
     'cloud_cover', 'dewpoint_2m',
     'wind_speed_10m_avg_2h', 'wind_speed_10m_avg_3h', 'wind_speed_10m_avg_4h',
     'wind_gusts_10m_max_2h', 'wind_gusts_10m_max_3h', 'wind_gusts_10m_max_4h',
+    'wind_direction_sin_lag_6h', 'wind_direction_sin_lag_9h',
+    'wind_direction_cos_lag_6h', 'wind_direction_cos_lag_9h',
     'tide_height', 'tidal_state_encoded',
     'hour_sin', 'hour_cos', 'month_sin', 'month_cos',
     'is_night', 'source_regime',
@@ -62,6 +64,7 @@ def get_last_known_state(obs_df, site_name):
             'sbiwtp_mgd': 23.0, 'sbiwtp_sli': 5.0,
             'sbiwtp_anomaly': 0, 'sbiwtp_deficit': 0,
             'sbiwtp_hourly_mgd': 23.0,
+            'wd_sin': 0.0, 'wd_cos': 0.0,
         }
 
     # H2S state
@@ -78,6 +81,9 @@ def get_last_known_state(obs_df, site_name):
         vals = ss[col].dropna()
         return vals.iloc[-1] if len(vals) > 0 else None
 
+    wd_sin_last = last_valid('wind_direction_sin')
+    wd_cos_last = last_valid('wind_direction_cos')
+
     return {
         'h2s': h2s_last,
         'h2s_6h': h2s_6h,
@@ -89,6 +95,8 @@ def get_last_known_state(obs_df, site_name):
         'sbiwtp_anomaly': last_valid('sbiwtp_anomaly') or 0.0,
         'sbiwtp_deficit': last_valid('sbiwtp_deficit') or 0.0,
         'sbiwtp_hourly_mgd': last_valid('sbiwtp_hourly_mgd') or 23.0,
+        'wd_sin': wd_sin_last if wd_sin_last is not None else 0.0,
+        'wd_cos': wd_cos_last if wd_cos_last is not None else 0.0,
     }
 
 
@@ -123,6 +131,21 @@ def engineer_station_features(sfc, last_state):
                         (4, 'wind_gusts_10m_max_4h')]:
         if col not in df.columns or df[col].isna().all():
             df[col] = df['wind_gusts_10m'].rolling(window, min_periods=1).max()
+
+    # Lagged wind direction: add_wind_features produced shift(k) on the training
+    # path, but at forecast time the first k rows of each site series are NaN
+    # (wind before forecast start is unobserved here). Fall back to the last
+    # known observed wind_direction_sin/cos from obs_df.
+    for col, fallback in (
+        ('wind_direction_sin_lag_6h', ls['wd_sin']),
+        ('wind_direction_sin_lag_9h', ls['wd_sin']),
+        ('wind_direction_cos_lag_6h', ls['wd_cos']),
+        ('wind_direction_cos_lag_9h', ls['wd_cos']),
+    ):
+        if col in df.columns:
+            df[col] = df[col].fillna(fallback)
+        else:
+            df[col] = fallback
 
     # ------------------------------------------------------------------
     # 2. H2S PERSISTENCE (exponential decay from last known)
