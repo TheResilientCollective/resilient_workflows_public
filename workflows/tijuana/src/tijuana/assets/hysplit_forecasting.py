@@ -116,6 +116,15 @@ def add_wind_features(df, logger):
     else:
         logger.warning("wind_gusts_10m column not found - skipping gust calculations")
 
+    # Negative-lag wind direction: wind[t-k] predicts H2S[t]. Cross-correlation on
+    # modeldata_h2s_nofill shows |r| peaks at k=6-9h for wind_direction_sin across
+    # all APCD sites, consistent with advection transit time from the Tijuana
+    # River source. wind_speed/gusts peak at lag 0 (already captured).
+    for col in ('wind_direction_sin', 'wind_direction_cos'):
+        if col in df.columns:
+            for k in (6, 9):
+                df[f'{col}_lag_{k}h'] = df.groupby('site_name')[col].shift(k)
+
     if 'wind_speed_10m' in df.columns and 'temperature_2m' in df.columns:
         df['wind_temp_interaction'] = df['wind_speed_10m'] * df['temperature_2m']
 
