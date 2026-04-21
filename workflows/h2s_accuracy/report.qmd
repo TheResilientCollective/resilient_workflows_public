@@ -1,0 +1,168 @@
+---
+title: "H2S Forecast — Monthly Accuracy Report"
+subtitle: "Tijuana River Valley"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    theme: cosmo
+    code-fold: true
+    embed-resources: true
+  pdf:
+    toc: true
+    documentclass: article
+execute:
+  echo: false
+  warning: false
+params:
+  period: "latest"   # YYYY-MM or "latest"
+  accuracy_url: "https://oss.resilientservice.mooo.com/resilentpublic/latest/tijuana/forecast/accuracy_reports"
+---
+
+```{python}
+import json
+import os
+from datetime import datetime
+from urllib.request import urlopen
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+PERIOD = os.environ.get("REPORT_PERIOD", "latest")
+BASE = os.environ.get(
+    "ACCURACY_URL",
+    "https://oss.resilientservice.mooo.com/resilentpublic/latest/tijuana/forecast/accuracy_reports",
+)
+
+def _fetch(url):
+    with urlopen(url, timeout=15) as r:
+        return json.loads(r.read())
+
+def _pct(x):
+    return "—" if x is None else f"{100 * x:.1f}%"
+```
+
+## Executive scorecard
+
+```{python}
+# Rolling 30d is the headline; fall back to latest.json.
+try:
+    scorecard = _fetch(f"{BASE}/rolling/30d/scorecard.json")
+except Exception:
+    scorecard = _fetch(f"{BASE}/latest.json")
+
+overall = scorecard.get("overall") or scorecard.get("windows", {}).get("30d", {}).get("overall", {}) or {}
+headline = pd.DataFrame({
+    "Metric": [
+        "Balanced accuracy",
+        "Orange recall (true exceedances caught)",
+        "False-alarm rate",
+        "Matched observations",
+    ],
+    "Value": [
+        _pct(overall.get("balanced_accuracy")),
+        _pct(overall.get("orange_recall")),
+        _pct(overall.get("false_alarm_rate")),
+        overall.get("n_matched_observations", 0),
+    ],
+})
+headline
+```
+
+Report generated {{< meta date >}} — data window
+**{{< var period_start >}}** → **{{< var period_end >}}**.
+
+::: {.callout-note}
+All numbers in this report are computed from the daily `metrics.json`
+artifacts written by the `daily_validation_schedule` in
+`tj_h2s_prediction`, rolled up by the `accuracy_reporting_job` in Dagster.
+:::
+
+## Per-site accuracy
+
+```{python}
+sites = scorecard.get("sites") or {}
+rows = []
+for site, card in sites.items():
+    rows.append({
+        "Site": site,
+        "n_preds": card.get("n_predictions"),
+        "n_matched": card.get("n_matched_observations"),
+        "Balanced acc.": _pct(card.get("balanced_accuracy")),
+        "Orange recall": _pct(card.get("orange_recall")),
+        "Orange prec.": _pct(card.get("orange_precision")),
+        "FAR": _pct(card.get("false_alarm_rate")),
+    })
+site_df = pd.DataFrame(rows).sort_values("Site") if rows else pd.DataFrame()
+site_df
+```
+
+## Alert-level performance
+
+```{python}
+try:
+    alert = _fetch(f"{BASE}/alert_performance/30d.json")
+    by_level = alert.get("by_level", {})
+    levels = ["green", "yellow", "orange"]
+    precision = [(by_level.get(l) or {}).get("precision") or 0 for l in levels]
+    recall = [(by_level.get(l) or {}).get("recall") or 0 for l in levels]
+    fig, ax = plt.subplots(figsize=(7, 3.5))
+    x = np.arange(len(levels))
+    ax.bar(x - 0.2, precision, 0.4, label="Precision", color="#607D8B")
+    ax.bar(x + 0.2, recall, 0.4, label="Recall", color="#FF5722")
+    ax.set_xticks(x)
+    ax.set_xticklabels([l.title() for l in levels])
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("")
+    ax.set_title("Precision and recall by alert level (30-day window)")
+    ax.legend(loc="upper left", frameon=False)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    plt.tight_layout()
+    plt.show()
+except Exception as e:
+    print(f"Alert-performance data unavailable: {e}")
+```
+
+## Trend vs. prior month
+
+```{python}
+# Compare 30d vs. 90d rolling windows as a proxy for trend.
+try:
+    latest = _fetch(f"{BASE}/latest.json")
+    win = latest.get("windows", {})
+    rows = []
+    for w in ("7d", "30d", "90d"):
+        o = (win.get(w) or {}).get("overall") or {}
+        rows.append({
+            "Window": w,
+            "Balanced acc.": _pct(o.get("balanced_accuracy")),
+            "Orange recall": _pct(o.get("orange_recall")),
+            "FAR": _pct(o.get("false_alarm_rate")),
+            "n_matched": o.get("n_matched_observations", 0),
+        })
+    pd.DataFrame(rows)
+except Exception as e:
+    print(f"Trend data unavailable: {e}")
+```
+
+## Methodology
+
+::: {.callout-tip collapse=true}
+### How these metrics are computed
+
+- **Balanced accuracy** = mean of per-class recall over
+  `{green, yellow, orange}` from the confusion matrix.
+- **Orange recall** = true orange predictions / all true orange events.
+- **False-alarm rate** = predicted orange that were not orange /
+  all non-orange events.
+- Observations are matched to predictions with a 30-minute nearest-time
+  tolerance; see `accuracy_reporting_pipeline.scorecard_from_predictions`.
+- Source models, S3 paths, and the rollup schedule are documented in
+  `projects/h2s/src/h2s/defs/accuracy_reporting_pipeline.py`.
+:::
+
+## Appendix: retraining changelog
+
+_To be auto-generated from the monthly retraining job deployment metadata._
