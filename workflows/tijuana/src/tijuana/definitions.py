@@ -44,6 +44,7 @@ all_schedules = [
     assets_pkg.effluent_flow_current_schedule,
     assets_pkg.effluent_flow_yearly_schedule,
     assets_pkg.apcd_yearly_schedule,
+    assets_pkg.nerr_weather_schedule,
 ]
 
 all_sensors = [

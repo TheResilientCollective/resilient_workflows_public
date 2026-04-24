@@ -27,6 +27,7 @@ CSV_PATTERN='*.csv'
 
 H2S_PATH='latest/tijuana/sd_apcd_air/h2s'
 WEATHER_BASE='latest/tijuana/weather'
+NERR_WEATHER_BASE='latest/tijuana/weather_nerr'
 STREAMFLOW_BASE='latest/tijuana/streamflow'
 STREAMFLOW_SITE_YEARLY='boundary_cms'
 STREAMFLOW_SITE_RECENT=STREAMFLOW_SITE_YEARLY
@@ -413,12 +414,14 @@ def h2s_locations(context):
           AssetKey(['streamflow', 'boundary_cms']),
           AssetKey(['weather', 'openmeteo_historical']),
           AssetKey(['weather', 'openmeteo_current_year']),
+          AssetKey(['weather', 'nerr_tjr_met_historical']),
+          AssetKey(['weather', 'nerr_tjr_met_current_year']),
           AssetKey(['ibwc', 'effluent_flow_current_year']),
           AssetKey(['ibwc', 'effluent_flow_today']),
           ],
        metadata={
-           "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
-           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days). THIS IS UP TO DATE DAILY. Not hourly. "
+           "source": "San Diego APCD, IBWC Streamflow, OpenMeteo and NERR TJR met station data"
+           , "description": "Data for Forecast Modeling of H2S includes Wind Direction, Wind Speed, and complete Tijuana River streamflow (yearly historical + recent 30 days). IB CIVIC CTR uses NERR TJR met station weather. THIS IS UP TO DATE DAILY. Not hourly. "
            , "variableMeasured": ["H2S", 'Wind Direction', 'Wind Speed', "Streamflow"]
        },
        automation_condition=AutomationCondition.eager()
@@ -504,6 +507,30 @@ def data_for_models(context):
         else:
             dagster_logger.warning("site_name column not found in weather data — assigning all rows to 'unknown'")
             weather_df['site_name'] = 'unknown'
+
+        # Remove IB CIVIC CTR from OpenMeteo weather — replaced by NERR met station data
+        ib_count = (weather_df['site_name'] == 'IB CIVIC CTR').sum()
+        if ib_count > 0:
+            dagster_logger.info(f"Removing {ib_count} OpenMeteo rows for IB CIVIC CTR (replaced by NERR)")
+            weather_df = weather_df[weather_df['site_name'] != 'IB CIVIC CTR']
+
+        # Load NERR TJR met station data for IB CIVIC CTR
+        nerr_files = f"s3://{s3_resource.S3_BUCKET}/{NERR_WEATHER_BASE}/{CSV_PATTERN}"
+        try:
+            nerr_df = duckdb_con.read_csv(nerr_files, null_padding=True).df()
+            nerr_df = nerr_df.rename(columns={'date': 'time'})
+            nerr_df["time"] = nerr_df["time"].dt.tz_convert("America/Los_Angeles")
+            nerr_df = nerr_df.set_index(pd.DatetimeIndex(nerr_df['time']))
+            nerr_df = nerr_df.drop(['time'], axis=1)
+            nerr_df.index = nerr_df.index.astype("datetime64[ns, America/Los_Angeles]")
+            nerr_df = nerr_df.sort_index()
+            if 'site_name' in nerr_df.columns:
+                nerr_df['site_name'] = nerr_df['site_name'].str.strip()
+            dagster_logger.info(f"Loaded {nerr_df.shape[0]} NERR weather records for IB CIVIC CTR")
+            weather_df = pd.concat([weather_df, nerr_df], ignore_index=False)
+            weather_df = weather_df.sort_index()
+        except Exception as nerr_e:
+            dagster_logger.warning(f"Could not load NERR weather data, IB CIVIC CTR will have no weather: {nerr_e}")
 
         weather_df = add_wind_features(weather_df, dagster_logger)
     except Exception as e:

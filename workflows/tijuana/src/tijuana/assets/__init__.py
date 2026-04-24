@@ -38,6 +38,9 @@ from .openmeteo import (forecast,
                         weather_current_year,
                         forecast_15min,
                         weather_all_schedule)
+from .nerr_weather import (nerr_tjr_met_historical,
+                           nerr_tjr_met_current_year,
+                           nerr_weather_schedule)
 from .gis import subregions, tracts
 from .airnow import (get_aq_combined_kml, get_aq_forecast, get_aq_site, aq_combined_geojson
                      )
