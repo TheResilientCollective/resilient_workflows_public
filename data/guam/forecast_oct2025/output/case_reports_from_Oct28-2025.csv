@@ -1,0 +1,10 @@
+"Disease","epiweek_start","cases","Type","Median","Lower90","Lower50","Lower20","Upper20","Upper50","Upper90"
+"Infections",2025-09-07,144,"estimate",144,99,124,136,152,168,212
+"Infections",2025-09-14,234,"estimate",234,181,211,225,243,259,308
+"Infections",2025-09-21,338,"estimate",338,274,312,328,349,368,427
+"Infections",2025-09-28,505,"estimate",505,412,466,490,520,547,630
+"Infections",2025-10-05,778,"estimate",778,637,721,756,799,839,956
+"Infections",2025-10-12,1239,"estimate",1239,1013,1150,1207,1273,1333,1523
+"Infections",2025-10-19,2031,"partial-data estimate",2031,1543,1840,1958,2100,2235,2664
+"Infections",2025-10-26,,"forecast",3336,2194,2853,3151,3530,3926,5238
+"Infections",2025-11-02,,"forecast",2783,1596,2269,2581,3011,3479,5200
