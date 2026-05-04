@@ -3,8 +3,8 @@ import io
 import json
 import os
 import re
+import zipfile
 from datetime import datetime
-from io import StringIO
 
 import geopandas as gpd
 import pandas as pd
@@ -26,42 +26,57 @@ from resilient_core.utils.constants import ICONS
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL_UPDATES", "#test")
 
 PFM_PAGE_URL = "https://pfmweb.ucsd.edu/"
-PFM_FILE_BASE = "https://pfmweb.ucsd.edu/_file/data/pfm_his_daily"
-EXPECTED_FILES = [
-    "site_markers.json",
-    "site_timeseries.csv",
-    "computed_shoreline_points.json",
-    "computed_dye_contours_0.json",
-    "computed_dye_contours_1.json",
-    "computed_dye_contours_2.json",
-    "computed_dye_contours_3.json",
-    "computed_dye_contours_4.json",
-]
+PFM_BASE_URL = "https://pfmweb.ucsd.edu"
+
+# The zip now contains these JSON data files plus map/frame_NNN.png rasters
+JSON_FILES = ["times.json", "sites.json", "shoreline.json"]
+
+# Risk level encoding used by the PFM model
+RISK_COLORS = {0: "#00C853", 1: "#FFD600", 2: "#D50000"}
+RISK_LABELS = {0: "low", 1: "moderate", 2: "high"}
 
 
-def fetch_pfm_file_hashes() -> dict:
+def fetch_pfm_zip_url() -> str:
     """
-    Fetch https://pfmweb.ucsd.edu/ and extract hashed file paths from
-    Observable's registerFile() calls embedded in the page JavaScript.
-    Returns dict mapping logical filename -> full URL with hash.
+    Fetch https://pfmweb.ucsd.edu/ and extract the hashed zip URL from
+    Observable's registerFile() call embedded in the page JavaScript.
     """
     response = requests.get(PFM_PAGE_URL, timeout=30)
     response.raise_for_status()
     pattern = re.compile(
-        r'registerFile\(["\']\.\/data\/pfm_his_daily\/([\w._-]+)["\']'
-        r'.*?["\']path["\']:\s*["\']\./_file\/data\/pfm_his_daily\/([\w._-]+)["\']',
+        r'registerFile\(["\']\.\/data\/pfm_his_daily\.zip["\']'
+        r'.*?["\']path["\']:\s*["\']([^"\']+)["\']',
         re.DOTALL,
     )
-    hashes = {
-        m.group(1): f"{PFM_FILE_BASE}/{m.group(2)}"
-        for m in pattern.finditer(response.text)
-    }
-    missing = [f for f in EXPECTED_FILES if f not in hashes]
-    if missing:
+    m = pattern.search(response.text)
+    if not m:
         raise ValueError(
-            f"Could not find hash URLs for: {missing}. PFM page structure may have changed."
+            "Could not find pfm_his_daily.zip URL. PFM page structure may have changed."
         )
-    return hashes
+    # path is like "./_file/data/pfm_his_daily.12e0d4e0.zip" — strip leading "."
+    relative_path = m.group(1)
+    if relative_path.startswith("."):
+        relative_path = relative_path[1:]
+    return f"{PFM_BASE_URL}{relative_path}"
+
+
+def fetch_pfm_files() -> dict:
+    """
+    Download the PFM zip and return {filename: bytes} for JSON data files.
+    Handles arbitrary directory nesting inside the zip by matching on basename.
+    """
+    zip_url = fetch_pfm_zip_url()
+    response = requests.get(zip_url, timeout=120)
+    response.raise_for_status()
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+        name_map = {os.path.basename(n): n for n in zf.namelist() if not n.endswith("/")}
+        missing = [f for f in JSON_FILES if f not in name_map]
+        if missing:
+            raise ValueError(
+                f"Missing files in PFM zip: {missing}. Available: {list(name_map.keys())}"
+            )
+        return {f: zf.read(name_map[f]) for f in JSON_FILES}
 
 
 @asset(
@@ -72,27 +87,37 @@ def fetch_pfm_file_hashes() -> dict:
     automation_condition=AutomationCondition.eager(),
 )
 def pfm_site_markers(context):
-    """Scripps PFM monitoring station point locations along the Tijuana River / SD coast."""
+    """Scripps PFM monitoring station locations with hour-0 risk levels."""
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
     today = datetime.now().strftime("%Y%m%d")
 
-    hashes = fetch_pfm_file_hashes()
-    url = hashes["site_markers.json"]
-    logger.info(f"Fetching site markers from {url}")
+    files = fetch_pfm_files()
+    sites = json.loads(files["sites.json"])
+    times_data = json.loads(files["times.json"])
+    logger.info("Loaded sites.json and times.json from PFM zip")
 
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
+    s3_resource.putFile_text(
+        data=files["sites.json"].decode(),
+        path=f"tijuana/oceanmodel/raw/scripps_pfm/{today}/sites.json",
+        content_type="application/json",
+    )
 
-    # Archive raw dated copy
-    raw_path = f"tijuana/oceanmodel/raw/scripps_pfm/{today}/site_markers.geojson"
-    s3_resource.putFile_text(data=response.text, path=raw_path, content_type="application/geo+json")
-
-    # Parse double-encoded JSON (server returns JSON-encoded JSON string)
-    geojson_str = response.json()
-    geojson_data = json.loads(geojson_str)
-    gdf = gpd.GeoDataFrame.from_features(geojson_data["features"], crs="EPSG:4326")
-    gdf["Icons"] = ICONS.get("beach", "place")
+    n_sites = len(sites["names"])
+    hour0_risk = [sites["risk"][0][i] for i in range(n_sites)]
+    gdf = gpd.GeoDataFrame(
+        {
+            "name": sites["names"],
+            "lat": sites["lats"],
+            "lon": sites["lons"],
+            "risk_value": hour0_risk,
+            "risk_level": [RISK_LABELS.get(r, "unknown") for r in hour0_risk],
+            "forecast_start": times_data["times"][0],
+            "Icons": [ICONS.get("beach", "place")] * n_sites,
+        },
+        geometry=gpd.points_from_xy(sites["lons"], sites["lats"]),
+        crs="EPSG:4326",
+    )
 
     metadata = store_assets.objectMetadata(
         name="pfm_site_markers",
@@ -111,7 +136,7 @@ def pfm_site_markers(context):
         formats=["geojson", "csv"],
     )
 
-    context.add_output_metadata({"station_count": len(gdf), "hash_url": url})
+    context.add_output_metadata({"station_count": len(gdf), "forecast_start": times_data["times"][0]})
     return gdf
 
 
@@ -123,30 +148,42 @@ def pfm_site_markers(context):
     automation_condition=AutomationCondition.eager(),
 )
 def pfm_site_timeseries(context):
-    """Scripps PFM hourly timeseries of modeled concentrations per monitoring station."""
+    """Scripps PFM hourly risk timeseries per monitoring station (121 hours)."""
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
     today = datetime.now().strftime("%Y%m%d")
 
-    hashes = fetch_pfm_file_hashes()
-    url = hashes["site_timeseries.csv"]
-    logger.info(f"Fetching site timeseries from {url}")
+    files = fetch_pfm_files()
+    sites = json.loads(files["sites.json"])
+    times_data = json.loads(files["times.json"])
+    logger.info("Loaded sites.json and times.json from PFM zip")
 
-    response = requests.get(url, timeout=60)
-    response.raise_for_status()
+    timestamps = times_data["times"]
+    names = sites["names"]
 
-    # Archive raw dated copy
-    raw_path = f"tijuana/oceanmodel/raw/scripps_pfm/{today}/site_timeseries.csv"
-    s3_resource.putFile_text(data=response.text, path=raw_path, content_type="text/csv")
+    rows = []
+    for t_idx, ts in enumerate(timestamps):
+        for s_idx in range(len(names)):
+            risk_val = sites["risk"][t_idx][s_idx]
+            rows.append({
+                "timestamp": ts,
+                "site": names[s_idx],
+                "lat": sites["lats"][s_idx],
+                "lon": sites["lons"][s_idx],
+                "risk_value": risk_val,
+                "risk_level": RISK_LABELS.get(risk_val, "unknown"),
+            })
+    df = pd.DataFrame(rows)
 
-    df = pd.read_csv(StringIO(response.text))
-    # Normalize timestamp: first column is the time index
-    ts_col = df.columns[0]
-    df = df.rename(columns={ts_col: "timestamp"})
+    s3_resource.putFile_text(
+        data=df.to_csv(index=False),
+        path=f"tijuana/oceanmodel/raw/scripps_pfm/{today}/site_timeseries.csv",
+        content_type="text/csv",
+    )
 
     metadata = store_assets.objectMetadata(
         name="pfm_site_timeseries",
-        description="Scripps Pathogen Forecast Model hourly timeseries per monitoring station",
+        description="Scripps Pathogen Forecast Model hourly risk timeseries per monitoring station",
         source_url=PFM_PAGE_URL,
     )
 
@@ -161,7 +198,7 @@ def pfm_site_timeseries(context):
         formats=["csv", "json"],
     )
 
-    context.add_output_metadata({"row_count": len(df), "columns": list(df.columns), "hash_url": url})
+    context.add_output_metadata({"row_count": len(df), "sites": names, "time_steps": len(timestamps)})
     return df
 
 
@@ -173,44 +210,82 @@ def pfm_site_timeseries(context):
     automation_condition=AutomationCondition.eager(),
 )
 def pfm_dye_contours(context):
-    """Scripps PFM dye concentration contour polygons (levels 0-4) and shoreline geometry."""
+    """
+    Scripps PFM animated forecast frames — stores all 121 hourly PNG images to S3
+    and writes manifest.json with Leaflet-ready bounds for client-side rendering.
+
+    PNG frames carry no embedded coordinate metadata. Bounds come from times.json
+    and must be applied when displaying frames on a Leaflet map:
+      L.imageOverlay(frameUrl, manifest.leaflet_bounds)
+      where leaflet_bounds = [[south, west], [north, east]]
+
+    Current bounds (EPSG:4326):
+      south: 32.4062, north: 32.7544, west: -117.2781, east: -117.0567
+    """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
     today = datetime.now().strftime("%Y%m%d")
 
-    hashes = fetch_pfm_file_hashes()
-    stored_paths = {}
+    zip_url = fetch_pfm_zip_url()
+    logger.info(f"Downloading PFM zip from {zip_url}")
+    response = requests.get(zip_url, timeout=180)
+    response.raise_for_status()
 
-    # Shoreline points
-    shoreline_url = hashes["computed_shoreline_points.json"]
-    logger.info(f"Fetching shoreline points from {shoreline_url}")
-    buf = io.BytesIO(requests.get(shoreline_url, timeout=120).content)
-    size = buf.getbuffer().nbytes
-    raw_path = f"tijuana/oceanmodel/raw/scripps_pfm/{today}/shoreline_points.geojson"
-    output_path = "tijuana/oceanmodel/output/pfm_dye_contours/shoreline_points.geojson"
-    s3_resource.putStream(stream=buf, length=size, path=raw_path, content_type="application/geo+json")
-    buf.seek(0)
-    s3_resource.putStream(stream=buf, length=size, path=output_path, content_type="application/geo+json")
-    stored_paths["shoreline_points"] = output_path
-    logger.info(f"Stored shoreline points ({size} bytes)")
+    zip_bytes = response.content
+    buf = io.BytesIO(zip_bytes)
+    s3_resource.putStream(
+        stream=buf,
+        length=len(zip_bytes),
+        path=f"tijuana/oceanmodel/raw/scripps_pfm/{today}/pfm_his_daily.zip",
+        content_type="application/zip",
+    )
 
-    # Dye contour levels 0-4
-    for level in range(5):
-        contour_key = f"computed_dye_contours_{level}.json"
-        contour_url = hashes[contour_key]
-        logger.info(f"Fetching dye contour level {level} from {contour_url}")
-        buf = io.BytesIO(requests.get(contour_url, timeout=120).content)
-        size = buf.getbuffer().nbytes
-        raw_path = f"tijuana/oceanmodel/raw/scripps_pfm/{today}/dye_contours_{level}.geojson"
-        output_path = f"tijuana/oceanmodel/output/pfm_dye_contours/dye_contours_{level}.geojson"
-        s3_resource.putStream(stream=buf, length=size, path=raw_path, content_type="application/geo+json")
-        buf.seek(0)
-        s3_resource.putStream(stream=buf, length=size, path=output_path, content_type="application/geo+json")
-        stored_paths[f"dye_contours_{level}"] = output_path
-        logger.info(f"Stored dye contour level {level} ({size} bytes)")
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        times_data = json.loads(zf.read("times.json"))
+        bounds = times_data["bounds"]
+        timestamps = times_data["times"]
 
-    context.add_output_metadata({"stored_files": stored_paths, "date": today})
-    return stored_paths
+        leaflet_bounds = [
+            [bounds["south"], bounds["west"]],
+            [bounds["north"], bounds["east"]],
+        ]
+
+        frame_names = sorted(n for n in zf.namelist() if n.startswith("map/frame_") and n.endswith(".png"))
+        logger.info(f"Storing {len(frame_names)} PNG frames to S3")
+
+        frame_manifest = []
+        for name in frame_names:
+            frame_bytes = zf.read(name)
+            frame_num = int(os.path.splitext(os.path.basename(name))[0].split("_")[1])
+            out_path = f"tijuana/oceanmodel/output/pfm_dye_contours/frame_{frame_num:03d}.png"
+            s3_resource.putStream(
+                stream=io.BytesIO(frame_bytes),
+                length=len(frame_bytes),
+                path=out_path,
+                content_type="image/png",
+            )
+            frame_manifest.append({
+                "frame": frame_num,
+                "timestamp": timestamps[frame_num] if frame_num < len(timestamps) else None,
+                "path": out_path,
+            })
+
+    manifest = {
+        "bounds": bounds,
+        "leaflet_bounds": leaflet_bounds,
+        "frame_count": len(frame_manifest),
+        "frames": frame_manifest,
+    }
+    manifest_json = json.dumps(manifest)
+    for path in [
+        "tijuana/oceanmodel/output/pfm_dye_contours/manifest.json",
+        "tijuana/oceanmodel/pfm_dye_contours/manifest.json",
+    ]:
+        s3_resource.putFile_text(data=manifest_json, path=path, content_type="application/json")
+
+    logger.info(f"Stored {len(frame_manifest)} frames and manifest")
+    context.add_output_metadata({"frame_count": len(frame_manifest), "bounds": bounds, "date": today})
+    return manifest
 
 
 pfm_job = define_asset_job(
@@ -231,106 +306,50 @@ pfm_job = define_asset_job(
     name="pfm_hour0_contours",
     required_resource_keys={"s3"},
     automation_condition=AutomationCondition.eager(),
+    deps=[AssetKey(["oceanmodel", "pfm_dye_contours"])],
 )
 def pfm_hour0_contours(context):
     """
-    Scripps PFM hour-0 forecast contours - extracts the initial forecast time
-    snapshot from dye_contours_0 for static map tile visualization.
+    Scripps PFM current-conditions snapshot — reads the pfm_dye_contours manifest
+    and publishes a slim JSON with the hour-0 frame path and Leaflet-ready bounds
+    for frontend consumption without loading the full 121-frame manifest.
 
-    Provides a simplified, mobile-optimized version of the current forecast
-    without needing to animate through 121 time steps.
+    Output schema:
+      {
+        "timestamp": "2026-05-04T00:00:00",
+        "frame_path": "tijuana/oceanmodel/output/pfm_dye_contours/frame_000.png",
+        "bounds": {"south": 32.4062, "north": 32.7544, "west": -117.2781, "east": -117.0567},
+        "leaflet_bounds": [[32.4062, -117.2781], [32.7544, -117.0567]]
+      }
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
-    today = datetime.now().strftime("%Y%m%d")
 
-    # Fetch dye_contours_0 which contains hours 0-24
-    logger.info("Loading dye_contours_0 from S3")
-    data = s3_resource.getFile("tijuana/oceanmodel/output/pfm_dye_contours/dye_contours_0.geojson")
+    logger.info("Loading pfm_dye_contours manifest from S3")
+    data = s3_resource.getFile("tijuana/oceanmodel/output/pfm_dye_contours/manifest.json")
+    manifest = json.loads(data.decode("utf-8"))
 
-    # The file is an array of 25 time snapshots (hours 0-24)
-    # Parse the array and extract the first element (hour 0)
-    contours_array = json.loads(data.decode("utf-8"))
+    frame0 = manifest["frames"][0]
+    current = {
+        "timestamp": frame0["timestamp"],
+        "frame_path": frame0["path"],
+        "bounds": manifest["bounds"],
+        "leaflet_bounds": manifest["leaflet_bounds"],
+    }
+    current_json = json.dumps(current)
+    for path in [
+        "tijuana/oceanmodel/output/pfm_hour0_contours/current.json",
+        "tijuana/oceanmodel/pfm_hour0_contours/current.json",
+    ]:
+        s3_resource.putFile_text(data=current_json, path=path, content_type="application/json")
 
-    if not isinstance(contours_array, list) or len(contours_array) == 0:
-        raise ValueError(f"Expected array of contours, got {type(contours_array)}")
-
-    # Parse hour 0 (first element, which is a JSON-encoded FeatureCollection)
-    if isinstance(contours_array[0], str):
-        hour0_data = json.loads(contours_array[0])
-    else:
-        hour0_data = contours_array[0]
-
-    logger.info(f"Extracted hour-0 with {len(hour0_data.get('features', []))} concentration contours")
-
-    # Convert to GeoDataFrame for processing
-    gdf = gpd.GeoDataFrame.from_features(hour0_data["features"], crs="EPSG:4326")
-
-    # Simplify geometry for mobile (tolerance ~20 meters)
-    gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.0002, preserve_topology=True)
-
-    # Parse concentration range from title property (e.g., "-5.50--5.25")
-    # Convert log10 values to actual percentages
-    def parse_concentration_range(title):
-        if not title or not isinstance(title, str):
-            return None
-        parts = title.strip().split("--")
-        if len(parts) == 2:
-            try:
-                log_min = float(parts[0])
-                log_max = float(parts[1])
-                pct_min = 10 ** log_min
-                pct_max = 10 ** log_max
-                return {
-                    "log_min": log_min,
-                    "log_max": log_max,
-                    "pct_min": pct_min,
-                    "pct_max": pct_max,
-                    "pct_range": f"{pct_min:.6f}% - {pct_max:.6f}%"
-                }
-            except:
-                return None
-        return None
-
-    gdf["concentration"] = gdf["title"].apply(parse_concentration_range)
-
-    # Store raw archive
-    raw_path = f"tijuana/oceanmodel/raw/scripps_pfm/{today}/hour0_contours.geojson"
-    raw_geojson = json.dumps(hour0_data)
-    s3_resource.putFile_text(data=raw_geojson, path=raw_path, content_type="application/geo+json")
-
-    # Store simplified output
-    metadata = store_assets.objectMetadata(
-        name="pfm_hour0_contours",
-        description="Scripps PFM hour-0 forecast: sewage concentration contours at initial forecast time (19 concentration levels from 0.0005% to 10%)",
-        source_url=PFM_PAGE_URL,
-    )
-
-    store_assets.store_dataframe_to_s3(
-        gdf,
-        "tijuana/oceanmodel/output/pfm_hour0_contours",
-        "hour0_contours",
-        s3_resource,
-        metadata=metadata,
-        enable_latest_path=True,
-        latestdatasetpath="tijuana/oceanmodel/pfm_hour0_contours",
-        formats=["geojson", "csv"],
-    )
-
-    # Calculate statistics
-    original_size = len(raw_geojson)
-    simplified_geojson = gdf.to_json()
-    simplified_size = len(simplified_geojson)
-    reduction = (1 - simplified_size / original_size) * 100
-
+    logger.info(f"Published hour-0 frame: {frame0['path']} at {frame0['timestamp']}")
     context.add_output_metadata({
-        "contour_count": len(gdf),
-        "original_size_mb": round(original_size / 1024 / 1024, 2),
-        "simplified_size_mb": round(simplified_size / 1024 / 1024, 2),
-        "size_reduction_pct": round(reduction, 1),
+        "timestamp": frame0["timestamp"],
+        "frame_path": frame0["path"],
+        "bounds": manifest["bounds"],
     })
-
-    return gdf
+    return current
 
 
 @asset(
@@ -339,76 +358,59 @@ def pfm_hour0_contours(context):
     name="pfm_shoreline_hazard",
     required_resource_keys={"s3"},
     automation_condition=AutomationCondition.eager(),
-    deps=[AssetKey(["oceanmodel", "pfm_dye_contours"])], # shoreline_points pulled at same time as contours
 )
 def pfm_shoreline_hazard(context):
     """
-    Scripps PFM shoreline hazard lines - converts dense shoreline points into simplified
-    colored LineStrings by risk level for mobile-friendly visualization.
+    Scripps PFM shoreline hazard lines — converts 1060 dense shoreline points into
+    simplified colored LineStrings by risk level for mobile-friendly visualization.
+    Risk values: 0=low (green), 1=moderate (yellow), 2=high (red).
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
 
-    # Fetch the shoreline points from S3
-    logger.info("Loading shoreline points from S3")
-    data = s3_resource.getFile("tijuana/oceanmodel/output/pfm_dye_contours/shoreline_points.geojson")
-    shoreline_data = json.loads(data.decode("utf-8"))
+    files = fetch_pfm_files()
+    shoreline = json.loads(files["shoreline.json"])
+    lats = shoreline["lats"]
+    lons = shoreline["lons"]
+    risk_hour0 = shoreline["risk"][0]
+    logger.info(f"Loaded {len(lats)} shoreline points from PFM zip")
 
-    # shoreline_data is an array of 121 time snapshots (same structure as dye_contours).
-    # Use only snapshot 0 (hour-0 / current conditions) to get an ordered south→north
-    # sequence of shoreline points without spurious cross-snapshot jumps.
-    fc_str = shoreline_data[0]
-    if isinstance(fc_str, str):
-        feature_collection = json.loads(fc_str)
-    else:
-        feature_collection = fc_str
-
-    all_points = [
-        f for f in feature_collection.get("features", [])
-        if f["geometry"]["type"] == "Point"
-    ]
-    logger.info(f"Using snapshot 0: {len(all_points)} shoreline points")
-
-    # Build line segments: a new segment starts each time risk changes
+    # Segment contiguous points by risk level, bridging transitions for continuous lines
     all_lines = []
     segment_id = 0
     i = 0
-    while i < len(all_points):
-        current_risk = all_points[i]["properties"].get("risk", "unknown")
-        coords = [all_points[i]["geometry"]["coordinates"]]
+    while i < len(lats):
+        current_risk = risk_hour0[i]
+        coords = [[lons[i], lats[i]]]
         i += 1
-        while i < len(all_points):
-            next_risk = all_points[i]["properties"].get("risk", "unknown")
+        while i < len(lats):
+            next_risk = risk_hour0[i]
             if next_risk != current_risk:
-                # Bridge: include this point in the current segment so lines connect
-                coords.append(all_points[i]["geometry"]["coordinates"])
+                coords.append([lons[i], lats[i]])
                 break
-            coords.append(all_points[i]["geometry"]["coordinates"])
+            coords.append([lons[i], lats[i]])
             i += 1
-
         if len(coords) >= 2:
             all_lines.append({
                 "type": "Feature",
-                "properties": {"risk": current_risk, "segment_id": segment_id},
+                "properties": {
+                    "risk_value": int(current_risk),
+                    "risk_level": RISK_LABELS.get(int(current_risk), "unknown"),
+                    "segment_id": segment_id,
+                },
                 "geometry": {"type": "LineString", "coordinates": coords},
             })
             segment_id += 1
 
-    # Create GeoDataFrame from LineStrings
     gdf = gpd.GeoDataFrame.from_features(all_lines, crs="EPSG:4326")
-    logger.info(f"Created {len(gdf)} line segments from shoreline points")
-
-    # Simplify for mobile (tolerance ~15 meters in degrees, roughly 0.00015 at this latitude)
+    logger.info(f"Created {len(gdf)} line segments")
     gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.00015, preserve_topology=True)
-
-    # Add color mapping for visualization
-    color_map = {"red": "#FF0000", "yellow": "#FFFF00", "green": "#00FF00", "unknown": "#808080"}
-    gdf["color"] = gdf["risk"].map(color_map)
-    gdf["Icons"] = "line"  # Use line icon for rendering
+    gdf["color"] = gdf["risk_value"].map(RISK_COLORS)
+    gdf["Icons"] = "line"
 
     metadata = store_assets.objectMetadata(
         name="pfm_shoreline_hazard",
-        description="Scripps PFM simplified shoreline hazard lines colored by risk level (red/yellow/green)",
+        description="Scripps PFM simplified shoreline hazard lines colored by risk level (0=low/green, 1=moderate/yellow, 2=high/red)",
         source_url=PFM_PAGE_URL,
     )
 
@@ -425,7 +427,7 @@ def pfm_shoreline_hazard(context):
 
     context.add_output_metadata({
         "line_count": len(gdf),
-        "risk_levels": gdf["risk"].value_counts().to_dict(),
+        "risk_distribution": gdf["risk_value"].value_counts().to_dict(),
         "simplified": True,
     })
     return gdf
@@ -441,10 +443,8 @@ def scripps_pfm_sensor(context: SensorEvaluationContext):
     """Hourly sensor: fires when pfmweb.ucsd.edu deploys updated forecast data."""
     slack = context.resources.slack
     try:
-        hashes = fetch_pfm_file_hashes()
-        fingerprint = hashlib.md5(
-            json.dumps(sorted(hashes.items())).encode()
-        ).hexdigest()
+        zip_url = fetch_pfm_zip_url()
+        fingerprint = hashlib.md5(zip_url.encode()).hexdigest()
 
         last_fingerprint = context.cursor or None
         if fingerprint != last_fingerprint:
