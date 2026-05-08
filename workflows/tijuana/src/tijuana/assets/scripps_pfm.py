@@ -450,6 +450,7 @@ def scripps_pfm_sensor(context: SensorEvaluationContext):
         if fingerprint != last_fingerprint:
             context.update_cursor(fingerprint)
             context.log.info(f"PFM site updated. New fingerprint: {fingerprint}")
+            context.log.info(f"PFM site updated. New zip url: {zip_url}")
             slack.get_client().chat_postMessage(
                 channel=SLACK_CHANNEL,
                 text=f"Scripps PFM forecast updated, running ingest (fingerprint: {fingerprint})",
