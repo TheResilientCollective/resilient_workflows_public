@@ -76,6 +76,7 @@ EMAIL_FROM = os.environ.get("EMAIL_FROM")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 EMAIL_TO = os.environ.get("EMAIL_TO")
 EMAIL_ENABLED = os.environ.get("EMAIL_ENABLED", "false").lower() == "true"
+FORECAST_AIRTABLE_ENABLED=os.environ.get("FORECAST_AIRTABLE_ENABLE", "false").lower() == "true"
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDID=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDID","rec4NITTQNAONirhd")
 FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME=os.environ.get("FORECAST_AIRTABLE_RSV_PORTAL_RECORDNAME","CoSD-ILI-Report")
 FORECAST_AIRTABLE_RSV_UPDATES_TABLE_ID=os.environ.get("FORECAST_AIRTABLE_UPDATES_TABLE_ID","Updates") # Updates
@@ -779,20 +780,20 @@ def epidemiology_forecasts_sensor(context: SensorEvaluationContext):
         if run_path == last_processed:
             logger.info(f"Run {run_path} already processed")
             return
+        if FORECAST_AIRTABLE_ENABLED == "true":
+            # Check if ForAirTable directory exists in this run
+            for_airtable_path = f"{run_path}ForAirTable/"
+            try:
+                files_in_for_airtable = s3_resource.listPath(for_airtable_path,bucket=FORECAST_BUCKET)
+                csv_files = [f for f in files_in_for_airtable if f.object_name.endswith('.csv')]
 
-        # Check if ForAirTable directory exists in this run
-        for_airtable_path = f"{run_path}ForAirTable/"
-        try:
-            files_in_for_airtable = s3_resource.listPath(for_airtable_path,bucket=FORECAST_BUCKET)
-            csv_files = [f for f in files_in_for_airtable if f.object_name.endswith('.csv')]
+                if not csv_files:
+                    logger.info(f"No CSV files found in {for_airtable_path}")
+                    return
 
-            if not csv_files:
-                logger.info(f"No CSV files found in {for_airtable_path}")
+            except Exception as e:
+                logger.info(f"ForAirTable directory not found or error accessing it: {e}")
                 return
-
-        except Exception as e:
-            logger.info(f"ForAirTable directory not found or error accessing it: {e}")
-            return
 
         # Parse run info for notification
         run_datetime, run_id = parse_run_id(latest_run.object_name)
