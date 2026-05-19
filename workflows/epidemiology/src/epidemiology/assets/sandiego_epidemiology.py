@@ -170,6 +170,7 @@ def sandiego_epidemiology_hyper_extraction(
         extraction_info = processor.extract_workbook(workbook_content, extract_dir)
 
         # Store each Hyper file in S3
+        hyper_name_map = extraction_info.get("hyper_name_map", {})
         hyper_files_stored = []
 
         all_dataframes = {} # Initialize all_dataframes here
@@ -179,18 +180,18 @@ def sandiego_epidemiology_hyper_extraction(
             hyper_file_path = extract_dir / hyper_file_rel_path
 
             if hyper_file_path.exists():
-                # Store Hyper file in S3
-                hyper_s3_key = f"{s3_output_path}raw/{workbook_name}/{date_path}/hyper/{hyper_file_path.name}"
+                friendly_name = hyper_name_map.get(hyper_file_path.name, hyper_file_path.stem)
+                logger.info(f"Hyper file '{hyper_file_path.name}' → '{friendly_name}'")
+
+                # Store Hyper file in S3 under its datasource caption name
+                hyper_s3_key = f"{s3_output_path}raw/{workbook_name}/{date_path}/hyper/{friendly_name}.hyper"
 
                 with open(hyper_file_path, 'rb') as f:
-                    name = f'sandiego_epidemiology_workbook_data {hyper_file_path.name}'
-                    description = f'''
-                         San Diego Epidemiology Data files from Tableau website  {workbook_name} {hyper_file_path.name} on {date_path}
-                         '''
+                    name = f'sandiego_epidemiology_workbook_data {friendly_name}'
+                    description = f'San Diego Epidemiology Data files from Tableau website {workbook_name} {friendly_name} on {date_path}'
                     source_url = config.url
                     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
                     store_assets.raw_to_s3(f.read(), hyper_s3_key, s3_resource, contenttype='application/octet-stream', metadata=metadata)
-                    """Convert Hyper files to processed DataFrames and store using utility functions"""
 
                 extracted_data_from_hyper = processor.extract_hyper_data(hyper_file_path) # Renamed to avoid conflict
 

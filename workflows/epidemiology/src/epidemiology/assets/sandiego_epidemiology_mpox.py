@@ -273,6 +273,7 @@ def mpox_hyper_extraction(
         extraction_info = processor.extract_workbook(workbook_content, extract_dir)
 
         # Store each Hyper file in S3 and process target workbooks
+        hyper_name_map = extraction_info.get("hyper_name_map", {})
         hyper_files_stored = []
         all_dataframes = {}
         processed_count = 0
@@ -281,14 +282,15 @@ def mpox_hyper_extraction(
             hyper_file_path = extract_dir / hyper_file_rel_path
 
             if hyper_file_path.exists():
-                # Store Hyper file in S3
-                hyper_s3_key = f"{s3_output_path}raw/{workbook_name}/{date_path}/hyper/{hyper_file_path.name}"
+                friendly_name = hyper_name_map.get(hyper_file_path.name, hyper_file_path.stem)
+                logger.info(f"Hyper file '{hyper_file_path.name}' → friendly name '{friendly_name}'")
+
+                # Store Hyper file in S3 under its datasource caption name
+                hyper_s3_key = f"{s3_output_path}raw/{workbook_name}/{date_path}/hyper/{friendly_name}.hyper"
 
                 with open(hyper_file_path, 'rb') as f:
-                    name = f'mpox_workbook_data {hyper_file_path.name}'
-                    description = f'''
-                         San Diego MPOX Epidemiology Data files from Tableau website {workbook_name} {hyper_file_path.name}
-                         '''
+                    name = f'mpox_workbook_data {friendly_name}'
+                    description = f'San Diego MPOX Epidemiology Data files from Tableau website {workbook_name} {friendly_name}'
                     metadata = store_assets.objectMetadata(name=name, description=description, source_url=config.url)
                     store_assets.raw_to_s3(f.read(), hyper_s3_key, s3_resource,
                                          contenttype='application/octet-stream', metadata=metadata)
@@ -297,7 +299,7 @@ def mpox_hyper_extraction(
                 extracted_data_from_hyper = processor.extract_hyper_data(hyper_file_path)
 
                 for _, df in extracted_data_from_hyper.items(): # _ was table_name but for MPOX it is always 'Extract'
-                    table_name = hyper_file_path.name
+                    table_name = friendly_name
                     if any(table_name.startswith(prefix) for prefix in TARGET_WORKBOOKS_PREFIX):
                         if not df.empty:
                             # Add metadata columns
