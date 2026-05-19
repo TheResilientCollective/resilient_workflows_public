@@ -4,7 +4,17 @@ import os
 import geopandas as gpd
 import pandas as pd
 import requests
-from dagster import asset, AutomationCondition, AssetKey, get_dagster_logger
+from dagster import (
+    asset,
+    asset_sensor,
+    AutomationCondition,
+    AssetKey,
+    EventLogEntry,
+    RunRequest,
+    SensorEvaluationContext,
+    define_asset_job,
+    get_dagster_logger,
+)
 from resilient_core.utils import store_assets
 
 # Direct GeoJSON URLs — no zip extraction needed, readable via requests + BytesIO
@@ -242,3 +252,22 @@ def mpox_aggregated_geo(context):
     )
 
     return gdf
+
+
+# ── Job + Sensor ──────────────────────────────────────────────────────────────
+
+mpox_aggregated_job = define_asset_job(
+    name="mpox_aggregated_job",
+    selection=[AssetKey(["mpox", "mpox_aggregated"])],
+)
+
+
+@asset_sensor(
+    asset_key=AssetKey(["sandiego", "sd_mpox"]),
+    job=mpox_aggregated_job,
+    name="sd_mpox_sensor",
+    minimum_interval_seconds=60,
+)
+def sd_mpox_sensor(_context: SensorEvaluationContext, asset_event: EventLogEntry):
+    """Fire mpox_aggregated_job whenever sd_mpox materializes."""
+    yield RunRequest(run_key=f"mpox_aggregated_{asset_event.run_id}")

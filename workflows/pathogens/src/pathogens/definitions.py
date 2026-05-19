@@ -62,10 +62,11 @@ defs = Definitions(
     assets=[*all_assets, *all_source_assets],
     asset_checks=asset_checks,
     resources=resources[deployment_name],
+    jobs=[assets_pkg.mpox_aggregated_job],
     schedules=[
         assets_pkg.cdc_nndss_weekly_schedule,
         assets_pkg.cdc_nnds.cdc_nndss_raw_schedule,
         assets_pkg.mpox_counties_weekly_schedule,
     ],
-    sensors=[slack_on_run_failure, assets_pkg.wahis_upload_sensor],
+    sensors=[slack_on_run_failure, assets_pkg.wahis_upload_sensor, assets_pkg.sd_mpox_sensor],
 )

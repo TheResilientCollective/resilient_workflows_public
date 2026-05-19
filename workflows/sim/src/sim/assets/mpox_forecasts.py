@@ -168,7 +168,7 @@ def copy_mpox_latest(context, mpox_simulation: str):
     updated_files = []
     for f in files:
         source_object = CopySource(MPOX_BUCKET, f.object_name)
-        object_name = Path(f.object_name).name.replace("mpox_forecasts", "mpox_case_reports")
+        object_name = Path(f.object_name).name.replace("mpox_forecast", "mpox_case_reports")
         dest_path = f"{MPOX_LATEST_PATH}{object_name}"
         s3_client.copy_object(s3_resource.S3_BUCKET, dest_path, source_object)
         updated_files.append(dest_path)
@@ -407,7 +407,11 @@ def mpox_website_deploy(context):
 
 mpox_simulation_job = define_asset_job(
     name="mpox_simulation_job",
-    selection=[AssetKey(["mpox", "mpox_simulation"])],
+    selection=[
+        AssetKey(["mpox", "mpox_simulation"]),
+        AssetKey(["mpox", "mpox_latest"]),
+        AssetKey(["mpox", "mpox_github"]),
+    ],
 )
 
 
