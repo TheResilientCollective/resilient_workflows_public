@@ -68,5 +68,5 @@ defs = Definitions(
         assets_pkg.cdc_nnds.cdc_nndss_raw_schedule,
         assets_pkg.mpox_counties_weekly_schedule,
     ],
-    sensors=[slack_on_run_failure, assets_pkg.wahis_upload_sensor, assets_pkg.sd_mpox_sensor],
+    sensors=[slack_on_run_failure, assets_pkg.wahis_upload_sensor, assets_pkg.mpox_upstream_sensor],
 )

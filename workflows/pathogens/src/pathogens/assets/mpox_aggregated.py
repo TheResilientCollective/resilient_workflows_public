@@ -6,12 +6,11 @@ import pandas as pd
 import requests
 from dagster import (
     asset,
-    asset_sensor,
+    multi_asset_sensor,
     AutomationCondition,
     AssetKey,
-    EventLogEntry,
+    MultiAssetSensorEvaluationContext,
     RunRequest,
-    SensorEvaluationContext,
     define_asset_job,
     get_dagster_logger,
 )
@@ -262,12 +261,21 @@ mpox_aggregated_job = define_asset_job(
 )
 
 
-@asset_sensor(
-    asset_key=AssetKey(["sandiego", "sd_mpox"]),
+@multi_asset_sensor(
+    monitored_assets=[
+        AssetKey(["sandiego", "sd_mpox"]),
+        AssetKey(["mpox", "mpox_la_weekly"]),
+        AssetKey(["mpox", "mpox_sf_weekly"]),
+        AssetKey(["cdc", "mpox_california_weekly"]),
+        AssetKey(["cdc", "mpox_weekly"]),
+    ],
     job=mpox_aggregated_job,
-    name="sd_mpox_sensor",
+    name="mpox_upstream_sensor",
     minimum_interval_seconds=60,
 )
-def sd_mpox_sensor(_context: SensorEvaluationContext, asset_event: EventLogEntry):
-    """Fire mpox_aggregated_job whenever sd_mpox materializes."""
-    yield RunRequest(run_key=f"mpox_aggregated_{asset_event.run_id}")
+def mpox_upstream_sensor(context: MultiAssetSensorEvaluationContext):
+    """Fire mpox_aggregated_job when any upstream asset materializes."""
+    records = context.latest_materialization_records_by_key()
+    if any(record is not None for record in records.values()):
+        context.advance_all_cursors()
+        yield RunRequest(run_key=None)
