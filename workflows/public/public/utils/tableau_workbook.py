@@ -64,17 +64,56 @@ class TableauWorkbookProcessor:
             # Find hyper files
             hyper_files = list(extract_dir.rglob("*.hyper"))
             tmp_files = list(extract_dir.rglob("*.tmp"))
+            twb_files = list(extract_dir.rglob("*.twb"))
+
+            # Build mapping from hyper filename → datasource caption via TWB XML
+            hyper_name_map = {}
+            for twb_file in twb_files:
+                hyper_name_map.update(self._parse_twb_hyper_names(twb_file))
+            if hyper_name_map:
+                self.logger.info(f"TWB hyper name map: {hyper_name_map}")
 
             return {
                 "extracted_files": file_list,
                 "hyper_files": [str(f.relative_to(extract_dir)) for f in hyper_files],
                 "hyper_count": len(hyper_files),
+                "hyper_name_map": hyper_name_map,
                 "tmp_files": [str(f.relative_to(extract_dir)) for f in tmp_files],
                 "tmp_count": len(tmp_files)
             }
 
         finally:
             os.unlink(temp_path)
+
+    def _parse_twb_hyper_names(self, twb_path: Path) -> Dict[str, str]:
+        """
+        Parse a TWB XML file to map hyper filenames to their datasource captions.
+        Returns {hyper_filename: datasource_caption}.
+        """
+        import xml.etree.ElementTree as ET
+
+        mapping = {}
+        try:
+            tree = ET.parse(twb_path)
+            root = tree.getroot()
+
+            for datasource in root.iter('datasource'):
+                caption = datasource.get('caption') or datasource.get('name', '')
+                if not caption:
+                    continue
+
+                for conn in datasource.iter('connection'):
+                    if conn.get('class') == 'hyper':
+                        dbname = conn.get('dbname', '')
+                        filename = Path(dbname).name
+                        if filename:
+                            mapping[filename] = caption
+                            self.logger.info(f"Mapped hyper file '{filename}' → '{caption}'")
+
+        except Exception as e:
+            self.logger.warning(f"Could not parse TWB for hyper names: {e}")
+
+        return mapping
 
     def extract_hyper_data(self, hyper_file_path: Path) -> Dict[str, pd.DataFrame]:
         """Extract data from Hyper file and return DataFrames"""
