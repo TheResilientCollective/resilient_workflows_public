@@ -28,7 +28,7 @@
     </EXTENSION>
     <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="asset materialize --select cdc/measles_weekly  -m public" />
+    <option name="PARAMETERS" value="asset materialize --select cdc/measles_weekly  -m pathogens" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />

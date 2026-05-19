@@ -28,7 +28,7 @@
     </EXTENSION>
     <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="asset materialize --select cdc/nndss_weekly  -m public --partition &quot;2025-09-28&quot;" />
+    <option name="PARAMETERS" value="asset materialize --select cdc/nndss_weekly -m pathogens --partition &quot;2025-09-28&quot;" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />

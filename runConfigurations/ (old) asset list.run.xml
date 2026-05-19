@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="dagster asset list" type="PythonConfigurationType" factoryName="Python" folderName="public">
+  <configuration default="false" name=" (old) asset list" type="PythonConfigurationType" factoryName="Python" folderName="workflows">
     <module name="resilient_workflows_public" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -25,6 +25,7 @@
         <ENTRY IS_ENABLED="true" PARSER="env" IS_EXECUTABLE="false" PATH="workflows/.env" />
       </ENTRIES>
     </EXTENSION>
+    <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
     <option name="PARAMETERS" value="asset list -m public" />
     <option name="SHOW_COMMAND_LINE" value="false" />

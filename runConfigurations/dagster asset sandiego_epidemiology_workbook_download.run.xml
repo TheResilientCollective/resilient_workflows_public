@@ -27,7 +27,7 @@
     </EXTENSION>
     <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="asset materialize --select sandiego/sandiego_epidemiology_workbook_download  -m public" />
+    <option name="PARAMETERS" value="asset materialize --select sandiego/sandiego_epidemiology_workbook_download  -m epidemiology" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />
