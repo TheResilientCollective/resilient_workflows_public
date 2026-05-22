@@ -16,7 +16,12 @@
       "Bash(dagster asset check:*)",
       "Bash(python3:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "WebFetch(domain:pfmweb.ucsd.edu)",
+      "Bash(grep -r \"group_name=\" /Users/valentin/development/dev_resilient/resilient_workflows_public/workflows/public/public/assets/*.py)",
+      "mcp__plugin_playwright_playwright__browser_run_code",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash(npx skills:*)"
     ],
     "deny": [],
     "ask": []

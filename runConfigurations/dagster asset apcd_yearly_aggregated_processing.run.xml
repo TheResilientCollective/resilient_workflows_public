@@ -28,7 +28,7 @@
     </EXTENSION>
     <option name="RUN_TOOL" value="true" />
     <option name="SCRIPT_NAME" value="dagster" />
-    <option name="PARAMETERS" value="asset materialize --select apcd/yearly_aggregated_all,apcd/yearly_aggregated_h2s -m public --partition 2024" />
+    <option name="PARAMETERS" value="asset materialize --select apcd/yearly_aggregated_all,apcd/yearly_aggregated_h2s -m tijuana --partition 2024" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="true" />

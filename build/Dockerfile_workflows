@@ -22,9 +22,15 @@ RUN pip install uv
 # Set up a virtual environment and install dependencies
 WORKDIR /usr/src/app/
 COPY pyproject.toml uv.lock ./
+COPY workflows/resilient_core/pyproject.toml workflows/resilient_core/pyproject.toml
+COPY workflows/tijuana/pyproject.toml workflows/tijuana/pyproject.toml
+COPY workflows/pathogens/pyproject.toml workflows/pathogens/pyproject.toml
+COPY workflows/epidemiology/pyproject.toml workflows/epidemiology/pyproject.toml
+COPY workflows/sim/pyproject.toml workflows/sim/pyproject.toml
+COPY workflows/resilient_core/src workflows/resilient_core/src
 RUN uv venv .venv
 RUN chmod +x .venv/bin/activate && .venv/bin/activate && \
-    uv sync --no-install-project
+    uv sync --all-packages --extra workflows
 
 # Stage 2: Create the runtime image
 FROM --platform=linux/amd64 python:3.12-slim
@@ -47,6 +53,7 @@ COPY --from=builder /usr/src/app/.venv /usr/src/app/.venv
 # Copy application code and configurations
 WORKDIR /usr/src/app/
 COPY configs/dagster/dagster.yaml /usr/src/app/
+COPY workspace.yaml /usr/src/app/workspace.yaml
 COPY workflows /usr/src/app/workflows
 
 # Set environment variables
@@ -58,4 +65,4 @@ RUN playwright install --with-deps chromium
 
 # Set the entrypoint and command
 ENTRYPOINT []
-CMD ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-m", "workflows.public.public", "-d", "/usr/src/app/"]
+CMD ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-d", "/usr/src/app/"]

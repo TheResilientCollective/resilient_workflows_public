@@ -1,6 +1,15 @@
 client.secret
 .cache.sqlite
 
+# Agent skills (installed per-dev via `npx skills add`)
+.claude/skills/
+.agents/
+.junie
+.kiro
+.qwen
+.playwright-mcp
+.tmp_*
+
 /venv_3_9/
 /information/.pytest_cache/
 ### JetBrains template

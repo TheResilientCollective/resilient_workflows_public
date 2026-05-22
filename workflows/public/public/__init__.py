@@ -14,7 +14,7 @@ def slack_message_fn(context: RunFailureSensorContext) -> str:
         f"Error: {context.failure_event.message}"
     )
 slack_on_run_failure = make_slack_on_run_failure_sensor(
-     os.getenv("SLACK_CHANNEL"),
+     os.environ.get("SLACK_CHANNEL_FAILURES","workflows-failures"),
     os.getenv("SLACK_TOKEN"),
     webserver_base_url=f'https://{os.environ.get("SCHED_HOSTNAME", "sched")}.{os.environ.get("HOST", "local")}/',
     text_fn=slack_message_fn
@@ -49,7 +49,7 @@ all_sensors=[slack_on_run_failure,
              assets.epidemiology_forecasts_sensor,
              assets.mpox_epidemiology_sensor,
              assets.wahis_upload_sensor,
-
+             assets.scripps_pfm_sensor,
              ]
 all_jobs=[
     #assets.complaints_daily_job

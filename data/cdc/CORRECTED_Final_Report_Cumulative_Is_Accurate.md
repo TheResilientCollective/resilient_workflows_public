@@ -344,7 +344,32 @@ The problem isn't the data fields - they're working as designed.
 
 ---
 
-**Report Updated**: February 2, 2026  
-**Critical Revision**: Based on user-provided New York verification data  
-**Key Finding**: Cumulative YTD is accurate; Current week is incomplete  
+**Report Updated**: February 2, 2026
+**Critical Revision**: Based on user-provided New York verification data
+**Key Finding**: Cumulative YTD is accurate; Current week is incomplete
 **Action**: Reversed all previous recommendations to use cumulative instead of current week
+
+---
+
+## ⚠️ IMPLEMENTATION UPDATE (March 27, 2026)
+
+The findings in this report have been implemented in the pipeline with additional refinements:
+
+### Dual Cumulative Source Selection
+- **Previous years**: The pipeline now uses `previous_YTD__cummulative` (the corrected prior-year cumulative from the current year's data rows) to derive weekly rates. This provides finalized data that incorporates all retrospective corrections.
+- **Current year**: Uses `current_YTD__cummulative` as described in this report (the only available source). All current-year data is classified as `Preliminary_*`.
+
+### Negative Correction Handling
+Rather than the simple split-column approach (Cases_Added/Cases_Removed), negative corrections are now smoothed via windowed redistribution across neighboring weeks. The primary output columns are:
+- **`adjusted_week`** — Smoothed, non-negative weekly case count
+- **`adjusted_YTD__cummulative`** — Recalculated cumulative from smoothed weekly counts
+
+The original CDC fields and audit columns (Raw_Difference, Cases_Removed) are preserved for transparency.
+
+### Updated Recommendations
+- **For case counts**: Use `adjusted_week` (replaces `Cases_Added`)
+- **For cumulative totals**: Use `adjusted_YTD__cummulative`
+- **For data quality monitoring**: Use `Raw_Difference` and `Cases_Removed`
+- **For data maturity awareness**: Check `Week_Type` for `Preliminary_*` prefix
+
+**For the full updated methodology, see: `docs/cdc_weekly_case_rate_methodology.md`**

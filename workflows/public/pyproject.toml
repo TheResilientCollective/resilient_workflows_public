@@ -1,0 +1,108 @@
+[project]
+name = "resilient-workflows-public"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+
+# this is dagster plus the optional workflow dependencies.
+
+dependencies = [
+    "dagit>=1.12.2",
+    "dagster-postgres>=0.28.2",
+    "dagster>=1.12.2",
+    "dagster-webserver>=1.12.2",
+    "dagster-docker>=0.28.2",
+    "dagster-aws >=0.28.2",
+    "dagstermill >=0.28.2",
+    "dagster_slack >=0.28.2",
+    "zeep>=4.3.1",
+    "suds>=1.2.0",
+    "icecream>=2.1.4",
+    "simplepbi>=1.00",
+    "pandas-stubs~=2.3.3",
+    "dagster-openai==0.28.2",
+    "dagster-embedded-elt",
+    "dagster-duckdb>=0.28.2",
+    "dagster-duckdb-pandas>=0.28.2",
+    "duckdb",
+    "dagstermill >=0.28.2",
+    "pyarrow>=20",
+    "tableauhyperapi==0.0.22502",
+    # below were optional workflows, but this is only a workflow, so saves the extras
+    "ipython-genutils ==0.2.0",
+    "minio ==7.1.13",
+    "docker >=6.1.0",
+    "beautifulsoup4",
+    "notebook",
+    "pydash",
+    "pyyaml",
+    "pandas>=2.2.0",
+    "pandera[pandas]",
+    "pandera[geopandas]",
+    # orjson was used by game.ipnb - Comments are allowed in pyproject.toml
+    "geopandas",
+    "matplotlib",
+    # fiona  takes a long time to build in the docker container. do not use unless we need it.
+    #fiona = ""
+    "kml2geojson",
+    "pydantic <3.0.0, >=2",
+    # sodapy
+    "foursquare-data-sdk",
+    "openmeteo-requests",
+    "requests-cache",
+    "retry-requests",
+    "pyairtable >3",
+    "scikit-learn",
+    # arcgis
+    "awswrangler",
+    "lxml",
+    "aqicalc",
+    "geopy",
+    "openmeteo_requests",
+    "requests_cache",
+    "retry_requests",
+    "tableauhyperapi", # this only had x86_64 linux build. so github action is only amd64
+    "tableaudocumentapi",
+    "tableau_parser",
+    #"pantab", # not good with action for tableau hyper file processing
+    "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+    "jinja2>=3.1.6",
+    "office365-rest-python-client>=2.6.2",
+    "sharepoint>=0.4.2",
+    'openpyxl>=3.1.0',
+    "dask>=2025.11.0",
+    "dagster-dg-cli>=1.12.2",
+    "pygithub>=2.8.1",
+    "noaa-coops>=0.4.0",
+    "boto3-stubs~=1.41.1",
+    "epiweeks",
+    "astral==3.2",
+    "tenacity==9.1.4",
+    "playwright>=1.35.0"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "dagster-dg-cli>=1.11.10"
+]
+
+
+[tool.dg]
+directory_type = "project"
+
+[tool.uv.workspace]
+members = [
+    "workflows/resilient_core",
+    "workflows/tijuana",
+    "workflows/pathogens",
+    "workflows/epidemiology",
+    "workflows/sim",
+]
+
+[tool.uv.sources]
+resilient_core = { workspace = true }
+tijuana = { workspace = true }
+pathogens = { workspace = true }
+epidemiology = { workspace = true }
+sim = { workspace = true }

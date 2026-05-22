@@ -12,7 +12,12 @@ This is a Python-based data engineering project that uses the Dagster framework 
 *   **Environmental:** Streamflow data and weather forecasts from OpenMeteo
 *   **GIS Data:** Subregions and tracts for spatial analysis
 
-The project is structured as a collection of Dagster assets, which are Python functions that produce data. These assets are organized into different modules based on their data source or domain.
+The project is organized as a uv workspace with multiple Dagster code locations:
+*   **workflows/resilient_core/** — shared utilities, resources, and constants
+*   **workflows/tijuana/** — regional/border environmental monitoring (air quality, water quality, complaints, weather)
+*   **workflows/pathogens/** — CDC NNDSS, mpox, WAHIS disease surveillance
+*   **workflows/epidemiology/** — San Diego county disease surveillance
+*   **workflows/sim/** — epidemic forecasting (ResilientSims)
 
 ## Building and Running
 
@@ -24,11 +29,11 @@ The project is structured as a collection of Dagster assets, which are Python fu
     ```
 2.  **Install dependencies:**
     ```bash
-    uv sync --all-extras
+    uv sync --all-packages
     ```
 3.  **Activate the virtual environment:**
     ```bash
-    source .venv/bin/active
+    source .venv/bin/activate
     ```
 
 ### Configuration
@@ -50,34 +55,40 @@ You can also add these to a `.env` file in the `workflows` directory and run `ex
 
 ### Running the Development Server
 
-To run the Dagster development server and view the assets in the UI, run the following command from the `workflows/public` directory:
+To run the Dagster development server and view all code locations in the UI:
 
 ```bash
-dagster dev -m public
+uv run dagster dev
+```
+
+To run a single code location:
+
+```bash
+uv run dagster dev -m tijuana
 ```
 
 You can then access the Dagster UI at http://localhost:3000.
 
 ### Materializing Assets
 
-To materialize (i.e., run) specific assets, use the `dagster asset materialize` command from the `workflows/public` directory.
+To materialize (i.e., run) specific assets, use the `dagster asset materialize` command with the appropriate module.
 
-**Materialize a single asset:**
+**Materialize a single asset (tijuana code location):**
 
 ```bash
-dagster asset materialize --select airnow_current_conditions -m public
+dagster asset materialize --select airnow_current_conditions -m tijuana
 ```
 
 **Materialize a group of assets using tags:**
 
 ```bash
-dagster asset materialize --select tag:tijuana -m public
+dagster asset materialize --select tag:tijuana -m tijuana
 ```
 
 ## Development Conventions
 
 *   **Dagster:** The project uses Dagster as the core framework for defining and managing data assets.
 *   **Python:** The project is written in Python.
-*   **Dependencies:** Project dependencies are managed with `uv` and defined in the `pyproject.toml` file.
+*   **Dependencies:** Project dependencies are managed with `uv` and defined in `pyproject.toml` files across the workspace.
 *   **Testing:** The project includes a `tests` directory, but the testing strategy is not fully clear from the initial analysis.
-*   **Directory Structure:** The main project code is located in the `workflows/public/public` directory, with subdirectories for assets, resources, schedules, etc.
+*   **Directory Structure:** The project is a uv workspace with code locations in `workflows/tijuana/`, `workflows/pathogens/`, `workflows/epidemiology/`, `workflows/sim/`, and shared code in `workflows/resilient_core/`.

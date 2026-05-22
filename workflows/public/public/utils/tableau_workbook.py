@@ -49,7 +49,7 @@ class TableauWorkbookProcessor:
         extract_dir.mkdir(parents=True, exist_ok=True)
 
         # Save workbook content to temp file
-        with tempfile.NamedTemporaryFile(suffix='.twbx', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(suffix='.twb', delete=False) as temp_file:
             temp_file.write(workbook_content)
             temp_path = temp_file.name
 
@@ -79,9 +79,7 @@ class TableauWorkbookProcessor:
                 "hyper_count": len(hyper_files),
                 "hyper_name_map": hyper_name_map,
                 "tmp_files": [str(f.relative_to(extract_dir)) for f in tmp_files],
-                "tmp_count": len(tmp_files),
-                "twb_files": [str(f.relative_to(extract_dir)) for f in twb_files],
-                "twb_count": len(twb_files)
+                "tmp_count": len(tmp_files)
             }
 
         finally:
@@ -90,7 +88,6 @@ class TableauWorkbookProcessor:
     def _parse_twb_hyper_names(self, twb_path: Path) -> Dict[str, str]:
         """
         Parse a TWB XML file to map hyper filenames to their datasource captions.
-        Handles both direct hyper connections and federated connections.
         Returns {hyper_filename: datasource_caption}.
         """
         import xml.etree.ElementTree as ET
@@ -105,7 +102,6 @@ class TableauWorkbookProcessor:
                 if not caption:
                     continue
 
-                # Direct hyper connection: <connection class='hyper' dbname='...' />
                 for conn in datasource.iter('connection'):
                     if conn.get('class') == 'hyper':
                         dbname = conn.get('dbname', '')

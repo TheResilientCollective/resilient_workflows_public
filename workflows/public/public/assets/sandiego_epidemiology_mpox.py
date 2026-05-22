@@ -38,7 +38,7 @@ class MPOXWorkbookConfig(Config):
 
 # S3 output path for MPOX data
 s3_output_path = 'pathogens/sandiego/mpox/'
-SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
+SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL_UPDATES", "#test")
 
 # Target workbooks from the plan: 'MPXV Disease Summary', 'Demographics (MPXV Disease Summary)'
 TARGET_WORKBOOKS = ['MPXV Disease Summary2', 'Demographics3 (MPXV Disease Summary)']
@@ -225,10 +225,9 @@ def mpox_workbook_download(
 
     # Store in S3
     date_path = dates3Path()
-    s3_key = f"{s3_output_path}raw/{date_path}/workbook.twbx"
+    s3_key = f"{s3_output_path}raw/{date_path}/workbook.twb"
     store_assets.raw_to_s3(workbook_content, s3_key, s3_resource,
-                       #   contenttype='application/octet-stream',
-                           contenttype='application/x-twb',
+                          contenttype='application/octet-stream',
                           metadata=metadata)
 
     logger.info(f"Stored MPOX workbook in S3: s3://{s3_resource.S3_BUCKET}/{s3_key} ({workbook_length} bytes)")
@@ -274,28 +273,24 @@ def mpox_hyper_extraction(
         extraction_info = processor.extract_workbook(workbook_content, extract_dir)
 
         # Store each Hyper file in S3 and process target workbooks
+        hyper_name_map = extraction_info.get("hyper_name_map", {})
         hyper_files_stored = []
         all_dataframes = {}
         processed_count = 0
-
-        hyper_name_map = extraction_info.get("hyper_name_map", {})
 
         for hyper_file_rel_path in extraction_info["hyper_files"]:
             hyper_file_path = extract_dir / hyper_file_rel_path
 
             if hyper_file_path.exists():
-                # Resolve friendly name: prefer TWB caption, fall back to filename stem
                 friendly_name = hyper_name_map.get(hyper_file_path.name, hyper_file_path.stem)
                 logger.info(f"Hyper file '{hyper_file_path.name}' → friendly name '{friendly_name}'")
 
-                # Store Hyper file in S3
+                # Store Hyper file in S3 under its datasource caption name
                 hyper_s3_key = f"{s3_output_path}raw/{workbook_name}/{date_path}/hyper/{friendly_name}.hyper"
 
                 with open(hyper_file_path, 'rb') as f:
                     name = f'mpox_workbook_data {friendly_name}'
-                    description = f'''
-                         San Diego MPOX Epidemiology Data files from Tableau website {workbook_name} {friendly_name}
-                         '''
+                    description = f'San Diego MPOX Epidemiology Data files from Tableau website {workbook_name} {friendly_name}'
                     metadata = store_assets.objectMetadata(name=name, description=description, source_url=config.url)
                     store_assets.raw_to_s3(f.read(), hyper_s3_key, s3_resource,
                                          contenttype='application/octet-stream', metadata=metadata)
