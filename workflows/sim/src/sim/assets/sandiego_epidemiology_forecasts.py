@@ -101,6 +101,7 @@ s3_latest_path='latest/sandiego_epidemiology_ili/llm/'
 COLUMN_RENAME_MAPPING={
     "date":"Date",
     "epiweek_start":"Date", # _reports
+    "epiweek_end":"Date", # _reports
     "Observations":"Reported hospital admissions", #hosp report
     "cases":"New cases", # reports
     "type":"Type",
@@ -132,6 +133,7 @@ COLUMN_RENAME_MAPPING={
 
 COLUMN_RENAME_MAPPING_NEW={
     "epiweek_start":"Date", # _reports
+"epiweek_end":"Date",
     "cases":"New cases", # reports
     "Type":"Type",
     "Lower90":"Lower 90",
@@ -144,6 +146,7 @@ COLUMN_RENAME_MAPPING_NEW={
 }
 
 COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS={
+    "epiweek_end":"epiweek_start", #@ airtable usese start
     "date":"Date",
     "Observations":"Reported hospital admissions", #hosp report
     "type":"Type",
@@ -158,6 +161,7 @@ COLUMN_RENAME_MAPPING_HOSPITAL_ADMISSIONS={
 }
 
 COLUMN_RENAME_MAPPING_RT_ESTIMATES={
+    "epiweek_end":"epiweek_start", #@ airtable usese start
     "date":"Date",
     "variable": "Variable",
     "type": "Type",
