@@ -91,6 +91,7 @@ workflows = [
     "pygithub>=2.8.1",
     "ipython-genutils==0.2.0",
     "notebook",
+    "playwright>=1.35.0"
 ]
 
 [dependency-groups]
