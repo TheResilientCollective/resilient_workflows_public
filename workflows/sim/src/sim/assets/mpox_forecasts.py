@@ -86,10 +86,25 @@ def run_mpox_simulation(context) -> Output:
     slack = context.resources.slack
     s3_resource = context.resources.s3
     logger = get_dagster_logger()
-
+    model_jurisdictions=[
+        "NewYorkCity",
+        "Texas",
+        "LosAngelesCounty",
+        "Florida",
+        "Illinois",
+        "Georgia",
+    "SanDiego",
+        "Washington"
+    ]
+    portal_jurisdictions=model_jurisdictions
+    # need a test that portal is a subset of model
     run_data = {
        # "config": sims.RESILIENTSIMS_CONFIGURATION_ID, # this was SIMULATOR
         "config": 49,
+        "parameters":{
+            "model_jurisdictions": model_jurisdictions,
+            "portal_jurisdictions": portal_jurisdictions
+        },
         "output_template": {
             "type": "cloud_storage",
             "provider": "s3",

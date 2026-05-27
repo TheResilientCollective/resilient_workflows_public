@@ -1,6 +1,6 @@
 client.secret
 .cache.sqlite
-
+prod_resources/
 # Agent skills (installed per-dev via `npx skills add`)
 .claude/skills/
 .agents/

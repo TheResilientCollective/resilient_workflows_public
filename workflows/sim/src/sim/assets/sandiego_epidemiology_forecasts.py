@@ -258,7 +258,7 @@ def run_epidemic_simulation(context, sandiego_epidemiology_hyper_extraction: dic
   date_path = hyper_metadata["date_path"]
   if date_path is None:
       raise Exception("No date+_path found in sandiego_epidemiology_hyper_extraction run. Rerun AssetKey([sandiego, sandiego_epidemiology_hyper_extraction]")
-  templateLoader = FileSystemLoader(searchpath=["templates", "public/templates","public/public/templates", "workflows/public/public/templates" ])
+  templateLoader = FileSystemLoader(searchpath=["templates","sim/templates", "src/sim/templates","sim/src/sim/templates", "workflows/sim/src/sim/templates" ])
   jinja = Environment(
       loader=templateLoader,
       autoescape=select_autoescape()
