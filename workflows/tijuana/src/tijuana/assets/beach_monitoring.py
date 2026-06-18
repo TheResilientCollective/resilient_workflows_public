@@ -43,12 +43,14 @@ COSD_BLOCK_MARKUP = "screenservices/CoSD_Beach_Water_CW/MainFlow/BlockMarkup"
 # EventTypeId values from the CoSD API
 COSD_EVENT_TYPE_ADVISORY = 1
 COSD_EVENT_TYPE_CLOSURE = 2
+COSD_EVENT_TYPE_WARNING = 3
 
 # Map CoSD EventTypeId to old IndicatorID (for backward compatibility)
 COSD_EVENT_TYPE_TO_INDICATOR = {
     COSD_EVENT_TYPE_CLOSURE: 1,   # Closure → IndicatorID 1
-    2: 2,                          # Open (no event) → IndicatorID 2
+    0: 2,                          # Open (no event) → IndicatorID 2
     COSD_EVENT_TYPE_ADVISORY: 3,  # Advisory → IndicatorID 3
+    COSD_EVENT_TYPE_WARNING: 4,   # Warning → IndicatorID 4
 }
 
 STATUS_COLOR = {
@@ -61,6 +63,7 @@ STATUS_COLOR = {
 STATUS_LABEL = {
     COSD_EVENT_TYPE_ADVISORY: 'Advisory',
     COSD_EVENT_TYPE_CLOSURE: 'Closure',
+    COSD_EVENT_TYPE_WARNING: 'Warning',
 }
 
 formdata={
@@ -195,6 +198,7 @@ def cosd_get_beach_status() -> list[dict]:
     sites_by_id = {}
     advisory_ids = set()
     closure_ids = set()
+    warning_ids = set()
     event_details = {}
     captured_api_versions = {}
 
@@ -347,8 +351,33 @@ def cosd_get_beach_status() -> list[dict]:
                     'StatusSince': '', 'StatusNote': '', 'LocationType': 'Monitoring Point',
                 }
 
-        # Step 4: Get event details (issue date, description) for affected sites
-        affected_ids = advisory_ids | closure_ids
+        # Step 4: Mark warning sites (EventTypeId=3)
+        warning_items = call_get_site_by_id(COSD_EVENT_TYPE_WARNING)
+        get_dagster_logger().info(f"CoSD: {len(warning_items)} warning sites")
+        for item in warning_items:
+            site_id = item.get('Id', '')
+            warning_ids.add(site_id)
+            if site_id in sites_by_id:
+                # Only downgrade to Warning if not already Closure or Advisory
+                if sites_by_id[site_id]['beachStatus'] == 'Open':
+                    sites_by_id[site_id]['beachStatus'] = 'Warning'
+                    sites_by_id[site_id]['IndicatorID'] = 4
+                    sites_by_id[site_id]['RBGColor'] = 'Yellow'
+            else:
+                sites_by_id[site_id] = {
+                    'SiteID': site_id, 'DehID': site_id,
+                    'Name': item.get('LocationName', ''), 'BeachName': item.get('BeachName', ''),
+                    'City': item.get('City', ''), 'Region': item.get('Region', ''),
+                    'Latitude': float(item.get('Latitude', 0) or 0),
+                    'Longitude': float(item.get('Longitude', 0) or 0),
+                    'Description': item.get('Description', ''),
+                    'beachStatus': 'Warning', 'IndicatorID': 4, 'Active': True,
+                    'RBGColor': 'Yellow', 'Advisory': '', 'Closure': '',
+                    'StatusSince': '', 'StatusNote': '', 'LocationType': 'Monitoring Point',
+                }
+
+        # Step 5: Get event details (issue date, description) for affected sites
+        affected_ids = advisory_ids | closure_ids | warning_ids
         get_dagster_logger().info(f"CoSD: fetching event details for {len(affected_ids)} affected sites")
         for site_id in affected_ids:
             events = call_get_events_list(site_id)
@@ -357,7 +386,7 @@ def cosd_get_beach_status() -> list[dict]:
 
         browser.close()
 
-    # Step 5: Merge event details into site records
+    # Step 6: Merge event details into site records
     for site_id, event_item in event_details.items():
         if site_id not in sites_by_id:
             continue
@@ -387,6 +416,8 @@ def cosd_get_beach_status() -> list[dict]:
             site['Advisory'] = description_issue or f"Advisory issued {status_since}"
         elif site['beachStatus'] == 'Closure':
             site['Closure'] = description_issue or f"Closure issued {status_since}"
+        elif site['beachStatus'] == 'Warning':
+            site['Advisory'] = description_issue or f"Warning issued {status_since}"
 
         if city_label and not site['City']:
             site['City'] = city_label
