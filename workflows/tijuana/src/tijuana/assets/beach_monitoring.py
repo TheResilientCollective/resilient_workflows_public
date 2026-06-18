@@ -1,6 +1,7 @@
 import requests
 import os
 import re
+import urllib.parse
 from dagster import ( asset,
                      get_dagster_logger,
                       TimeWindowPartitionsDefinition,
@@ -33,6 +34,34 @@ reports_page=f"{baseurl}result.php"
 exports_page=f"{baseurl}export.php"
 
 s3_output_path = 'tijuana/beachwatch'
+
+# New CoSD beach info site (replaced www.sdbeachinfo.com)
+COSD_BEACH_URL = "https://cosdapps.sandiegocounty.gov/sdbeachinfo/"
+COSD_HOME_BLOCK = "screenservices/CoSD_Beach_Water_CW/MainFlow/HomeBlockNew"
+COSD_BLOCK_MARKUP = "screenservices/CoSD_Beach_Water_CW/MainFlow/BlockMarkup"
+
+# EventTypeId values from the CoSD API
+COSD_EVENT_TYPE_ADVISORY = 1
+COSD_EVENT_TYPE_CLOSURE = 2
+
+# Map CoSD EventTypeId to old IndicatorID (for backward compatibility)
+COSD_EVENT_TYPE_TO_INDICATOR = {
+    COSD_EVENT_TYPE_CLOSURE: 1,   # Closure → IndicatorID 1
+    2: 2,                          # Open (no event) → IndicatorID 2
+    COSD_EVENT_TYPE_ADVISORY: 3,  # Advisory → IndicatorID 3
+}
+
+STATUS_COLOR = {
+    'Closure': 'Red',
+    'Advisory': 'Orange',
+    'Open': 'Green',
+    'Warning': 'Yellow',
+}
+
+STATUS_LABEL = {
+    COSD_EVENT_TYPE_ADVISORY: 'Advisory',
+    COSD_EVENT_TYPE_CLOSURE: 'Closure',
+}
 
 formdata={
    "County":10,
@@ -125,156 +154,316 @@ def beachwatch_closure_clean_data(beach_df) -> gpd.GeoDataFrame:
     #each_gdf=beach_gdf.drop(['date', 'time', 'id', 'Station_ID'], axis=1)
     beach_gdf['Icons'] = ICONS['beach']
     return beach_gdf
-''' This is used to parse the Date of the Advisory/Closure notices from the SD Beach Info website'''
-def parseSince(message):
-    date_str = ""
-    pattern=re.compile(
-        r"<strong>Status Since:\s*</strong>\s*(?:&nbsp;)*\s*([A-Za-z]+\s+\d{1,2},\s*\d{4})(?:&nbsp;)*",
-        re.IGNORECASE
-    )
-    match = pattern.search(message)
-    if match:
-        date_str = match.group(1)
-        get_dagster_logger().debug(f"Extracted date: {date_str}", )
-        dt = datetime.datetime.strptime(date_str, "%B %d, %Y")
-        date_str = dt.strftime("%b {day}, %Y").format(day=dt.day)
-        get_dagster_logger().debug(f"Modified date: {date_str}")
-    else:
-        print("No date found.")
-    get_dagster_logger().debug(f" Since: {date_str}")
-    return date_str
+###########################
+### CoSD Beach Info Scraper (new site: cosdapps.sandiegocounty.gov)
+### Replaces the old www.sdbeachinfo.com/Home/GetTargetByID endpoint
+###########################
 
-''' This is used to parse the Basic Content of the Advisory/Closure notices from the SD Beach Info website'''
-def parseNote(message):
-    pattern = re.compile(r"<strong>(.*?)</strong>", re.DOTALL)
-    matches = pattern.findall(message)
-    get_dagster_logger().debug(f" statusNote match: {matches}")
-    if matches is not None  and len(matches) > 0:
-        statusNote = matches[len(matches)- 1]
-    else:
-        statusNote="";
-    get_dagster_logger().debug(f" statusNote: {statusNote}")
-    return statusNote
-''' This is used to parse the Advisory/Closure notices from the SD Beach Info website'''
-def parseSdBeachinfoRow( row):
-    status = ""
-    statusNote = ""
-    get_dagster_logger().debug(f" IndicatorID: {row['IndicatorID']}")
-    if row['IndicatorID']== 1 and (row['Closure'] is not None and row['Closure'] !=''):
-        get_dagster_logger().debug(f" row['Closure']: {row['Closure']}")
-        status = parseSince(row['Closure'])
-        statusNote = parseNote(row['Closure'])
-    elif row['IndicatorID'] == 3 and (row['Advisory'] is not None and row['Advisory'] != ''):
-        get_dagster_logger().debug(f" row['Advisory']: {row['Advisory']}")
-        status = parseSince(row['Advisory'])
-        statusNote = parseNote(row['Advisory'])
-    return [status, statusNote]
-def removeMapLegendLink(html_string):
-    ''' Removes the map links which often point to the page.
-    tried many regex's but they never all succeeded.  Even when chatgpt was asked to write one for all 17,
-    never fully worked. '''
-    if html_string is None:
-        return ""
-    link = '<a href="/">Full County Map</a>&nbsp; <strong>|</strong> &nbsp;<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_map_key_v.1.pdf">Map Legend</a>'
-    linkv2 = '<span style="font-size:medium"><span style="color:#000000"><span style="font-family:Calibri">.</span></span><strong><span style="font-family:&quot;Calibri&quot;,sans-serif"><span style="color:#000000">&nbsp;</span><a href="/"><span style="color:#0000ff">Full County Map</span></a><span style="color:#000000">&nbsp; | &nbsp;</span><a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><span style="color:#0000ff">Map Legend</span></a></span></strong></span>'
-    linkv3 = '<strong><a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf">Map Legend</a></strong>'
-    linkv4 = '<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&Bay/bb_maplegend.pdf"><strong><span style="color:#0563c1">Map Legend</span></strong></a>'
-    linkv5 = '<strong><a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf">Map Legend</a>&nbsp;</strong>'
-    linkv6 = '<strong>&nbsp;<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf">Map Legend</a></strong>'
-    linkv7 = '<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><strong><span style="color:#0563c1">Map Legend</span></strong></a>'
-    linkv8 = '<strong>&nbsp;<a href="/"><span style="color:#0066cc">Full County Map</span></a>&nbsp; | &nbsp;<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><span style="color:#0066cc">Map Legend</span></a></strong>'
-    linkv9 = '<strong><a href="/">Full County Map</a>&nbsp; | &nbsp;<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf">Map Legend</a></strong>'
-    linkv10 = '<strong><a href="/"><span style="color:#0066cc">Full County Map</span></a>&nbsp; | &nbsp;<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><span style="color:#0066cc">Map Legend</span></a></strong>'
-    link11 = '<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><strong>Map Legend</strong></a>'
-    link12 = '<strong><a href="/"><span style="color:#0066cc">Full County Map</span></a>&nbsp; | &nbsp;<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><span style="color:#0066cc">Map Legend</span></a>&nbsp;</strong>'
-    link13 = '<strong>&nbsp;<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><span style="color:#0066cc">Map Legend</span></a></strong>'
-    link14 = '<strong><a href="https://admin.sdbeachinfo.com/"><span style="color:#0066cc">Full County Map</span></a>&nbsp; | <a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><span style="color:#0066cc">Map Legend</span></a></strong>'
-    link15 = '<strong><a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><span style="color:#0066cc">Map Legend</span></a></strong>'
-    link16 = '<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf">Map Legend</a>'
-    link17 = '<a href="http://www.sandiegocounty.gov/content/dam/sdc/deh/lwqd/Beach&amp;Bay/bb_maplegend.pdf"><strong>&nbsp;Map Legend</strong></a>'
-    html_string=html_string.replace(link,'').replace(linkv2,'').replace(linkv3,'').replace(linkv4,'').replace(linkv5,'').replace(linkv6,'').replace(linkv7,'').replace(linkv8,'').replace(linkv9,'').replace(linkv10,'').replace(link11,'').replace(link12,'').replace(link13,'').replace(link14,'').replace(link15,'').replace(link16,' ').replace(link17,'')
-    return html_string
+def _cosd_make_fetch_js(url, module_version, api_version, screen_data_vars, input_params, csrf_token):
+    """Returns JS code string to make a POST request from within the Playwright browser context."""
+    return f"""
+    async () => {{
+        const resp = await fetch('{url}', {{
+            method: 'POST',
+            headers: {{
+                'Content-Type': 'application/json; charset=UTF-8',
+                'Accept': 'application/json',
+                'X-CSRFToken': {json.dumps(csrf_token)},
+            }},
+            credentials: 'include',
+            body: JSON.stringify({{
+                "versionInfo": {{"moduleVersion": {json.dumps(module_version)}, "apiVersion": {json.dumps(api_version)}}},
+                "viewName": "MainFlow.Home",
+                "screenData": {{"variables": {json.dumps(screen_data_vars)}}},
+                "inputParameters": {json.dumps(input_params)}
+            }})
+        }});
+        return {{status: resp.status, data: await resp.json()}};
+    }}
+    """
 
-def sdbeachinfo_clean_data(beachinfo_df) -> gpd.GeoDataFrame:
-    indicator2status = {
-        1: 'Closure',
-        2: 'Open',
-        3: 'Advisory',
-        4: 'Outfall'
-        #'Warning' # never seen a number
-    }
-    typeId2type ={
-        1: 'Monitoring Point',
-        2: 'Outfall'
-    }
-     # beach_df['date']=  pd.to_datetime(f'{beach_df["SampleDate"]}T{beach_df["SampleTime"]}')#, format='%Y-%m-%d %H:%M:%S')
-    gs = gpd.GeoSeries.from_xy(beachinfo_df['Longitude'], beachinfo_df['Latitude'])
-    beachinfo_gdf = gpd.GeoDataFrame(beachinfo_df, geometry=gs, crs='EPSG:4326')
-    beachinfo_gdf['Icon'] = ICONS['beach']
 
-    beachinfo_gdf['RBGColor'] = beachinfo_gdf['RBGColor'].map(lambda x: x.strip().replace('.png', '').replace('Outfall', 'Black'))
-    beachinfo_gdf['Icon'] = beachinfo_gdf['RBGColor'].map(lambda x: ICONS[x])
-    beachinfo_gdf['beachStatus'] =  beachinfo_gdf['IndicatorID'].apply(lambda i: indicator2status[i] )
-    beachinfo_gdf['LocationType'] = beachinfo_gdf['TypeID'].apply(lambda i: typeId2type[i])
-    beachinfo_gdf[['StatusSince','StatusNote']] = beachinfo_gdf.apply(parseSdBeachinfoRow,axis=1, result_type='expand')
-    beachinfo_gdf['Descirption_original']=beachinfo_gdf['Description']
-    beachinfo_gdf['Description']=beachinfo_gdf['Description'].apply(removeMapLegendLink)
-    return beachinfo_gdf
+def cosd_get_beach_status() -> list[dict]:
+    """
+    Fetch all beach monitoring sites and their current advisory/closure status
+    from the CoSD OutSystems beach info app.
+
+    Returns a list of site dicts with status, coordinates, and event details.
+    """
+    from playwright.sync_api import sync_playwright
+
+    sites_by_id = {}
+    advisory_ids = set()
+    closure_ids = set()
+    event_details = {}
+    captured_api_versions = {}
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=['--ignore-certificate-errors', '--no-sandbox', '--disable-dev-shm-usage']
+        )
+        context = browser.new_context(
+            ignore_https_errors=True,
+            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        )
+        page = context.new_page()
+
+        def on_request(request):
+            if 'screenservices' in request.url:
+                try:
+                    payload = json.loads(request.post_data or '{}')
+                    vi = payload.get('versionInfo', {})
+                    name = request.url.split('/')[-1].split('?')[0]
+                    if vi.get('apiVersion'):
+                        captured_api_versions[name] = {
+                            'apiVersion': vi['apiVersion'],
+                            'moduleVersion': vi['moduleVersion'],
+                            'url': request.url,
+                        }
+                except Exception:
+                    pass
+
+        page.on('request', on_request)
+        page.goto(COSD_BEACH_URL, wait_until='networkidle', timeout=45000)
+        page.wait_for_timeout(3000)
+
+        # Get current module version
+        mv_resp = page.request.get(f"{COSD_BEACH_URL}moduleservices/moduleversioninfo")
+        module_version = mv_resp.json().get('versionToken', '')
+        get_dagster_logger().info(f"CoSD module version: {module_version}")
+
+        # Extract CSRF token from nr2Users cookie
+        cookies = {c['name']: c['value'] for c in context.cookies()}
+        nr2 = urllib.parse.unquote(cookies.get('nr2Users', ''))
+        csrf_token = next((part[4:] for part in nr2.split(';') if part.startswith('crf=')), '')
+        get_dagster_logger().info(f"CoSD CSRF token obtained: {bool(csrf_token)}")
+
+        # Get apiVersion for GetSiteById from captured requests (loaded on page init)
+        get_site_api_version = captured_api_versions.get('ScreenDataSetGetSiteById', {}).get('apiVersion', 'dPYSR+2HPtITJ2nn6p+WaQ')
+
+        def call_get_site_by_id(event_type_id: int) -> list[dict]:
+            url = f"{COSD_BEACH_URL}{COSD_HOME_BLOCK}/ScreenDataSetGetSiteById"
+            screen_vars = {
+                "ShowDetails": True, "MapCenter": "33.001319,-117.278388",
+                "SiteIdAux": "0", "EventTypeId": event_type_id,
+                "ZoomCurrent": 8, "id": "1", "_idInDataFetchStatus": 1
+            }
+            js = _cosd_make_fetch_js(url, module_version, get_site_api_version, screen_vars,
+                                     {"StartIndex": 0, "MaxRecords": 900}, csrf_token)
+            result = page.evaluate(f"({js})()")
+            if result.get('status') != 200:
+                get_dagster_logger().warning(f"GetSiteById EventTypeId={event_type_id} returned {result.get('status')}")
+                return []
+            if result.get('data', {}).get('versionInfo', {}).get('hasApiVersionChanged'):
+                get_dagster_logger().warning("GetSiteById: apiVersion has changed — results may be stale")
+            return result.get('data', {}).get('data', {}).get('List', {}).get('List', [])
+
+        def call_get_events_list(site_id: str) -> list[dict]:
+            # apiVersion from user-captured curl; detect changes via hasApiVersionChanged
+            api_version = 'JqlpdF6Psvnxe_pXo1Jjtw'
+            url = f"{COSD_BEACH_URL}{COSD_BLOCK_MARKUP}/ScreenDataSetGetEventsList"
+            screen_vars = {"SiteId": site_id, "_siteIdInDataFetchStatus": 1}
+            js = _cosd_make_fetch_js(url, module_version, api_version, screen_vars,
+                                     {"StartIndex": 0, "MaxRecords": 50}, csrf_token)
+            result = page.evaluate(f"({js})()")
+            if result.get('status') != 200:
+                get_dagster_logger().warning(f"GetEventsList site={site_id} returned {result.get('status')}")
+                return []
+            if result.get('data', {}).get('versionInfo', {}).get('hasApiVersionChanged'):
+                get_dagster_logger().warning(f"GetEventsList: apiVersion changed for site {site_id}")
+            return result.get('data', {}).get('data', {}).get('List', {}).get('List', [])
+
+        # Step 1: Get all 89+ monitoring sites with coordinates
+        all_site_items = call_get_site_by_id(0)
+        get_dagster_logger().info(f"CoSD: fetched {len(all_site_items)} total sites")
+        for item in all_site_items:
+            site_id = item.get('Id', '')
+            sites_by_id[site_id] = {
+                'SiteID': site_id,
+                'DehID': site_id,
+                'Name': item.get('LocationName', ''),
+                'BeachName': item.get('BeachName', ''),
+                'City': item.get('City', ''),
+                'Region': item.get('Region', ''),
+                'Latitude': float(item.get('Latitude', 0) or 0),
+                'Longitude': float(item.get('Longitude', 0) or 0),
+                'Description': item.get('Description', ''),
+                'beachStatus': 'Open',
+                'IndicatorID': 2,
+                'Active': True,
+                'RBGColor': 'Green',
+                'Advisory': '',
+                'Closure': '',
+                'StatusSince': '',
+                'StatusNote': '',
+                'LocationType': 'Monitoring Point',
+            }
+
+        # Step 2: Mark advisory sites (EventTypeId=1)
+        advisory_items = call_get_site_by_id(COSD_EVENT_TYPE_ADVISORY)
+        get_dagster_logger().info(f"CoSD: {len(advisory_items)} advisory sites")
+        for item in advisory_items:
+            site_id = item.get('Id', '')
+            advisory_ids.add(site_id)
+            if site_id in sites_by_id:
+                sites_by_id[site_id]['beachStatus'] = 'Advisory'
+                sites_by_id[site_id]['IndicatorID'] = 3
+                sites_by_id[site_id]['RBGColor'] = 'Orange'
+            else:
+                # Site appeared in advisory list but not in all-sites (use advisory item data)
+                sites_by_id[site_id] = {
+                    'SiteID': site_id, 'DehID': site_id,
+                    'Name': item.get('LocationName', ''), 'BeachName': item.get('BeachName', ''),
+                    'City': item.get('City', ''), 'Region': item.get('Region', ''),
+                    'Latitude': float(item.get('Latitude', 0) or 0),
+                    'Longitude': float(item.get('Longitude', 0) or 0),
+                    'Description': item.get('Description', ''),
+                    'beachStatus': 'Advisory', 'IndicatorID': 3, 'Active': True,
+                    'RBGColor': 'Orange', 'Advisory': '', 'Closure': '',
+                    'StatusSince': '', 'StatusNote': '', 'LocationType': 'Monitoring Point',
+                }
+
+        # Step 3: Mark closure sites (EventTypeId=2)
+        closure_items = call_get_site_by_id(COSD_EVENT_TYPE_CLOSURE)
+        get_dagster_logger().info(f"CoSD: {len(closure_items)} closure sites")
+        for item in closure_items:
+            site_id = item.get('Id', '')
+            closure_ids.add(site_id)
+            if site_id in sites_by_id:
+                sites_by_id[site_id]['beachStatus'] = 'Closure'
+                sites_by_id[site_id]['IndicatorID'] = 1
+                sites_by_id[site_id]['RBGColor'] = 'Red'
+            else:
+                sites_by_id[site_id] = {
+                    'SiteID': site_id, 'DehID': site_id,
+                    'Name': item.get('LocationName', ''), 'BeachName': item.get('BeachName', ''),
+                    'City': item.get('City', ''), 'Region': item.get('Region', ''),
+                    'Latitude': float(item.get('Latitude', 0) or 0),
+                    'Longitude': float(item.get('Longitude', 0) or 0),
+                    'Description': item.get('Description', ''),
+                    'beachStatus': 'Closure', 'IndicatorID': 1, 'Active': True,
+                    'RBGColor': 'Red', 'Advisory': '', 'Closure': '',
+                    'StatusSince': '', 'StatusNote': '', 'LocationType': 'Monitoring Point',
+                }
+
+        # Step 4: Get event details (issue date, description) for affected sites
+        affected_ids = advisory_ids | closure_ids
+        get_dagster_logger().info(f"CoSD: fetching event details for {len(affected_ids)} affected sites")
+        for site_id in affected_ids:
+            events = call_get_events_list(site_id)
+            if events:
+                event_details[site_id] = events[0]  # most recent event
+
+        browser.close()
+
+    # Step 5: Merge event details into site records
+    for site_id, event_item in event_details.items():
+        if site_id not in sites_by_id:
+            continue
+        site = sites_by_id[site_id]
+        event = event_item.get('Event', {})
+        event_type = event_item.get('EventType', {})
+        city_label = event_item.get('City', {}).get('Label', '')
+
+        # Parse issue datetime
+        issue_dt_str = event.get('IssueDateTime', '')
+        status_since = ''
+        if issue_dt_str and not issue_dt_str.startswith('1900'):
+            try:
+                dt = datetime.datetime.fromisoformat(issue_dt_str.replace('Z', '+00:00'))
+                status_since = dt.strftime(f"%b {dt.day}, %Y")
+            except Exception:
+                status_since = issue_dt_str[:10]
+
+        description_issue = event.get('DescriptionIssue', '')
+        event_type_id = event_type.get('Id', 0)
+        status_label = STATUS_LABEL.get(event_type_id, site['beachStatus'])
+
+        site['StatusSince'] = status_since
+        site['StatusNote'] = description_issue or (f"{status_label} since {status_since}" if status_since else status_label)
+
+        if site['beachStatus'] == 'Advisory':
+            site['Advisory'] = description_issue or f"Advisory issued {status_since}"
+        elif site['beachStatus'] == 'Closure':
+            site['Closure'] = description_issue or f"Closure issued {status_since}"
+
+        if city_label and not site['City']:
+            site['City'] = city_label
+
+    return list(sites_by_id.values())
+
+
+def cosd_build_geodataframe(sites: list[dict]) -> gpd.GeoDataFrame:
+    """Convert the site list from cosd_get_beach_status() to a GeoDataFrame."""
+    df = pd.DataFrame(sites)
+    if df.empty:
+        return gpd.GeoDataFrame()
+
+    # Filter out sites with missing coordinates
+    valid = df[(df['Latitude'] != 0) | (df['Longitude'] != 0)].copy()
+    if valid.empty:
+        get_dagster_logger().warning("All sites have zero coordinates")
+        valid = df.copy()
+
+    gs = gpd.GeoSeries.from_xy(valid['Longitude'], valid['Latitude'])
+    gdf = gpd.GeoDataFrame(valid, geometry=gs, crs='EPSG:4326')
+
+    # Map RBGColor to Icon
+    def _rgb_to_icon(color):
+        return ICONS.get(color, ICONS.get('beach', 'place'))
+
+    gdf['Icon'] = gdf['RBGColor'].apply(_rgb_to_icon)
+    return gdf
+
+
 @asset(group_name="tijuana", key_prefix="waterquality",
        name="sdbeachinfo_status", required_resource_keys={"s3", "airtable"},
-
-       automation_condition=AutomationCondition.eager()     )
+       automation_condition=AutomationCondition.eager())
 def get_sdbeachinfo_status(context) -> gpd.GeoDataFrame:
-    '''
-    Collects the San Diego Beachinfo Notices on daily schedule
-    www.sdbeachinfo.com
-    '''
+    """
+    Collects San Diego County beach advisory/closure status from the CoSD beach info site.
+    Source: https://cosdapps.sandiegocounty.gov/sdbeachinfo/
+    (Replaced the old www.sdbeachinfo.com/Home/GetTargetByID endpoint)
+    """
     name = 'sdbeachinfo_status'
-    description = '''Collects the San Diego Beachinfo Notices on daily schedule
-         www.sdbeachinfo.com
-         The source is a json response from ASP.Net component that provides information about all San Diego County Beaches
-         adds: 
-         * text information about beachStatus based on IndicatorID
-         * text information on the Station Type based on TypeID
-         * statusNote that is a cleaned version of the (Closure/Advisory) messages
+    description = '''Collects San Diego County beach advisory and closure status.
+         Source: https://cosdapps.sandiegocounty.gov/sdbeachinfo/
+         Uses the CoSD OutSystems API to retrieve all monitoring sites with:
+         * Current status (Open / Advisory / Closure)
+         * Site location (latitude/longitude)
+         * Event details (issue date, description)
         '''
-    source_url = 'https://www.sdbeachinfo.com/Home/GetTargetByID'
+    source_url = COSD_BEACH_URL
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
     s3_resource = context.resources.s3
-    # need to pass in as optional env variable
-    # https://www.sdbeachinfo.com/Home/GetTargetByID
-    closures_page='https://www.sdbeachinfo.com/Home/GetTargetByID'
-    response = requests.post(closures_page)
-    if response.status_code != 200:
-        get_dagster_logger().error(f" get beach clousure error: {response.status_code} {response.text}")
-        raise  Exception (response.text)
-    else:
-        try:
-            data = response.json()
-            closures_df = pd.DataFrame(data)
-            # gs = gpd.GeoSeries.from_xy(closures_df['Longitude'], closures_df['Latitude'])
-            # closures_gdf = gpd.GeoDataFrame(closures_df, geometry=gs, crs='EPSG:4326')
-            # closures_gdf['Icon'] = 'place'
-            # closures_gdf['RBGColor'] = closures_gdf['RBGColor'].map(lambda x: x.strip().replace('.png', ''))
 
+    try:
+        sites = cosd_get_beach_status()
+    except Exception as e:
+        get_dagster_logger().error(f"Failed to fetch CoSD beach status: {e}")
+        raise
 
-        except Exception as e:
-            get_dagster_logger().error(f" get beach clousure parsing response: {e}")
-            return gpd.GeoDataFrame()
-    closures_gdf= sdbeachinfo_clean_data(closures_df)
-    closures_gdf= closures_gdf[['SiteID','DehID','Name','Latitude','Longitude', 'IndicatorID', 'Active','RBGColor', 'Icon',
-                                    'Description', 'Advisory',	'Closure',
-                                    'beachStatus','LocationType', 'StatusSince', 'StatusNote', 'geometry'
-                                    ]]
+    if not sites:
+        get_dagster_logger().warning("CoSD beach status returned no sites")
+        return gpd.GeoDataFrame()
+
+    closures_gdf = cosd_build_geodataframe(sites)
+    get_dagster_logger().info(f"CoSD beach status: {len(closures_gdf)} sites total")
+    get_dagster_logger().info(f"  Advisory: {(closures_gdf['beachStatus']=='Advisory').sum()}")
+    get_dagster_logger().info(f"  Closure: {(closures_gdf['beachStatus']=='Closure').sum()}")
+    get_dagster_logger().info(f"  Open: {(closures_gdf['beachStatus']=='Open').sum()}")
+
+    output_cols = ['SiteID', 'DehID', 'Name', 'BeachName', 'City', 'Region',
+                   'Latitude', 'Longitude', 'IndicatorID', 'Active', 'RBGColor', 'Icon',
+                   'Description', 'Advisory', 'Closure',
+                   'beachStatus', 'LocationType', 'StatusSince', 'StatusNote', 'geometry']
+    available_cols = [c for c in output_cols if c in closures_gdf.columns]
+    closures_gdf = closures_gdf[available_cols]
+
     filename = f'{s3_output_path}/output/current/sdbeachinfo_status'
-    store_assets.geodataframe_to_s3(closures_gdf, filename, s3_resource, formats=['json','csv','geojson'], metadata=metadata)
-    # just name, location
-   # closures_name_df= closures_gdf[['SiteID','DehID','Name','Latitude','Longitude', 'IndicatorID', 'Active','RBGColor', 'Icon',
-     #                               'Description', 'Advisory',	'Closure',
-      #                               'beachStatus','LocationType', 'StatusSince', 'StatusNote'
-      #                              ]]
-
-    #store_assets.dataframe_to_s3(closures_name_df, filename, s3_resource, formats=['json'])
+    store_assets.geodataframe_to_s3(closures_gdf, filename, s3_resource,
+                                    formats=['json', 'csv', 'geojson'], metadata=metadata)
     return closures_gdf
 
 def get_cache_s3_path(cache_key):
@@ -425,7 +614,7 @@ def beachwatch_status_translation(context, sdbeachinfo_status: gpd.GeoDataFrame)
        * Advisory_es
        * statusNote_es 
         '''
-    source_url = 'https://www.sdbeachinfo.com/Home/GetTargetByID'
+    source_url = COSD_BEACH_URL
     metadata = store_assets.objectMetadata(name=name, description=description, source_url=source_url)
     s3_resource = context.resources.s3
     openai_resource = context.resources.openai
@@ -673,14 +862,19 @@ def beachwatch__closures_year(context):
 
 
 def fetch_last_updated():
-    """Fetch the 'Last Updated' timestamp from the website."""
-    url = "https://www.sdbeachinfo.com/"
-    response = requests.get(url)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    last_updated_div = soup.find("div", string=lambda text: text and "Last Updated:" in text)
-    if last_updated_div:
-        return last_updated_div.text.strip()
+    """Fetch the 'Last Updated' timestamp from the CoSD beach info site."""
+    import warnings
+    import urllib3
+    warnings.filterwarnings('ignore', category=urllib3.exceptions.InsecureRequestWarning)
+    response = requests.get(
+        f"{COSD_BEACH_URL}screenservices/CoSD_Beach_Water_CW/MainFlow/HomeBlockNew/DataActionGetLastDateTime",
+        verify=False, timeout=15
+    )
+    # Endpoint requires OutSystems session; fall back to full URL
+    # The moduleversioninfo endpoint is public and always available
+    mv_resp = requests.get(f"{COSD_BEACH_URL}moduleservices/moduleversioninfo", verify=False, timeout=15)
+    if mv_resp.status_code == 200:
+        return mv_resp.json().get('versionToken', '')
     return None
 
 
