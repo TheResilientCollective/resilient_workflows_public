@@ -497,6 +497,126 @@ def get_sdbeachinfo_status(context) -> gpd.GeoDataFrame:
                                     formats=['json', 'csv', 'geojson'], metadata=metadata)
     return closures_gdf
 
+
+@asset(
+    group_name="tijuana",
+    key_prefix="waterquality",
+    name="beach_site_id_mapping",
+    required_resource_keys={"s3"},
+    automation_condition=AutomationCondition.eager(),
+    ins={
+        "sdbeachinfo_status": AssetIn(key=AssetKey(["waterquality", "sdbeachinfo_status"])),
+    },
+    description=(
+        "Cross-reference between CoSD beach monitoring numeric site IDs and "
+        "California state beachwatch Station_IDs (letter-number format). "
+        "Matched by nearest-neighbor spatial join."
+    ),
+)
+def beach_site_id_mapping(context, sdbeachinfo_status: gpd.GeoDataFrame) -> pd.DataFrame:
+    """
+    Produces a mapping table linking CoSD numeric site IDs to CA state
+    beachwatch Station_IDs.  Both systems cover the same San Diego beaches
+    but use incompatible identifiers, making this table the join key for
+    cross-referencing advisory/closure histories from the state dataset
+    against CoSD site descriptions and locations.
+
+    Matching strategy: nearest-neighbor spatial join (projected to UTM 11N
+    for accurate metre distances). Rows with match_distance_m > 500 should
+    be reviewed — they likely indicate sites with no direct counterpart.
+    """
+    s3_resource = context.resources.s3
+
+    # --- CoSD sites (already fetched upstream) ---
+    cosd_gdf = sdbeachinfo_status.copy()
+    if cosd_gdf.empty:
+        get_dagster_logger().warning("beach_site_id_mapping: sdbeachinfo_status is empty, skipping")
+        return pd.DataFrame()
+
+    cosd_keep = [c for c in ['SiteID', 'Name', 'BeachName', 'City', 'Description', 'geometry'] if c in cosd_gdf.columns]
+    cosd_gdf = cosd_gdf[cosd_keep]
+
+    # --- CA state beachwatch stations ---
+    # Use a year with dense data; blank year returns all years (slow) so use current.
+    current_year = datetime.date.today().year
+    get_data = {**formdata, 'year': current_year}
+    try:
+        bw_raw = get_beachwatch_data(reports_page, exports_page, get_data)
+    except Exception as e:
+        get_dagster_logger().warning(f"beach_site_id_mapping: beachwatch fetch failed ({e}), skipping")
+        return pd.DataFrame()
+
+    if bw_raw.empty:
+        get_dagster_logger().warning("beach_site_id_mapping: no beachwatch data returned")
+        return pd.DataFrame()
+
+    get_dagster_logger().info(f"beach_site_id_mapping: beachwatch columns: {list(bw_raw.columns)}")
+
+    # Station_ID is the state letter-number ID (e.g. 'B-061'); keep it and the name/location cols.
+    name_col = next((c for c in ['StationName', 'Station_Name', 'BeachName', 'Beach_Name', 'Name'] if c in bw_raw.columns), None)
+    required = ['Station_ID', 'Latitude', 'Longitude']
+    if not all(c in bw_raw.columns for c in required):
+        get_dagster_logger().warning(f"beach_site_id_mapping: missing required columns {required} in beachwatch data")
+        return pd.DataFrame()
+
+    keep = required + ([name_col] if name_col else [])
+    stations = (
+        bw_raw[keep]
+        .drop_duplicates(subset=['Station_ID'])
+        .assign(
+            Latitude=lambda d: pd.to_numeric(d['Latitude'], errors='coerce'),
+            Longitude=lambda d: pd.to_numeric(d['Longitude'], errors='coerce'),
+        )
+        .dropna(subset=['Latitude', 'Longitude'])
+    )
+
+    bw_gdf = gpd.GeoDataFrame(
+        stations,
+        geometry=gpd.points_from_xy(stations['Longitude'], stations['Latitude']),
+        crs='EPSG:4326',
+    )
+
+    # --- Spatial nearest-neighbor join (UTM zone 11N for metre distances) ---
+    cosd_proj = cosd_gdf.to_crs('EPSG:32611')
+    bw_proj = bw_gdf.to_crs('EPSG:32611')
+
+    joined = gpd.sjoin_nearest(cosd_proj, bw_proj, how='left', distance_col='match_distance_m')
+
+    rename = {'SiteID': 'cosd_id', 'Name': 'cosd_name', 'BeachName': 'cosd_beach_name',
+              'City': 'cosd_city', 'Description': 'cosd_description',
+              'Station_ID': 'bw_station_id'}
+    if name_col:
+        rename[name_col] = 'bw_station_name'
+
+    out_cols = [c for c in list(rename.keys()) + ['match_distance_m'] if c in joined.columns]
+    mapping = joined[out_cols].copy().rename(columns=rename)
+    mapping['match_distance_m'] = mapping['match_distance_m'].round(1)
+    mapping['match_quality'] = mapping['match_distance_m'].apply(
+        lambda d: 'good' if d < 200 else ('ok' if d < 500 else 'poor')
+    )
+
+    good = (mapping['match_quality'] == 'good').sum()
+    ok = (mapping['match_quality'] == 'ok').sum()
+    poor = (mapping['match_quality'] == 'poor').sum()
+    get_dagster_logger().info(
+        f"beach_site_id_mapping: {len(mapping)} CoSD sites — "
+        f"{good} good (<200 m), {ok} ok (<500 m), {poor} poor (>500 m)"
+    )
+
+    name = 'beach_site_id_mapping'
+    description = (
+        "Cross-reference between CoSD beach monitoring site IDs (numeric) and "
+        "CA state beachwatch Station_IDs (letter-number). Matched by nearest-neighbor "
+        "spatial join. match_distance_m is the distance in metres between the two points; "
+        "rows with match_quality='poor' (>500 m) should be reviewed manually."
+    )
+    metadata = store_assets.objectMetadata(name=name, description=description, source_url=COSD_BEACH_URL)
+    filename = f'{s3_output_path}/output/reference/beach_site_id_mapping'
+    store_assets.dataframe_to_s3(mapping, filename, s3_resource, metadata=metadata)
+
+    return mapping
+
+
 def get_cache_s3_path(cache_key):
     """Get the S3 path for a translation cache entry"""
     return f'{s3_output_path}/cache/translations/{cache_key}.json'
