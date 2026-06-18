@@ -1013,16 +1013,12 @@ def beachwatch__closures_year(context):
 
 
 def fetch_last_updated():
-    """Fetch the 'Last Updated' timestamp from the CoSD beach info site."""
+    """Return the CoSD module version token, used as a change-detection cursor."""
     import warnings
     import urllib3
     warnings.filterwarnings('ignore', category=urllib3.exceptions.InsecureRequestWarning)
-    response = requests.get(
-        f"{COSD_BEACH_URL}screenservices/CoSD_Beach_Water_CW/MainFlow/HomeBlockNew/DataActionGetLastDateTime",
-        verify=False, timeout=15
-    )
-    # Endpoint requires OutSystems session; fall back to full URL
-    # The moduleversioninfo endpoint is public and always available
+    # moduleservices/moduleversioninfo is a public GET endpoint; the screenservices
+    # data-action endpoints require a POST with session auth, so we don't touch them here.
     mv_resp = requests.get(f"{COSD_BEACH_URL}moduleservices/moduleversioninfo", verify=False, timeout=15)
     if mv_resp.status_code == 200:
         return mv_resp.json().get('versionToken', '')
