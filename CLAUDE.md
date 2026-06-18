@@ -24,6 +24,9 @@ uv venv
 # Install all workspace packages for development
 uv sync --all-packages
 source .venv/bin/activate
+
+# Install Playwright browser binaries (required for web scraping assets)
+playwright install chromium
 ```
 
 ### Configuration
