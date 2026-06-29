@@ -316,7 +316,8 @@ def tidal_forecast(context: AssetExecutionContext) -> pd.DataFrame:
 tides_hourly_job = define_asset_job(
     "tides_hourly", selection=[AssetKey(["tides", "tidal_hourly"]), AssetKey(["tides", "tidal_forecast"])]
 )
-@schedule(job=tides_hourly_job, cron_schedule="@hourly", name="tidal_hourly")
+# shifting 10 minutes. getting a 429, probably because application is the same for all clients of this library. So we will run it at 10 minutes past the hour.
+@schedule(job=tides_hourly_job, cron_schedule="10 * * * * ", name="tidal_hourly")
 def tides_hourly_schedule(context):
     return RunRequest()
 

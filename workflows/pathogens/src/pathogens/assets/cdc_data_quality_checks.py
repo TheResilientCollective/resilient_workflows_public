@@ -29,7 +29,8 @@ SURVEILLANCE_START_DATE = "2022-01-01"  # Start of consistent surveillance
 SURVEILLANCE_END_DATE = None  # None = current date
 
 
-@asset_check(asset=AssetKey(["cdc", "mpox_weekly"]), name="mpox_weekly_completeness")
+@asset_check(asset=AssetKey(["cdc", "mpox_weekly"]), name="mpox_weekly_completeness",
+             required_resource_keys={'s3'})
 def check_mpox_weekly_completeness(context) -> AssetCheckResult:
     """
     Check that mpox weekly basic epidemiology data has no missing weeks by jurisdiction.
@@ -97,7 +98,8 @@ def check_mpox_weekly_completeness(context) -> AssetCheckResult:
         )
 
 
-@asset_check(asset=AssetKey(["cdc", "measles_weekly"]), name="measles_weekly_completeness")
+@asset_check(asset=AssetKey(["cdc", "measles_weekly"]), name="measles_weekly_completeness",
+             required_resource_keys={'s3'})
 def check_measles_weekly_completeness(context) -> AssetCheckResult:
     """
     Check that measles weekly basic epidemiology data has no missing weeks by jurisdiction.
@@ -166,7 +168,8 @@ def check_measles_weekly_completeness(context) -> AssetCheckResult:
         )
 
 
-@asset_check(asset=AssetKey(["cdc", "mpox_weekly"]), name="mpox_statistical_extension_completeness")
+@asset_check(asset=AssetKey(["cdc", "mpox_weekly"]), name="mpox_statistical_extension_completeness",
+             required_resource_keys={'s3'})
 def check_mpox_statistical_extension_completeness(context) -> AssetCheckResult:
     """
     Check that mpox statistical extension data has complete weekly metrics by jurisdiction.
@@ -245,7 +248,8 @@ def check_mpox_statistical_extension_completeness(context) -> AssetCheckResult:
         )
 
 
-@asset_check(asset=AssetKey(["cdc", "measles_weekly"]), name="measles_statistical_extension_completeness")
+@asset_check(asset=AssetKey(["cdc", "measles_weekly"]), name="measles_statistical_extension_completeness",
+             required_resource_keys={'s3'})
 def check_measles_statistical_extension_completeness(context) -> AssetCheckResult:
     """
     Check that measles statistical extension data has complete weekly metrics by jurisdiction.
@@ -331,7 +335,8 @@ def check_measles_statistical_extension_completeness(context) -> AssetCheckResul
         )
 
 
-@asset_check(asset=AssetKey(["cdc", "mpox_weekly"]), name="mpox_zero_counts_validation")
+@asset_check(asset=AssetKey(["cdc", "mpox_weekly"]), name="mpox_zero_counts_validation",
+             required_resource_keys={'s3'})
 def check_mpox_zero_counts_preserved(context) -> AssetCheckResult:
     """
     Validate that zero counts are properly preserved in mpox surveillance data.
@@ -413,7 +418,8 @@ def check_mpox_zero_counts_preserved(context) -> AssetCheckResult:
         )
 
 
-@asset_check(asset=AssetKey(["cdc", "measles_weekly"]), name="measles_zero_counts_validation")
+@asset_check(asset=AssetKey(["cdc", "measles_weekly"]), name="measles_zero_counts_validation",
+             required_resource_keys={'s3'})
 def check_measles_zero_counts_preserved(context) -> AssetCheckResult:
     """
     Validate that zero counts are properly preserved in measles surveillance data.
