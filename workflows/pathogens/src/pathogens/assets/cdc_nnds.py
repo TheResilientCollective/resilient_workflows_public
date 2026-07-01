@@ -1,5 +1,7 @@
 import requests
 import os
+import io
+import json
 from dagster import ( asset,
                      get_dagster_logger ,
                       define_asset_job,AssetKey,
@@ -1053,3 +1055,572 @@ def cdc_nndss_raw_schedule(context):
         partition_key=partition_key,
 
     )
+
+
+# =============================================================================
+# NNDSS aggregated basis + data-driven disease subsets
+# =============================================================================
+#
+# Three assets generalize the mpox/measles pattern to every NNDSS label:
+#   1. nndss_all_basis      – one cleaned file across ALL labels (mpox-style
+#                             correction: prior years use m4/corrected, current
+#                             year uses m3/preliminary, with negative smoothing).
+#   2. nndss_label_mapping  – discovers distinct labels and clusters them into
+#                             "core" diseases (a disease may span several labels,
+#                             e.g. dengue=3, measles=2); emits a validated mapping.
+#   3. nndss_disease_subsets– per-disease resilient-epi outputs, BOTH a combined
+#                             per-disease total (summed member labels) AND the
+#                             per-label breakdown.
+
+CDC_BASE_URL = "https://data.cdc.gov/resource/x9gk-5huc.geojson?"
+CDC_SOURCE_URL = "https://data.cdc.gov/resource/x9gk-5huc.geojson"
+
+s3_basis_path = f'{s3_output_path}/basis'          # pathogens/cdc/nndss/basis
+s3_latest_basis = 'pathogens/nndss/basis'
+s3_config_path = f'{s3_output_path}/config'        # pathogens/cdc/nndss/config
+s3_diseases_path = f'{s3_output_path}/diseases'    # pathogens/cdc/nndss/diseases
+s3_latest_diseases = 'pathogens/nndss/diseases'
+LABEL_OVERRIDES_KEY = f'{s3_config_path}/label_overrides.json'
+
+# Statistical-extension metrics as (metric_category, source_column, rule). The
+# 'adjusted' rule maps to a preliminary estimate for the current year and a
+# corrected value for prior years; everything else is 'reported'.
+_STAT_METRIC_MAP = [
+    ('current_week', 'current_week', 'reported'),
+    ('net_cases', 'Raw_Difference', 'reported'),
+    ('cases_added', 'Cases_Added', 'adjusted'),
+    ('cases_removed', 'Cases_Removed', 'reported'),
+    ('adjusted_week', 'adjusted_week', 'adjusted'),
+    ('adjusted_YTD__cummulative', 'adjusted_YTD__cummulative', 'adjusted'),
+    ('previous_52_weeks__max', 'previous_52_weeks__max', 'reported'),
+    ('current_YTD__cummulative', 'current_YTD__cummulative', 'reported'),
+    ('previous_YTD__cummulative', 'previous_YTD__cummulative', 'reported'),
+]
+# per-week numeric columns summed when combining member labels into a disease total
+_COMBINE_SUM_COLS = ['current_week', 'Raw_Difference', 'Cases_Added',
+                     'Cases_Removed', 'adjusted_week', 'previous_52_weeks__max']
+
+
+def _cdc_count(count_query, count_field):
+    """Fetch a row count from the CDC endpoint for a given $select=count(...) query."""
+    resp = requests.get(f"{CDC_BASE_URL}{count_query}")
+    if resp.status_code != 200:
+        raise Exception(f"access failed: {resp.status_code} {resp.text}")
+    return int(resp.json()["features"][0]["properties"][count_field])
+
+
+def _cdc_paged_pull(query, count, limit=1000, extra=""):
+    """Page through the CDC geojson endpoint, concatenating into one GeoDataFrame."""
+    df = None
+    for i in range(0, count, limit):
+        url = f"{CDC_BASE_URL}{query}&$offset={i}&$limit={limit}{extra}"
+        get_dagster_logger().info(f"url :{url} ")
+        try:
+            this_df = gpd.read_file(url)
+            df = this_df if df is None else pd.concat([df, this_df], ignore_index=True)
+        except Exception as e:
+            get_dagster_logger().error(f"{i}: access failed:{url} {e} ")
+    return df
+
+
+def _core_disease(label):
+    """Derive the core disease name from an NNDSS label.
+
+    Splits on the first TOP-LEVEL comma (commas inside parentheses are not
+    hierarchy delimiters and are ignored). A label with no top-level comma is
+    its own core disease.
+    """
+    label = str(label)
+    # Mask commas inside (...) so they don't act as split points
+    masked = re.sub(r'\(([^)]*)\)', lambda m: '(' + m.group(1).replace(',', '\0') + ')', label)
+    core = masked.split(',', 1)[0]
+    core = core.replace('\0', ',').strip()
+    return re.sub(r'\s+', ' ', core)
+
+
+def cluster_labels_to_diseases(labels, overrides=None):
+    """Cluster NNDSS labels into core diseases.
+
+    Returns a dict: disease -> [ {'label': str, 'is_rollup': bool}, ... ].
+    A member is flagged is_rollup when its label equals the bare core name while
+    comma-qualified children also exist for that disease — such a published
+    parent/total would double-count if summed with its children.
+    Optional `overrides` maps a specific label to an explicit disease name and is
+    applied on top of the heuristic.
+    """
+    overrides = overrides or {}
+    groups = {}
+    for label in labels:
+        if label is None or (isinstance(label, float) and pd.isna(label)):
+            continue
+        label = str(label)
+        disease = overrides.get(label) or _core_disease(label)
+        groups.setdefault(disease, set()).add(label)
+
+    mapping = {}
+    for disease, lbls in groups.items():
+        lbls = sorted(lbls)
+        has_children = len(lbls) > 1
+        members = []
+        for lbl in lbls:
+            is_rollup = has_children and _core_disease(lbl) == lbl.strip()
+            members.append({'label': lbl, 'is_rollup': is_rollup})
+        mapping[disease] = members
+    return mapping
+
+
+def combine_disease_total(leaf_df, disease_name):
+    """Sum the cleaned per-week metrics of a disease's leaf labels into one total.
+
+    MUST run on already-cleaned rows (post calculate_correct_count). Groups by
+    (states, location1, year, week, date), sums the additive metric columns, and
+    recomputes the YTD cumulatives per (states, location1, year).
+    """
+    group_keys = ['states', 'location1', 'year', 'week', 'date']
+    present_sum = [c for c in _COMBINE_SUM_COLS if c in leaf_df.columns]
+    agg = leaf_df.groupby(group_keys, as_index=False)[present_sum].sum()
+
+    agg['_wk'] = pd.to_numeric(agg['week'], errors='coerce')
+    agg = agg.sort_values(['states', 'location1', 'year', '_wk']).reset_index(drop=True)
+    if 'adjusted_week' in agg.columns:
+        agg['adjusted_YTD__cummulative'] = (
+            agg.groupby(['states', 'location1', 'year'])['adjusted_week'].cumsum().astype(int))
+    if 'current_week' in agg.columns:
+        agg['current_YTD__cummulative'] = (
+            agg.groupby(['states', 'location1', 'year'])['current_week'].cumsum())
+    agg = agg.drop(columns=['_wk'])
+
+    current_year = str(datetime.now().year)
+    agg['Week_Type'] = agg['year'].astype(str).apply(
+        lambda y: 'Preliminary_Combined' if y == current_year else 'Combined')
+    return agg
+
+
+def _camel_jurisdiction(states):
+    """Vectorized CamelCase of a state-name Series (no spaces, schema-compliant)."""
+    j = states.fillna('Unknown').astype(str).str.strip()
+    j = j.replace('', 'Unknown')
+    camel = j.str.title().str.replace(r'\s+', '', regex=True)
+    return camel.mask(j.str.upper() == 'UNKNOWN', 'Unknown')
+
+
+def records_to_resilient_epi(df, disease_name, label_col=None):
+    """Transform cleaned per-week rows into (basic_df, statistical_df).
+
+    Fully vectorized (no per-row iteration / per-record validation) so it scales
+    to the full NNDSS basis. Produces the same basic-epidemiology and statistical
+    -extension shapes as the mpox/measles assets. `label_col`, when given, tags
+    each output row with the source member label (disease_label).
+    """
+    logger = get_dagster_logger()
+    if df is None or len(df) == 0:
+        return pd.DataFrame(), pd.DataFrame()
+
+    d = df.copy()
+    d['date'] = pd.to_datetime(d['date'], errors='coerce')
+    d = d.dropna(subset=['date'])
+    if d.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    current_year = str(datetime.now().year)
+    states = d['states'] if 'states' in d.columns else pd.Series('Unknown', index=d.index)
+    juris = _camel_jurisdiction(states)
+    year_i = pd.to_numeric(d['year'], errors='coerce')
+    week_i = pd.to_numeric(d['week'], errors='coerce')
+    date_start = d['date'].dt.strftime('%Y-%m-%d')
+
+    # ---- basic epidemiology ----
+    basic = pd.DataFrame({
+        'Jurisdiction': juris.to_numpy(),
+        'date_week_start': date_start.to_numpy(),
+        'date_week_end': (d['date'] + pd.Timedelta(days=6)).dt.strftime('%Y-%m-%d').to_numpy(),
+        'Week_Number': week_i.to_numpy(),
+        'Year': year_i.to_numpy(),
+        'Cases': pd.to_numeric(d.get('adjusted_week'), errors='coerce').fillna(0).clip(lower=0).to_numpy(),
+        'Week_Type': d['Week_Type'].astype(str).to_numpy(),
+        'disease': disease_name,
+    })
+    if label_col and label_col in d.columns:
+        basic['disease_label'] = d[label_col].astype(str).to_numpy()
+    basic = basic.dropna(subset=['Week_Number', 'Year'])
+    basic = basic[(basic['Week_Number'].between(1, 53)) & (basic['Year'].between(2000, 2100))]
+    basic = basic[basic['Week_Type'].str.len() > 0]
+    if not basic.empty:
+        basic['Week_Number'] = basic['Week_Number'].astype(int)
+        basic['Year'] = basic['Year'].astype(int)
+        basic['Cases'] = basic['Cases'].astype(float)
+        basic['Week_Year'] = basic['Week_Number'].astype(str) + '-' + basic['Year'].astype(str)
+        core = ['Jurisdiction', 'date_week_start', 'date_week_end', 'Week_Number',
+                'Year', 'Week_Year', 'Cases', 'Week_Type']
+        try:
+            BasicEpidemiologySchema.validate(basic[core])
+        except EpidemiologyValidationError as e:
+            logger.warning(f"Basic schema validation failed for {disease_name}: {e}")
+        basic = basic[core + [c for c in ('disease', 'disease_label') if c in basic.columns]]
+
+    # ---- statistical extension (long form) ----
+    base = pd.DataFrame({
+        'Jurisdiction': juris.to_numpy(),
+        'date': date_start.to_numpy(),
+        'cdc_week': d['week'].to_numpy(),
+        'cdc_year': d['year'].to_numpy(),
+        '_year_i': year_i.to_numpy(),
+        'original_state': states.to_numpy(),
+        'original_location': (d['location1'] if 'location1' in d.columns
+                              else pd.Series('Unknown', index=d.index)).to_numpy(),
+    })
+    if label_col and label_col in d.columns:
+        base['disease_label'] = d[label_col].astype(str).to_numpy()
+
+    frames = []
+    for metric_cat, src, rule in _STAT_METRIC_MAP:
+        if src not in d.columns:
+            continue
+        part = base.copy()
+        part['count'] = pd.to_numeric(d[src], errors='coerce').to_numpy()
+        part['metric_category'] = metric_cat
+        part['_rule'] = rule
+        frames.append(part)
+
+    if frames:
+        stat = pd.concat(frames, ignore_index=True)
+        stat = stat[stat['count'].notna() & (stat['count'] >= 0)].copy()
+        stat['metric'] = 'cases'
+        stat['disease'] = disease_name
+        stat['count'] = stat['count'].astype(float)
+        is_cur = stat['_year_i'].astype('Int64').astype(str) == current_year
+        adj = stat['_rule'] == 'adjusted'
+        stat['observation_type'] = 'reported'
+        stat.loc[adj & is_cur, 'observation_type'] = 'preliminary estimate'
+        stat.loc[adj & ~is_cur, 'observation_type'] = 'corrected'
+        stat = stat.drop(columns=['_rule', '_year_i'])
+        try:
+            StatisticalExtensionSchema.validate(stat)
+        except EpidemiologyValidationError as e:
+            logger.warning(f"Statistical schema validation failed for {disease_name}: {e}")
+    else:
+        stat = pd.DataFrame()
+
+    return basic, stat
+
+
+def _disease_slug(disease):
+    slug = re.sub(r'[^a-z0-9]+', '_', str(disease).lower()).strip('_')
+    return slug or 'unknown'
+
+
+def _read_basis_df(s3_resource):
+    """Read the latest nndss_all_basis from S3 into a DataFrame.
+
+    Reads the parquet copy (columnar, ~25x smaller than the CSV) to keep the
+    1.5M-row basis memory footprint low downstream.
+    """
+    key = f"{store_assets.get_latest_basepath()}/{s3_latest_basis}/nndss_all_basis.parquet"
+    raw = s3_resource.getFile(key)
+    return pd.read_parquet(io.BytesIO(raw))
+
+
+def _read_label_mapping(s3_resource):
+    """Read the label->diseases mapping JSON from S3."""
+    raw = s3_resource.getFile(f"{s3_config_path}/label_mapping.json")
+    return json.loads(raw.decode('utf-8') if isinstance(raw, bytes) else raw)
+
+
+def _read_all_weekly_partitions(s3_resource):
+    """Read and concatenate the raw nndss_weekly partition CSVs already stored in S3.
+
+    Uses the base (non-_states_) weekly files, which retain the raw m1-m4 columns
+    so the basis can be re-cleaned across all weeks at once.
+    """
+    logger = get_dagster_logger()
+    prefix = f'{s3_output_path}/raw/nndss_weekly/'
+    frames = []
+    files = []
+    for obj in s3_resource.listPath(path=prefix):
+        name = obj.object_name
+        if name.endswith('.csv') and '/nndss_weekly_' in name and '_states_' not in name:
+            files.append(name)
+    for name in sorted(files):
+        raw = s3_resource.getFile(name)
+        frames.append(pd.read_csv(io.BytesIO(raw) if isinstance(raw, bytes)
+                                  else io.StringIO(raw.decode('utf-8'))))
+    logger.info(f"Read {len(frames)} nndss_weekly partition files from {prefix}")
+    return pd.concat(frames, ignore_index=True) if frames else None
+
+
+@asset(group_name="pathogens", key_prefix="cdc",
+       name="nndss_all_basis", required_resource_keys={"s3"},
+       deps=[AssetKey(["cdc", "nndss_weekly"])])
+def nndss_all_basis(context):
+    """Aggregated, cleaned CDC NNDSS weekly data across ALL labels.
+
+    Rather than re-pulling per disease, this reuses the raw data already fetched
+    by the weekly-partitioned ``cdc/nndss_weekly`` asset: it reads every stored
+    weekly partition, concatenates them so each (label, location1) group spans
+    all weeks/years, then applies the same mpox-style correction (prior years use
+    corrected m4, current year uses preliminary m3, with negative-diff smoothing).
+    This file is the validated basis for subsetting. Completeness follows whatever
+    ``cdc/nndss_weekly`` partitions have been materialized.
+    """
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    raw_df = _read_all_weekly_partitions(s3_resource)
+    if raw_df is None or raw_df.empty:
+        raise Exception("No nndss_weekly partition files found — materialize "
+                        "cdc/nndss_weekly first")
+
+    # Keep the raw source columns and rebuild the cleaned metrics from scratch
+    keep = ['states', 'year', 'week', 'label', 'm1', 'm2', 'm3', 'm4',
+            'location1', 'location2', 'lat', 'lon']
+    raw_df = raw_df[[c for c in keep if c in raw_df.columns]].copy()
+
+    raw_df.rename(columns={"m1": "current_week",
+                           "m2": "previous_52_weeks__max",
+                           "m3": "current_YTD__cummulative",
+                           "m4": "previous_YTD__cummulative"}, inplace=True)
+    for col in ['current_week', 'previous_52_weeks__max',
+                'current_YTD__cummulative', 'previous_YTD__cummulative']:
+        raw_df[col] = pd.to_numeric(raw_df[col], errors='coerce').fillna(0)
+
+    raw_df['date'] = raw_df.apply(
+        lambda row: Week(int(row['year']), int(row['week'])).startdate(), axis=1)
+    raw_df['date'] = pd.to_datetime(raw_df['date'])
+
+    raw_df["key"] = (raw_df["label"].astype(str) + '_' + raw_df["year"].astype(str)
+                     + '_' + raw_df["week"].astype(str) + '_' + raw_df["location1"].astype(str))
+    raw_df.dropna(inplace=True, subset=['key'])
+    raw_df.drop_duplicates(subset=['key'], inplace=True)
+
+    basis_df = calculate_correct_count(raw_df, cumulative_col='current_YTD__cummulative',
+                                       previous_cumulative_col='previous_YTD__cummulative')
+    basis_df = pd.DataFrame(basis_df)
+    logger.info(f"Storing NNDSS basis: {len(basis_df)} rows, "
+                f"{basis_df['label'].nunique()} distinct labels")
+
+    metadata = store_assets.objectMetadata(
+        name="nndss_all_basis",
+        description=("Aggregated cleaned CDC NNDSS weekly data across all labels, built "
+                     "from the stored nndss_weekly partitions. Prior years use corrected "
+                     "cumulative (m4); current year uses preliminary (m3), with "
+                     "negative-diff smoothing."),
+        source_url=CDC_SOURCE_URL,
+    )
+    store_assets.store_dataframe_to_s3(
+        basis_df, s3_basis_path, "nndss_all_basis", s3_resource,
+        metadata=metadata, formats=['csv', 'parquet'],
+        enable_latest_path=True, latestdatasetpath=s3_latest_basis)
+
+
+@asset(group_name="pathogens", key_prefix="cdc",
+       name="nndss_label_mapping", required_resource_keys={"s3"},
+       deps=[AssetKey(["cdc", "nndss_all_basis"])])
+def nndss_label_mapping(context):
+    """Discover distinct NNDSS labels and cluster them into core diseases.
+
+    Emits a validated disease->labels mapping (JSON + CSV catalog) that drives
+    per-disease subsetting. An optional overrides file at
+    pathogens/cdc/nndss/config/label_overrides.json is applied on top.
+    """
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    basis = _read_basis_df(s3_resource)
+    labels = sorted(basis['label'].dropna().unique())
+
+    overrides = {}
+    try:
+        raw = s3_resource.getFile(LABEL_OVERRIDES_KEY)
+        overrides = json.loads(raw.decode('utf-8') if isinstance(raw, bytes) else raw)
+        logger.info(f"Applied {len(overrides)} label overrides")
+    except Exception:
+        logger.info("No label overrides file found; using pure heuristic")
+
+    mapping = cluster_labels_to_diseases(labels, overrides=overrides)
+    logger.info(f"Clustered {len(labels)} labels into {len(mapping)} core diseases")
+
+    # JSON mapping (canonical, read by subsets + coverage check)
+    store_assets.text_to_s3(json.dumps(mapping, indent=2),
+                            f"{s3_config_path}/label_mapping.json",
+                            s3_resource, contenttype='application/json')
+
+    # Human-readable CSV catalog with per-cluster counts
+    catalog_rows = []
+    for disease, members in mapping.items():
+        for m in members:
+            catalog_rows.append({
+                'disease': disease,
+                'label': m['label'],
+                'is_rollup': m['is_rollup'],
+                'label_count': len(members),
+            })
+    catalog = pd.DataFrame(catalog_rows).sort_values(['disease', 'label'])
+    metadata = store_assets.objectMetadata(
+        name="nndss_label_mapping",
+        description="Mapping of NNDSS labels to core diseases used for subsetting",
+        source_url=CDC_SOURCE_URL,
+    )
+    # Distinct basename so the catalog .json does not clobber label_mapping.json
+    store_assets.dataframe_to_s3(catalog, f"{s3_config_path}/label_mapping_catalog",
+                                 s3_resource, metadata=metadata, formats=['csv', 'json'])
+
+
+@asset(group_name="pathogens", key_prefix="cdc",
+       name="nndss_disease_subsets", required_resource_keys={"s3"},
+       deps=[AssetKey(["cdc", "nndss_all_basis"]),
+             AssetKey(["cdc", "nndss_label_mapping"])])
+def nndss_disease_subsets(context):
+    """Per-disease resilient-epi outputs driven by the label mapping.
+
+    For each disease writes BOTH a combined per-disease total (summed leaf
+    labels) and the per-label breakdown, each in basic + statistical schemas.
+    """
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+
+    basis = _read_basis_df(s3_resource)
+    mapping = _read_label_mapping(s3_resource)
+
+    for disease, members in mapping.items():
+        member_labels = [m['label'] for m in members]
+        leaf_labels = [m['label'] for m in members if not m['is_rollup']]
+        slug = _disease_slug(disease)
+
+        disease_rows = basis[basis['label'].isin(member_labels)]
+        if disease_rows.empty:
+            logger.warning(f"No basis rows for disease '{disease}'; skipping")
+            continue
+        logger.info(f"Disease '{disease}': {len(member_labels)} labels, "
+                    f"{len(disease_rows)} rows")
+
+        base_out = f"{s3_diseases_path}/{slug}"
+        latest_out = f"{s3_latest_diseases}/{slug}"
+
+        # --- per-label breakdown ---
+        bd_basic, bd_stat = records_to_resilient_epi(disease_rows, disease, label_col='label')
+        if not bd_basic.empty:
+            md = store_assets.objectMetadata(
+                name=f"{slug}_bylabel_basic",
+                description=f"{disease} weekly cases by NNDSS label (basic epidemiology)",
+                source_url=CDC_SOURCE_URL)
+            store_assets.store_dataframe_to_s3(
+                bd_basic, base_out, f"{slug}_bylabel_basic", s3_resource,
+                metadata=md, formats=['csv', 'parquet'],
+                enable_latest_path=True, latestdatasetpath=latest_out)
+        if not bd_stat.empty:
+            md = store_assets.objectMetadata(
+                name=f"{slug}_bylabel_statistical",
+                description=f"{disease} weekly metrics by NNDSS label (statistical extension)",
+                source_url=CDC_SOURCE_URL)
+            store_assets.store_dataframe_to_s3(
+                bd_stat, base_out, f"{slug}_bylabel_statistical", s3_resource,
+                metadata=md, formats=['parquet'],
+                enable_latest_path=False, latestdatasetpath=latest_out)
+
+        # --- combined disease total (leaf labels only, avoids double-counting) ---
+        leaf_rows = basis[basis['label'].isin(leaf_labels)]
+        if leaf_rows.empty:
+            continue
+        combined = combine_disease_total(leaf_rows, disease)
+        cb_basic, cb_stat = records_to_resilient_epi(combined, disease, label_col=None)
+        if not cb_basic.empty:
+            md = store_assets.objectMetadata(
+                name=f"{slug}_combined_basic",
+                description=f"{disease} combined weekly cases across labels (basic epidemiology)",
+                source_url=CDC_SOURCE_URL)
+            store_assets.store_dataframe_to_s3(
+                cb_basic, base_out, f"{slug}_combined_basic", s3_resource,
+                metadata=md, formats=['csv', 'parquet'],
+                enable_latest_path=True, latestdatasetpath=latest_out)
+        if not cb_stat.empty:
+            md = store_assets.objectMetadata(
+                name=f"{slug}_combined_statistical",
+                description=f"{disease} combined weekly metrics across labels (statistical extension)",
+                source_url=CDC_SOURCE_URL)
+            store_assets.store_dataframe_to_s3(
+                cb_stat, base_out, f"{slug}_combined_statistical", s3_resource,
+                metadata=md, formats=['parquet'],
+                enable_latest_path=False, latestdatasetpath=latest_out)
+
+
+@asset_check(asset=AssetKey(["cdc", "nndss_label_mapping"]),
+             description="Every basis label maps to exactly one disease (no orphans, no duplicates)",
+             required_resource_keys={"s3"})
+def check_nndss_label_mapping_coverage(context):
+    """Validate the label mapping fully and uniquely covers the basis labels."""
+    s3_resource = context.resources.s3
+    try:
+        basis = _read_basis_df(s3_resource)
+        mapping = _read_label_mapping(s3_resource)
+
+        label_to_diseases = {}
+        for disease, members in mapping.items():
+            for m in members:
+                label_to_diseases.setdefault(m['label'], []).append(disease)
+
+        basis_labels = set(basis['label'].dropna().unique())
+        orphans = sorted(basis_labels - set(label_to_diseases))
+        duplicates = {lbl: ds for lbl, ds in label_to_diseases.items() if len(ds) > 1}
+
+        passed = not orphans and not duplicates
+        return AssetCheckResult(
+            passed=passed,
+            severity=AssetCheckSeverity.ERROR if not passed else AssetCheckSeverity.WARN,
+            description=(f"{len(orphans)} orphan label(s), {len(duplicates)} duplicated label(s)"
+                        if not passed else
+                        f"All {len(basis_labels)} labels mapped to exactly one disease"),
+            metadata={
+                "distinct_labels": len(basis_labels),
+                "diseases": len(mapping),
+                "orphan_examples": orphans[:10],
+                "duplicate_examples": {k: v for k, v in list(duplicates.items())[:10]},
+            },
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False, severity=AssetCheckSeverity.ERROR,
+            description=f"Check failed with error: {e}")
+
+
+@asset_check(asset=AssetKey(["cdc", "nndss_all_basis"]),
+             description="Adjusted count columns contain no negative values",
+             required_resource_keys={"s3"})
+def check_nndss_all_basis_no_negative_counts(context):
+    """Validate adjusted_week / adjusted_YTD__cummulative are non-negative after smoothing."""
+    s3_resource = context.resources.s3
+    try:
+        df = _read_basis_df(s3_resource)
+        count_columns = ['adjusted_week', 'adjusted_YTD__cummulative']
+        findings = {}
+        for col in count_columns:
+            if col in df.columns:
+                neg = int((df[col] < 0).sum())
+                if neg > 0:
+                    findings[col] = neg
+        if findings:
+            return AssetCheckResult(
+                passed=False, severity=AssetCheckSeverity.ERROR,
+                description=f"Negative values found: {findings}",
+                metadata={"negative_counts_by_column": findings, "rows_checked": len(df)})
+        return AssetCheckResult(
+            passed=True,
+            description=f"No negative counts across {len(df)} rows",
+            metadata={"rows_checked": len(df), "columns_checked": count_columns})
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False, severity=AssetCheckSeverity.ERROR,
+            description=f"Check failed with error: {e}")
+
+
+# schedules and jobs
+nndss_all_job = define_asset_job(
+    "nndss_all",
+    selection=[AssetKey(["cdc", "nndss_all_basis"]),
+               AssetKey(["cdc", "nndss_label_mapping"]),
+               AssetKey(["cdc", "nndss_disease_subsets"])],
+)
+
+
+@schedule(job=nndss_all_job, cron_schedule="@weekly", name="nndss_all_job")
+def nndss_all_schedule(context):
+    return RunRequest()
