@@ -3279,11 +3279,13 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "pandera", extra = ["geopandas", "pandas"] },
+    { name = "playwright" },
     { name = "pydantic" },
     { name = "requests" },
     { name = "requests-cache" },
     { name = "resilient-core" },
     { name = "simplepbi" },
+    { name = "tableauscraper" },
 ]
 
 [package.metadata]
@@ -3301,11 +3303,13 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.0" },
     { name = "pandera", extras = ["geopandas"] },
     { name = "pandera", extras = ["pandas"] },
+    { name = "playwright", specifier = ">=1.35.0" },
     { name = "pydantic", specifier = ">=2,<3.0.0" },
     { name = "requests" },
     { name = "requests-cache" },
     { name = "resilient-core", editable = "workflows/resilient_core" },
     { name = "simplepbi", specifier = ">=1.0" },
+    { name = "tableauscraper" },
 ]
 
 [[package]]
@@ -5249,6 +5253,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/19/38/9bf92b8c5caaaac7b0d4ed4d0b5e09d50d45b93a35cb79bb16aada488430/tableauhyperapi-0.0.22502-py3-none-macosx_13_0_arm64.whl", hash = "sha256:e164c78867bc726ee67d3d6c67f798375ddd8e631120219e0a0826762d5d951a", size = 68468286, upload-time = "2025-06-19T15:44:55.205Z" },
     { url = "https://files.pythonhosted.org/packages/92/c0/54c4ffd025421c9005e60911a6caac224159d41e4d62a7c2ca36101e07a9/tableauhyperapi-0.0.22502-py3-none-manylinux2014_x86_64.whl", hash = "sha256:976f2d80e37cc54a3aa6907a1b1aae7513ea14a53eb0a866320240e8a7bdb68a", size = 78614170, upload-time = "2025-06-19T15:45:20.503Z" },
     { url = "https://files.pythonhosted.org/packages/cb/3c/0027e22fac01b048522f181d47c8663a15e345490653af01c2061db74289/tableauhyperapi-0.0.22502-py3-none-win_amd64.whl", hash = "sha256:0b832ded8f9401079f30c1903d523454154db2d4e1ff5a0b707664a3c946b4ff", size = 61683109, upload-time = "2025-06-19T15:45:02.667Z" },
+]
+
+[[package]]
+name = "tableauscraper"
+version = "0.1.29"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "pandas" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/a1/9a8872dd93d598a710b8a61ffcd75897cf45eb1c8d0ac3507ab4496d683f/TableauScraper-0.1.29.tar.gz", hash = "sha256:7fa031b9b4aacecb8b525ad1d5908623456c3975fc46bf88fb2b6fd13156288e", size = 18329, upload-time = "2021-11-10T23:27:28.546Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/27/383c7996dbaedbd743af92e77bea2478ff5a2a2f89401bec8005681ff1f5/TableauScraper-0.1.29-py3-none-any.whl", hash = "sha256:bd0011d6c8da8b39f07147a6dc32ffb9008dfe0994070e4caf40e3573ffdb846", size = 22546, upload-time = "2021-11-10T23:27:26.559Z" },
 ]
 
 [[package]]

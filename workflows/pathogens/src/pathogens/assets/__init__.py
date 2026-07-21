@@ -30,6 +30,14 @@ from .wahis import (
     outbreak_summaries,
     outbreak_by_pathogen,
 )
+from .screwworm import (
+    nws_weekly_status,
+    nws_weekly_status_job,
+    nws_weekly_status_schedule,
+    nws_dashboard,
+    nws_dashboard_job,
+    nws_dashboard_schedule,
+)
 from . import cdc_nnds
 
 # respnet and wastewaterscan modules are present but not wired in; enable them

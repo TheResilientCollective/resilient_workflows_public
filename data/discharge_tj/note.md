@@ -1,3 +1,5 @@
+IBWC data contact:
+WA-Data@ibwc.gov
 
 effulent flow: entire period of record
 https://waterdata.ibwc.gov/AQWebportal/Export/DataSet?DataSet=Flow.Plant-Effluent-Flow-MGD%40SBIWTP&Calendar=CALENDARYEAR&DateRange=EntirePeriodOfRecord&UnitID=111&Conversion=Instantaneous&IntervalPoints=PointsAsRecorded&ApprovalLevels=False&Qualifiers=True&Step=1&ExportFormat=csv&Compressed=true&RoundData=True&GradeCodes=True&InterpolationTypes=False&Timezone=-8&_=1774104400349

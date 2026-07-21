@@ -64,12 +64,19 @@ defs = Definitions(
     assets=[*all_assets, *all_source_assets],
     asset_checks=asset_checks,
     resources=resources[deployment_name],
-    jobs=[assets_pkg.mpox_aggregated_job, assets_pkg.nndss_all_job],
+    jobs=[
+        assets_pkg.mpox_aggregated_job,
+        assets_pkg.nndss_all_job,
+        assets_pkg.nws_weekly_status_job,
+        assets_pkg.nws_dashboard_job,
+    ],
     schedules=[
         assets_pkg.cdc_nndss_weekly_schedule,
         assets_pkg.cdc_nnds.cdc_nndss_raw_schedule,
         assets_pkg.mpox_counties_weekly_schedule,
         assets_pkg.nndss_all_schedule,
+        assets_pkg.nws_weekly_status_schedule,
+        assets_pkg.nws_dashboard_schedule,
     ],
     sensors=[slack_on_run_failure, assets_pkg.wahis_upload_sensor, assets_pkg.mpox_upstream_sensor],
 )
