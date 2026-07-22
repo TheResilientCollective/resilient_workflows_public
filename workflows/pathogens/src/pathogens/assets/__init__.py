@@ -29,6 +29,8 @@ from .wahis import (
     wahis_uploads_job,
     outbreak_summaries,
     outbreak_by_pathogen,
+    wahis_excel_columns,
+    check_wahis_excel_columns,
 )
 from .screwworm import (
     nws_weekly_status,
