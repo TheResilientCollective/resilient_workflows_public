@@ -11,6 +11,44 @@ https://www.aphis.usda.gov/sites/default/files/nws-weekly-status.csv
 Power BI:
 https://app.powerbi.com/view?r=eyJrIjoiYWJmODE4MTUtNjAwYS00NjA0LTllY2UtMzhmYzE2NDFmM2EzIiwidCI6ImM1OWRjNTZhLTkzZWMtNGIwNy1iNzFkLTQzYzg0NDkyNTcxOCIsImMiOjR9
 
+## OMSA regional Power BI dashboard (implemented)
+`https://app.powerbi.com/view?r=eyJrIjoiYWJmODE4MTUtNjAwYS00NjA0LTllY2UtMzhmYzE2NDFmM2EzIiwidCI6ImM1OWRjNTZhLTkzZWMtNGIwNy1iNzFkLTQzYzg0NDkyNTcxOCIsImMiOjR9`
+— "Reportes de Focos de Gusano Barrenador del Ganado en México y Centroamérica,
+OMSA (2022-2026)".
+
+- OMSA/WOAH regional data covering the **whole outbreak region** — Belize, Costa
+  Rica, El Salvador, USA (EUA), Guatemala, Honduras, Mexico, Nicaragua, Panama —
+  as opposed to the two APHIS sources (US-only and Mexico-only).
+- It is a Power BI "publish to web" report backed by one flat table (`GBG_OMSA`)
+  at the grain of a *focus* (outbreak): country, province, locality, lat/lon,
+  start date, and susceptible/confirmed-case counts per species (canine, equine,
+  swine, bovine, ovine, poultry, caprine, feline, buffalo, wild birds,
+  terrestrial wildlife, domestic rabbit) plus totals.
+- **No browser needed.** We query the Power BI public querydata API directly
+  (`wabi-south-central-us-api.analysis.windows.net/public/reports/querydata`).
+  The report resource key is encoded in the share URL; the dataset/report/model
+  IDs come from the report's initial `conceptualschema`/`querydata` calls (browser
+  Network tab) and are hardcoded — they only change if the report is republished.
+  One SemanticQuery dumps the whole table (~4.7k focus rows in one page). The
+  response is Power BI's DSR format (value dictionaries + repeat/null bitmasks),
+  parsed by `_parse_powerbi_dsr`. Row/total counts validate against the
+  dashboard tiles (4,671 focos; 21,156 casos; 3,427,959 susceptibles; 9 países).
+- Asset: `pathogens` code location, key `screwworm/nws_omsa_centroamerica`.
+  Dumps the raw querydata response and produces the cleaned focus line list
+  `nws_omsa_focos` (CSV/JSON) plus an EPSG:4326 point layer `nws_omsa_focos_points`
+  (one point per outbreak, GeoJSON/CSV). Runs 6:30pm ET daily via
+  `nws_omsa_centroamerica_schedule`.
+- **Schema-drift guard.** The query references `GBG_OMSA` columns by their
+  source names (keys of `OMSA_COLUMN_RENAMES`); if OMSA renames/drops one, the
+  querydata call silently returns nulls. Asset `screwworm/nws_omsa_columns`
+  snapshots the authoritative property list from the report's `conceptualschema`
+  endpoint and pickles a baseline; the asset check `nws_omsa_columns_unchanged`
+  compares the live schema to the baseline (and to the queried columns) and
+  fails + Slacks (channel `SLACK_CHANNEL_FAILURES`) on any add/remove — ERROR if
+  a queried column goes missing. Both run in `nws_omsa_centroamerica_job` on the
+  daily schedule. To accept a deliberate schema change, re-materialize
+  `nws_omsa_columns` with config `update_baseline: true`.
+
 ## NWS weekly status CSV (implemented)
 `https://www.aphis.usda.gov/sites/default/files/nws-weekly-status.csv` — the "CSV"
 button on the current-status page.

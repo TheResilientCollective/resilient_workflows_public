@@ -37,6 +37,11 @@ from .screwworm import (
     nws_dashboard,
     nws_dashboard_job,
     nws_dashboard_schedule,
+    nws_omsa,
+    nws_omsa_job,
+    nws_omsa_schedule,
+    nws_omsa_columns,
+    check_nws_omsa_columns,
 )
 from . import cdc_nnds
 
