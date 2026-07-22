@@ -34,6 +34,8 @@ asset_checks = [
     assets_pkg.check_nndss_label_mapping_coverage,
     assets_pkg.check_nndss_all_basis_no_negative_counts,
     assets_pkg.check_nws_omsa_columns,
+    assets_pkg.check_wahis_excel_columns,
+
 ]
 
 minio = S3Resource(

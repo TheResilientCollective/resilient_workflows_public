@@ -6,8 +6,10 @@ import io
 
 import pandas as pd
 import dask.dataframe as dd
+import pickle
+
 from dagster import SensorEvaluationContext, sensor, get_dagster_logger, RunRequest, RunConfig, asset, Config, \
-    define_asset_job, AssetKey, AssetIn, AutomationCondition
+    define_asset_job, AssetKey, AssetIn, AutomationCondition, asset_check, AssetCheckResult, AssetCheckSeverity
 import duckdb
 
 from resilient_core.utils import store_assets
@@ -22,6 +24,12 @@ WAHIS_RAW_PATH = os.environ.get("WAHIS_RAW_PATH", f"{WAHIS_S3_PATH}raw/")
 WAHIS_OUTPUT_PATH = os.environ.get("WAHIS_OUTPUT_PATH", f"{WAHIS_S3_PATH}output/")
 WAHIS_BUCKET=os.environ.get("PUBLIC_BUCKET", 'test')
 LATEST = os.environ.get("WAHIS_LATEST", 'wahis')
+
+# Pickled column-name snapshots used to detect schema drift in the uploaded
+# WAHIS Excel file. The "current" key is refreshed on every run; the "baseline"
+# key is the blessed reference the check compares against.
+WAHIS_COLUMNS_CURRENT_KEY = f"{WAHIS_RAW_PATH}reference/wahis_excel_columns.current.pkl"
+WAHIS_COLUMNS_BASELINE_KEY = f"{WAHIS_RAW_PATH}reference/wahis_excel_columns.baseline.pkl"
 
 
 
@@ -87,7 +95,7 @@ def outbreak_by_pathogen(context, wahis_excel ):
                       disease_eng,
                       country,
                       region,
-                      "reason of notification",
+                      "reason_for_notification",
                       Species,
                       quantitative_unit,
                       Outbreak_start_date        as Outbreak_start_date,
@@ -100,7 +108,7 @@ def outbreak_by_pathogen(context, wahis_excel ):
                       vaccinated     as vaccinated,
                       morbidity      as morbidity,
                       mortality      as mortality,
-                      Longitude,	Latitude,	Location_aprox
+                      Longitude,	Latitude,	Location_approx
                       
                       FROM db1
                       WHERE disease_id = {disease_id}
@@ -154,7 +162,7 @@ def outbreak_summaries(context, wahis_excel ):
                                      disease_eng,
                                      country,
                                      region,
-                                     "reason of notification",
+                                     "reason_for_notification",
                                      Species,
                                      quantitative_unit,
                                      MIN(Outbreak_start_date)          as Outbreak_start_date,
@@ -167,20 +175,20 @@ def outbreak_summaries(context, wahis_excel ):
                                      SUM(COALESCE(vaccinated, 0))      as vaccinated,
                                      SUM(COALESCE(morbidity, 0))       as morbidity,
                                      SUM(COALESCE(mortality, 0))       as mortality,
-                                 MIN(Longitude) as Longitude,	MIN(Latitude) as Latitude,	Location_aprox
+                                 MIN(Longitude) as Longitude,	MIN(Latitude) as Latitude,	Location_approx
                               FROM db1
 
                               GROUP BY Report_id, epi_event_id,
                                        disease_id,
                                        reporting_level,
                                   Location_name,
-                                  Location_aprox,
+                                  Location_approx,
                                        strain_eng,
                                        sero_sub_genotype_eng,
                                        disease_eng,
                                        country,
                                        region,
-                                       "reason of notification",
+                                       "reason_for_notification",
                                        Species,
                                        quantitative_unit
                             """).df()
@@ -262,9 +270,153 @@ def process_wahis_excel_file(context, config: WahisUploadConfig) -> dict:
         logger.error(f"Failed to process WAHIS Excel file {upload_path}: {e}")
         raise e
 
+def _pickle_columns_to_s3(columns, key, s3_resource):
+    """Pickle a list of column names to a fixed S3 key."""
+    s3_resource.putFile(
+        data=pickle.dumps(list(columns)),
+        path=key,
+        bucket=WAHIS_BUCKET,
+        content_type="application/octet-stream",
+    )
+
+
+def _load_pickled_columns(key, s3_resource):
+    """Load a pickled list of column names, or None if the key is absent."""
+    try:
+        data = s3_resource.getFile(path=key, bucket=WAHIS_BUCKET)
+    except Exception:
+        return None
+    return list(pickle.loads(data))
+
+
+class WahisColumnsConfig(Config):
+    # Set true to re-bless the current columns as the baseline (accept a schema
+    # change). Left false, the baseline is only written once, on first run.
+    update_baseline: bool = False
+
+
+@asset(
+    group_name="health",
+    key_prefix="wahis",
+    name="wahis_excel_columns",
+    required_resource_keys={"s3"},
+    ins={"wahis_excel": AssetIn(key=AssetKey(["wahis", "wahis_excel"]))},
+)
+def wahis_excel_columns(context, wahis_excel, config: WahisColumnsConfig) -> dict:
+    """Snapshot the WAHIS Excel column names for schema-drift detection.
+
+    Pickles the current column names to a fixed S3 key on every run, and writes
+    the baseline the first time (or whenever ``update_baseline`` is set, to
+    accept a deliberate schema change). The companion asset check compares the
+    current snapshot against the baseline.
+    """
+    logger = get_dagster_logger()
+    s3_resource = context.resources.s3
+
+    columns = list(wahis_excel["column_names"])
+    _pickle_columns_to_s3(columns, WAHIS_COLUMNS_CURRENT_KEY, s3_resource)
+
+    baseline = _load_pickled_columns(WAHIS_COLUMNS_BASELINE_KEY, s3_resource)
+    baseline_written = False
+    if baseline is None or config.update_baseline:
+        _pickle_columns_to_s3(columns, WAHIS_COLUMNS_BASELINE_KEY, s3_resource)
+        baseline_written = True
+        logger.info(f"Wrote WAHIS Excel column baseline ({len(columns)} columns)")
+
+    logger.info(f"Snapshotted {len(columns)} WAHIS Excel column names")
+    return {
+        "columns": columns,
+        "column_count": len(columns),
+        "baseline_written": baseline_written,
+        "current_key": WAHIS_COLUMNS_CURRENT_KEY,
+        "baseline_key": WAHIS_COLUMNS_BASELINE_KEY,
+    }
+
+
+@asset_check(
+    asset=AssetKey(["wahis", "wahis_excel_columns"]),
+    name="wahis_excel_columns_unchanged",
+    required_resource_keys={"s3", "slack"},
+)
+def check_wahis_excel_columns(context) -> AssetCheckResult:
+    """Fail (and Slack) if the WAHIS Excel column names drift from the baseline.
+
+    Reads the current snapshot and the blessed baseline written by
+    ``wahis_excel_columns`` and reports any added, removed, or reordered columns.
+    """
+    logger = get_dagster_logger()
+    s3_resource = context.resources.s3
+
+    current = _load_pickled_columns(WAHIS_COLUMNS_CURRENT_KEY, s3_resource)
+    baseline = _load_pickled_columns(WAHIS_COLUMNS_BASELINE_KEY, s3_resource)
+
+    if current is None:
+        return AssetCheckResult(
+            passed=False,
+            severity=AssetCheckSeverity.ERROR,
+            description="No current column snapshot found; materialize wahis_excel_columns first.",
+        )
+    if baseline is None:
+        return AssetCheckResult(
+            passed=True,
+            severity=AssetCheckSeverity.WARN,
+            description="No column baseline established yet; materialize wahis_excel_columns to set one.",
+            metadata={"current_count": len(current)},
+        )
+
+    added = [c for c in current if c not in baseline]
+    removed = [c for c in baseline if c not in current]
+    reordered = not added and not removed and current != baseline
+    changed = bool(added or removed or reordered)
+
+    metadata = {
+        "baseline_count": len(baseline),
+        "current_count": len(current),
+        "added_columns": added,
+        "removed_columns": removed,
+        "reordered": reordered,
+    }
+
+    if not changed:
+        return AssetCheckResult(
+            passed=True,
+            description=f"WAHIS Excel columns unchanged ({len(current)} columns).",
+            metadata=metadata,
+        )
+
+    lines = ["⚠️ WAHIS Excel column names changed vs baseline:"]
+    if added:
+        lines.append(f"• Added ({len(added)}): {added}")
+    if removed:
+        lines.append(f"• Removed ({len(removed)}): {removed}")
+    if reordered:
+        lines.append("• Column order changed")
+    lines.append(
+        "If this change is expected, re-run wahis_excel_columns with "
+        "config update_baseline=true to accept the new schema."
+    )
+    message = "\n".join(lines)
+
+    try:
+        channel = os.environ.get("SLACK_CHANNEL_FAILURES", "workflows-failures")
+        context.resources.slack.get_client().chat_postMessage(channel=channel, text=message)
+    except Exception as e:
+        logger.error(f"Failed to send Slack column-drift alert: {e}")
+
+    return AssetCheckResult(
+        passed=False,
+        severity=AssetCheckSeverity.WARN,
+        description=message,
+        metadata=metadata,
+    )
+
+
 wahis_uploads_job = define_asset_job(
     name="wahis_uploads_job",
-    selection=[AssetKey(["wahis", "wahis_excel"])]
+    selection=[
+        AssetKey(["wahis", "wahis_excel"]),
+        AssetKey(["wahis", "wahis_excel_columns"]),
+    ],
 )
 
 @sensor(
