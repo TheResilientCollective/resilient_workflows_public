@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import requests
 import pandas as pd
@@ -6,6 +6,9 @@ from io import StringIO
 
 from dagster import (
     asset,
+    asset_check,
+    AssetCheckResult,
+    AssetCheckExecutionContext,
     get_dagster_logger,
     define_asset_job,
     AssetKey,
@@ -123,6 +126,53 @@ def effluent_flow_today(context):
         formats=['csv']
     )
     return df
+
+
+@asset_check(asset=AssetKey(["ibwc", "effluent_flow_today"]))
+def effluent_flow_freshness_check(context: AssetCheckExecutionContext, effluent_flow_today):
+    """Checks that the most recent effluent flow reading is no older than six hours.
+
+    The IBWC export timestamps are labelled 'Timestamp (UTC-08:00)' — a fixed
+    UTC-8 offset (no daylight saving), so freshness is compared in that offset.
+    """
+    if effluent_flow_today.empty:
+        return AssetCheckResult(
+            passed=False,
+            metadata={"reason": "Asset is empty, cannot determine freshness."},
+        )
+
+    timestamp_cols = [c for c in effluent_flow_today.columns if str(c).startswith("Timestamp")]
+    if not timestamp_cols:
+        return AssetCheckResult(
+            passed=False,
+            metadata={"reason": f"No timestamp column found; columns are {list(effluent_flow_today.columns)}"},
+        )
+
+    fixed_offset = timezone(timedelta(hours=-8))
+    timestamps = pd.to_datetime(effluent_flow_today[timestamp_cols[0]], errors="coerce")
+    timestamps = timestamps.dropna()
+    if timestamps.empty:
+        return AssetCheckResult(
+            passed=False,
+            metadata={"reason": "No parseable timestamps, cannot determine freshness."},
+        )
+
+    most_recent_datetime = timestamps.max()
+    if most_recent_datetime.tzinfo is None:
+        most_recent_datetime = most_recent_datetime.tz_localize(fixed_offset)
+
+    current_datetime = datetime.now(tz=fixed_offset)
+    time_difference = current_datetime - most_recent_datetime
+    passed = time_difference <= timedelta(hours=6)
+
+    metadata = {
+        "most_recent_datetime": str(most_recent_datetime),
+        "current_datetime": str(current_datetime),
+        "time_difference": str(time_difference),
+    }
+    if not passed:
+        metadata["reason"] = "Most recent effluent flow reading is older than six hours."
+    return AssetCheckResult(passed=passed, metadata=metadata)
 
 
 @asset(

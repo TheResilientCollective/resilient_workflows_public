@@ -27,6 +27,8 @@ all_assets = all_assets + assets_pkg.yearly_assets()
 asset_checks = [
     assets_pkg.sd_complaints_freshness_check,
     assets_pkg.current_freshness_check,
+    assets_pkg.synoptic_recent_freshness_check,
+    assets_pkg.effluent_flow_freshness_check,
 ]
 
 all_schedules = [
