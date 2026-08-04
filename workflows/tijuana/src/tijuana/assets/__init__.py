@@ -38,6 +38,10 @@ from .openmeteo import (forecast,
                         weather_current_year,
                         forecast_15min,
                         weather_all_schedule)
+from .synoptic import (synoptic_recent,
+                       synoptic_historical,
+                       synoptic_current_year,
+                       synoptic_recent_freshness_check)
 from .gis import subregions, tracts
 from .airnow import (get_aq_combined_kml, get_aq_forecast, get_aq_site, aq_combined_geojson
                      )
@@ -62,6 +66,7 @@ from .ibwc_flows import (
     effluent_flow_today,
     effluent_flow_current_year,
     effluent_flow_yearly,
+    effluent_flow_freshness_check,
     effluent_flow_current_schedule,
     effluent_flow_yearly_schedule,
 )
