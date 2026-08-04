@@ -1,4 +1,0 @@
-# Legacy workspace - use root workspace.yaml or dagster dev -m <project> instead
-load_from:
-  - python_package:
-      package_name: public
