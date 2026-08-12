@@ -322,6 +322,10 @@ def nws_dashboard(context) -> dict:
     Writes a raw JSON dump of every non-empty worksheet plus two cleaned
     datasets: the per-case US line list (``nws_us_cases``) and the county-level
     summary with coordinates (``nws_us_county_summary``).
+
+    Returns those two cleaned frames as ``{"cases": df, "county": gdf}`` so the
+    unified screwworm asset can consume them directly; row counts and the
+    retrieval timestamp go to the output metadata.
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
@@ -338,7 +342,8 @@ def nws_dashboard(context) -> dict:
             wdf, f"{SCREWWORM_RAW_PATH}dashboard/{safe}", s3_resource, formats=["json"]
         )
 
-    def _store(df, identifier: str, description: str, formats=("csv", "json")) -> int:
+    def _store(df, identifier: str, description: str, formats=("csv", "json")):
+        """Stamp, store, and hand back the frame that was written."""
         df = df.copy()
         df["retrieved_at"] = retrieved_at
         metadata = store_assets.objectMetadata(
@@ -349,9 +354,11 @@ def nws_dashboard(context) -> dict:
             metadata=metadata, latestdatasetpath=SCREWWORM_LATEST_PATH,
             enable_latest_path=True, formats=list(formats),
         )
-        return len(df)
+        counts[identifier] = len(df)
+        return df
 
     counts = {}
+    county_gdf = gpd.GeoDataFrame()
 
     # US per-case line list (purpose-built "ExportToCSV" worksheet).
     cases = _clean_worksheet(worksheets.get("ExportToCSV", pd.DataFrame()), US_CASES_FIELDS)
@@ -360,7 +367,7 @@ def nws_dashboard(context) -> dict:
             cases["confirmed_date"], errors="coerce"
         ).dt.strftime("%Y-%m-%d")
         cases = cases.sort_values("confirmed_date", ascending=False, na_position="last").reset_index(drop=True)
-        counts["nws_us_cases"] = _store(
+        cases = _store(
             cases, "nws_us_cases",
             "USDA APHIS New World Screwworm confirmed US cases (line list): "
             "confirmed date, state, county, case type, animal type, species, "
@@ -385,7 +392,7 @@ def nws_dashboard(context) -> dict:
             geometry=gpd.points_from_xy(county["longitude"], county["latitude"]),
             crs="EPSG:4326",
         )
-        counts["nws_us_county_summary"] = _store(
+        county_gdf = _store(
             county_gdf, "nws_us_county_summary",
             "USDA APHIS New World Screwworm US county-level summary as points "
             "(one per county centroid): total cases, domestic vs feral/wildlife "
@@ -395,7 +402,8 @@ def nws_dashboard(context) -> dict:
         )
 
     logger.info(f"NWS dashboard stored datasets: {counts}")
-    return {"retrieved_at": retrieved_at, "row_counts": counts}
+    context.add_output_metadata({"retrieved_at": retrieved_at, **counts})
+    return {"cases": cases, "county": county_gdf, "retrieved_at": retrieved_at}
 
 
 nws_dashboard_job = define_asset_job(
@@ -627,13 +635,16 @@ def _fetch_omsa_focos(logger) -> tuple[bytes, pd.DataFrame]:
     name="nws_omsa_centroamerica",
     required_resource_keys={"s3"},
 )
-def nws_omsa(context) -> dict:
+def nws_omsa(context) -> pd.DataFrame:
     """Scrape the OMSA regional New World Screwworm Power BI dashboard.
 
     Pulls the underlying GBG_OMSA focus (outbreak) line list for Mexico and
     Central America and writes: the raw querydata response, a cleaned line list
     (``nws_omsa_focos``, CSV + JSON), and a point layer of the same focus
     records (``nws_omsa_focos_points``, EPSG:4326 GeoJSON + CSV).
+
+    Returns the cleaned focus line list so the unified screwworm asset can
+    consume it directly; row counts go to the output metadata.
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
@@ -722,7 +733,8 @@ def nws_omsa(context) -> dict:
 
     counts = {"nws_omsa_focos": len(df), "nws_omsa_focos_points": len(focos_gdf)}
     logger.info(f"OMSA dashboard stored datasets: {counts}")
-    return {"retrieved_at": retrieved_at, "row_counts": counts}
+    context.add_output_metadata({"retrieved_at": retrieved_at, **counts})
+    return df
 
 
 # ---------------------------------------------------------------------------

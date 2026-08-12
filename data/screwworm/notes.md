@@ -49,6 +49,51 @@ OMSA (2022-2026)".
   daily schedule. To accept a deliberate schema change, re-materialize
   `nws_omsa_columns` with config `update_baseline: true`.
 
+## Unified dataset (implemented)
+Merges all three sources above into one schema —
+`workflows/pathogens/src/pathogens/assets/screwworm_unified.py`, asset key
+`screwworm/nws_unified_events`. Depends on the three source assets, so it runs
+after them (6:45pm ET, `nws_unified_schedule` / `nws_unified_job`).
+
+- **Grain is preserved, not flattened.** `grain='focus'` rows are OMSA outbreaks
+  (`total_cases`/`total_susceptible` carry the counts, one row may span species);
+  `grain='case'` rows are single APHIS confirmed animals or fly-trap detections
+  (`total_cases=1`). `source` is `omsa` | `aphis_us` | `aphis_mx`.
+- **Outputs** (all to `SCREWWORM_OUTPUT_PATH` + the latest path):
+  - `nws_unified_events` — one row per event, wide (CSV/JSON).
+  - `nws_unified_events_points` — the same rows with coordinates, EPSG:4326
+    (GeoJSON/CSV).
+  - `nws_unified_event_species` — one row per (event, species) with
+    `case_count`/`susceptible_count`, joined to the events by `event_uid`.
+    OMSA's 12 per-species column pairs melt into this table (species with no
+    cases *and* no susceptible animals are omitted); APHIS rows contribute a
+    single row with `case_count=1`.
+- **Geocoding precision is explicit** in `geo_level`: `point` (OMSA outbreak
+  coordinates), `county_centroid` (APHIS US, joined from the `State Map`
+  worksheet), `state_centroid` (APHIS Mexico — the CSV has only a state name, so
+  `MX_STATE_CENTROIDS` supplies an *approximate* state center), or `none`.
+- **Overlap is flagged, never dropped.** OMSA also covers Mexico and the US, so
+  its rows overlap both APHIS sources. `duplicate_candidate` marks events whose
+  country + admin1 + month is reported by more than one source — deliberately
+  coarse, since the three sources use different date semantics (focus start vs
+  confirmation vs report date). Consequence: **`SUM(total_cases)` across the
+  whole table double-counts Mexico and the US** — filter to one `source` first.
+- **Controlled vocabularies**: `SPECIES_VOCAB` (+ `SPECIES_ALIASES` for APHIS
+  free text and `SPECIES_SUBSTRING_RULES` for compound values such as
+  "Wildlife (American black bear)"), `COUNTRY_ISO3` for OMSA's Spanish country
+  labels (`EUA`→USA, `MÉXICO`→MEX, `BELICE`→BLZ …).
+- **Four in-asset checks** (declared via `check_specs`, Slacked to
+  `SLACK_CHANNEL_FAILURES` on failure):
+  `unified_species_vocab_covered` (WARN — a new upstream species fell to
+  `other`), `unified_mx_states_geocoded` (WARN — a Mexican state with no
+  centroid), `unified_totals_reconcile` (ERROR — long-table case counts must sum
+  to each event's `total_cases`), `unified_required_fields` (ERROR — `event_uid`
+  unique, key dimensions populated, no `UNK` countries).
+- The two upstream assets `nws_aphis_us` and `nws_omsa_centroamerica` now return
+  their cleaned frames (a `{"cases", "county"}` dict and the focus DataFrame)
+  instead of row-count dicts, so this asset consumes them directly; the row
+  counts moved to Dagster output metadata.
+
 ## NWS weekly status CSV (implemented)
 `https://www.aphis.usda.gov/sites/default/files/nws-weekly-status.csv` — the "CSV"
 button on the current-status page.

@@ -45,6 +45,11 @@ from .screwworm import (
     nws_omsa_columns,
     check_nws_omsa_columns,
 )
+from .screwworm_unified import (
+    nws_unified_events,
+    nws_unified_job,
+    nws_unified_schedule,
+)
 from . import cdc_nnds
 
 # respnet and wastewaterscan modules are present but not wired in; enable them
