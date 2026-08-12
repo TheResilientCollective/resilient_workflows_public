@@ -518,6 +518,8 @@ weather_all_job = define_asset_job(
         AssetKey(["weather", "openmeteo_forecast"]),
         AssetKey(["weather", "openmeteo_current_year"]),
         AssetKey(["weather", "openmeteo_15min_forecast"]),
+        AssetKey(["weather", "synoptic_recent"]),
+        AssetKey(["weather", "synoptic_current_year"]),
     ]
 )
 

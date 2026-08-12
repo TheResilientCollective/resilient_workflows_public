@@ -1,5 +1,0 @@
-components:
-  - type: dagster.DefsFolderComponent
-    name: public
-    params:
-      folder: public

@@ -143,10 +143,11 @@ class S3Resource(ResourceWithS3Configuration):
         if bucket is None:
             bucket = self.S3_BUCKET
         try:
+            encoded = data.encode('utf-8')
             result =  self.getClient().put_object(
                 bucket, path,
-                data=io.BytesIO(data.encode('utf-8')),
-                length=len(data),
+                data=io.BytesIO(encoded),
+                length=len(encoded),
                 content_type=content_type, metadata=metadata
             )
             get_dagster_logger().info(

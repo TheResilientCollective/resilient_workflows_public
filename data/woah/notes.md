@@ -1,6 +1,11 @@
 # World organization for animal health 
 https://wahis.woah.org/#/home
 
+# outbreak api call
+https://wahis.woah.org/api/v1/pi/event/filtered-list?language=en
+https://wahis.woah.org/api/v1/pi/map-data/outbreaks-from-event-ids?language=en
+
+
 # Exceptional Events
 Public interface:
 https://wahis.woah.org/#/event-management
