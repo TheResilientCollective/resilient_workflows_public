@@ -76,19 +76,40 @@ after them (6:45pm ET, `nws_unified_schedule` / `nws_unified_job`).
   its rows overlap both APHIS sources. `duplicate_candidate` marks events whose
   country + admin1 + month is reported by more than one source — deliberately
   coarse, since the three sources use different date semantics (focus start vs
-  confirmation vs report date). Consequence: **`SUM(total_cases)` across the
-  whole table double-counts Mexico and the US** — filter to one `source` first.
+  confirmation vs report date). Consequence: **`SUM(total_cases)` over the full
+  table double-counts Mexico and the US** — use the deduplicated view below.
+- **Deduplicated view.** `is_authoritative` marks the one source that wins each
+  country, and the same three outputs are written again as
+  `nws_unified_events_deduped`, `nws_unified_events_points_deduped` and
+  `nws_unified_event_species_deduped`, filtered to those rows. `total_cases` is
+  safe to sum there. The precedence (`COUNTRY_SOURCE_PRIORITY`) is:
+  - **USA → `aphis_us`** — official national reporting, per-case; OMSA lags it.
+  - **Mexico + Central America → `omsa`** — OMSA covers Mexico nationwide
+    (2,636 foci / 2,750 cases) with true outbreak coordinates, whereas the APHIS
+    Mexico CSV is scoped to the border states it exists to track (354 cases in
+    Chihuahua, Coahuila, Nuevo León, Tamaulipas). Preferring APHIS there would
+    drop ~2,400 Mexican cases.
+  - Later entries in each priority list are **fallbacks**, used only when the
+    preferred source returned no rows that run, so one failed scrape cannot
+    silently erase a country. A fallback firing is reported by the
+    `unified_dedupe_one_source_per_country` check.
+  - Grain stays mixed in this view: US rows are individual cases, everything
+    else is outbreak foci. Excluded rows are not wrong — they are the same
+    outbreaks as told by a second publisher, and stay in the full view.
 - **Controlled vocabularies**: `SPECIES_VOCAB` (+ `SPECIES_ALIASES` for APHIS
   free text and `SPECIES_SUBSTRING_RULES` for compound values such as
   "Wildlife (American black bear)"), `COUNTRY_ISO3` for OMSA's Spanish country
   labels (`EUA`→USA, `MÉXICO`→MEX, `BELICE`→BLZ …).
-- **Four in-asset checks** (declared via `check_specs`, Slacked to
+- **Five in-asset checks** (declared via `check_specs`, Slacked to
   `SLACK_CHANNEL_FAILURES` on failure):
   `unified_species_vocab_covered` (WARN — a new upstream species fell to
   `other`), `unified_mx_states_geocoded` (WARN — a Mexican state with no
   centroid), `unified_totals_reconcile` (ERROR — long-table case counts must sum
   to each event's `total_cases`), `unified_required_fields` (ERROR — `event_uid`
-  unique, key dimensions populated, no `UNK` countries).
+  unique, key dimensions populated, no `UNK` countries), and
+  `unified_dedupe_one_source_per_country` (ERROR if a country ends up with two
+  sources or disappears from the deduplicated view; WARN if a fallback source
+  won a country).
 - The two upstream assets `nws_aphis_us` and `nws_omsa_centroamerica` now return
   their cleaned frames (a `{"cases", "county"}` dict and the focus DataFrame)
   instead of row-count dicts, so this asset consumes them directly; the row

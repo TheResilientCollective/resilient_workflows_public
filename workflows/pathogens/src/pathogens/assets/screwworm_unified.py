@@ -256,6 +256,24 @@ MX_STATE_ALIASES = {
     "queretaro de arteaga": "queretaro",
 }
 
+# Which source is authoritative for each country, best first. The deduplicated
+# view keeps exactly one source per country so cases are counted once.
+#
+# The US goes to APHIS: it is the official national reporting and is per-case,
+# where OMSA lags it. Mexico and Central America go to OMSA: it covers Mexico
+# nationwide with true outbreak coordinates, whereas the APHIS Mexico CSV is
+# scoped to the border states (it exists to track proximity to the US) and so
+# holds a fraction of the country's cases.
+#
+# Later entries are fallbacks, used only when the preferred source produced no
+# rows for that country in this run — one failed scrape should not silently
+# erase a country from the deduplicated set.
+COUNTRY_SOURCE_PRIORITY = {
+    "USA": ["aphis_us", "omsa"],
+    "MEX": ["omsa", "aphis_mx"],
+}
+DEFAULT_SOURCE_PRIORITY = ["omsa", "aphis_us", "aphis_mx"]
+
 EVENT_COLUMNS = [
     "event_uid",
     "source",
@@ -284,6 +302,7 @@ EVENT_COLUMNS = [
     "source_event_id",
     "overlap_key",
     "duplicate_candidate",
+    "is_authoritative",
     "source_url",
     "retrieved_at",
 ]
@@ -666,6 +685,26 @@ def _flag_overlaps(events: pd.DataFrame) -> pd.DataFrame:
     return events
 
 
+def _mark_authoritative(events: pd.DataFrame) -> tuple:
+    """Pick one source per country and flag its rows as ``is_authoritative``.
+
+    Returns ``(events, chosen)`` where ``chosen`` maps country_iso3 to the
+    source that won it. Rows outside the winning source stay in the table — they
+    are simply excluded from the deduplicated outputs.
+    """
+    available = events.groupby("country_iso3")["source"].agg(set)
+    chosen = {}
+    for country, sources in available.items():
+        priority = COUNTRY_SOURCE_PRIORITY.get(country, DEFAULT_SOURCE_PRIORITY)
+        # Fall back through the priority list, then to whatever is present, so
+        # every country in the merged table survives into the deduplicated view.
+        chosen[country] = next(
+            (source for source in priority if source in sources), sorted(sources)[0]
+        )
+    events["is_authoritative"] = events["source"] == events["country_iso3"].map(chosen)
+    return events, chosen
+
+
 # ---------------------------------------------------------------------------
 # Asset
 # ---------------------------------------------------------------------------
@@ -684,7 +723,20 @@ EVENTS_DESCRIPTION = (
     "(geo_level='state_centroid'). OMSA also covers Mexico and the US, so its rows "
     "overlap the APHIS sources: nothing is de-duplicated and duplicate_candidate "
     "flags country+state+month reported by more than one source. Summing "
-    "total_cases across all sources double-counts — filter to one source first."
+    "total_cases across all sources double-counts — filter to is_authoritative=true "
+    "(or use the nws_unified_events_deduped dataset) to count each case once."
+)
+DEDUPED_DESCRIPTION = (
+    "Deduplicated New World Screwworm events: nws_unified_events filtered to "
+    "is_authoritative=true, which keeps exactly one source per country so every "
+    "case is counted once. The USA comes from USDA APHIS (source=aphis_us, official "
+    "per-case national reporting); Mexico and Central America come from OMSA/WOAH "
+    "(source=omsa), which covers Mexico nationwide with true outbreak coordinates, "
+    "whereas the APHIS Mexico CSV is scoped to the border states. Rows excluded here "
+    "are not wrong — they are the same outbreaks as reported by a second publisher, "
+    "and remain in nws_unified_events. total_cases is safe to sum across this "
+    "dataset. Note the mixed grain: US rows are individual cases, all other rows are "
+    "outbreak foci."
 )
 SPECIES_DESCRIPTION = (
     "Unified New World Screwworm case counts by species, keyed to "
@@ -693,7 +745,14 @@ SPECIES_DESCRIPTION = (
     "melted here (species with no cases and no susceptible animals are omitted); "
     "APHIS case rows contribute a single species row with case_count=1. Species "
     "use a controlled vocabulary shared across all three sources. The same "
-    "cross-source overlap caveat as nws_unified_events applies."
+    "cross-source overlap caveat as nws_unified_events applies — filter to "
+    "is_authoritative=true, or use nws_unified_event_species_deduped."
+)
+DEDUPED_SPECIES_DESCRIPTION = (
+    "Deduplicated New World Screwworm case counts by species: "
+    "nws_unified_event_species restricted to the authoritative source for each "
+    "country (APHIS for the USA, OMSA for Mexico and Central America), so case_count "
+    "is safe to sum. Keyed to nws_unified_events_deduped via event_uid."
 )
 
 
@@ -728,14 +787,21 @@ SPECIES_DESCRIPTION = (
             asset=UNIFIED_ASSET_KEY,
             description="event_uid is unique and the key dimensions are populated.",
         ),
+        AssetCheckSpec(
+            name="unified_dedupe_one_source_per_country",
+            asset=UNIFIED_ASSET_KEY,
+            description="The deduplicated view keeps one source per country and loses no country.",
+        ),
     ],
 )
 def nws_unified_events(context, omsa_focos, us_dashboard, mx_weekly):
     """Merge the three NWS sources into one event dataset and one species table.
 
-    Writes ``nws_unified_events`` (CSV/JSON), ``nws_unified_events_points``
-    (EPSG:4326 GeoJSON/CSV) and ``nws_unified_event_species`` (CSV/JSON), then
-    yields the data-quality checks over the merged frames.
+    Writes the full merged view (``nws_unified_events``,
+    ``nws_unified_events_points``, ``nws_unified_event_species``) and the
+    deduplicated view (the same three, ``*_deduped``), which keeps one
+    authoritative source per country so cases are counted once. Then yields the
+    data-quality checks over the merged frames.
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
@@ -762,10 +828,15 @@ def nws_unified_events(context, omsa_focos, us_dashboard, mx_weekly):
         species[column] = pd.to_numeric(species[column], errors="coerce").astype("Int64")
 
     events = _flag_overlaps(events)
+    events, authority = _mark_authoritative(events)
     events = events.sort_values(
         ["event_date", "source"], ascending=[False, True], na_position="last"
     ).reset_index(drop=True)
     events["ingested_at"] = retrieved_at
+    # Carry the flag onto the species rows so either table can stand alone.
+    species["is_authoritative"] = species["event_uid"].map(
+        events.set_index("event_uid")["is_authoritative"]
+    )
     species["ingested_at"] = retrieved_at
 
     logger.info(
@@ -775,6 +846,7 @@ def nws_unified_events(context, omsa_focos, us_dashboard, mx_weekly):
         f"{int(events['duplicate_candidate'].sum())} duplicate candidates, "
         f"latest event_date {events['event_date'].max()}"
     )
+    logger.info(f"Deduplication authority by country: {authority}")
 
     def _store(frame, identifier, description, formats):
         metadata = store_assets.objectMetadata(
@@ -791,40 +863,76 @@ def nws_unified_events(context, omsa_focos, us_dashboard, mx_weekly):
             formats=list(formats),
         )
 
-    _store(events, "nws_unified_events", EVENTS_DESCRIPTION, ["csv", "json"])
-    _store(species, "nws_unified_event_species", SPECIES_DESCRIPTION, ["csv", "json"])
+    def _store_view(event_frame, species_frame, suffix, event_description, species_description):
+        """Write the events, points and species tables for one view."""
+        _store(event_frame, f"nws_unified_events{suffix}", event_description, ["csv", "json"])
+        _store(
+            species_frame,
+            f"nws_unified_event_species{suffix}",
+            species_description,
+            ["csv", "json"],
+        )
+        geo = event_frame.dropna(subset=["latitude", "longitude"]).reset_index(drop=True)
+        point_frame = gpd.GeoDataFrame(
+            geo,
+            geometry=gpd.points_from_xy(geo["longitude"], geo["latitude"]),
+            crs="EPSG:4326",
+        )
+        _store(
+            point_frame,
+            f"nws_unified_events_points{suffix}",
+            f"{event_description} Emitted here as EPSG:4326 points; check geo_level for the "
+            "precision of each point.",
+            ["geojson", "csv"],
+        )
+        return {
+            f"nws_unified_events{suffix}": len(event_frame),
+            f"nws_unified_events_points{suffix}": len(point_frame),
+            f"nws_unified_event_species{suffix}": len(species_frame),
+        }
 
-    geo = events.dropna(subset=["latitude", "longitude"]).reset_index(drop=True)
-    points = gpd.GeoDataFrame(
-        geo,
-        geometry=gpd.points_from_xy(geo["longitude"], geo["latitude"]),
-        crs="EPSG:4326",
-    )
-    _store(
-        points,
-        "nws_unified_events_points",
-        f"{EVENTS_DESCRIPTION} Emitted here as EPSG:4326 points; check geo_level for the "
-        "precision of each point.",
-        ["geojson", "csv"],
-    )
+    counts = _store_view(events, species, "", EVENTS_DESCRIPTION, SPECIES_DESCRIPTION)
 
-    counts = {
-        "nws_unified_events": len(events),
-        "nws_unified_events_points": len(points),
-        "nws_unified_event_species": len(species),
-    }
+    # Deduplicated view: one authoritative source per country, so total_cases is
+    # safe to sum. The excluded rows stay in the full view above.
+    deduped = events[events["is_authoritative"]].reset_index(drop=True)
+    deduped_species = species[species["is_authoritative"].fillna(False)].reset_index(drop=True)
+    counts.update(
+        _store_view(
+            deduped,
+            deduped_species,
+            "_deduped",
+            DEDUPED_DESCRIPTION,
+            DEDUPED_SPECIES_DESCRIPTION,
+        )
+    )
+    logger.info(
+        f"Deduplicated NWS events: {len(deduped)} rows "
+        f"({deduped['source'].value_counts().to_dict()}), "
+        f"{int(deduped['total_cases'].sum())} cases across "
+        f"{deduped['country_iso3'].nunique()} countries"
+    )
     logger.info(f"Unified NWS stored datasets: {counts}")
 
     yield Output(
-        {"events": events, "species": species, "retrieved_at": retrieved_at},
+        {
+            "events": events,
+            "species": species,
+            "deduped": deduped,
+            "deduped_species": deduped_species,
+            "authority": authority,
+            "retrieved_at": retrieved_at,
+        },
         metadata={
             **counts,
             "retrieved_at": retrieved_at,
             "duplicate_candidates": int(events["duplicate_candidate"].sum()),
             "sources": ", ".join(f"{k}={v}" for k, v in events["source"].value_counts().items()),
+            "dedupe_authority": ", ".join(f"{k}={v}" for k, v in sorted(authority.items())),
+            "deduped_total_cases": int(deduped["total_cases"].sum()),
         },
     )
-    for result in _quality_checks(context, events, species, diagnostics):
+    for result in _quality_checks(context, events, species, deduped, authority, diagnostics):
         yield result
 
 
@@ -844,8 +952,15 @@ def _slack_alert(context, message: str) -> None:
         get_dagster_logger().error(f"Failed to send Slack unified-screwworm alert: {e}")
 
 
-def _quality_checks(context, events: pd.DataFrame, species: pd.DataFrame, diagnostics: dict):
-    """Yield the four AssetCheckResults over the merged frames."""
+def _quality_checks(
+    context,
+    events: pd.DataFrame,
+    species: pd.DataFrame,
+    deduped: pd.DataFrame,
+    authority: dict,
+    diagnostics: dict,
+):
+    """Yield the five AssetCheckResults over the merged and deduplicated frames."""
     # 1. Species vocabulary coverage — a new upstream species falls to "other".
     unmapped_species = sorted(
         set(diagnostics.get("aphis_us_unmapped_species", []))
@@ -952,6 +1067,51 @@ def _quality_checks(context, events: pd.DataFrame, species: pd.DataFrame, diagno
             "duplicate_event_uids": duplicate_uids,
             "unknown_country_rows": unknown_countries,
             **{f"null_{k}": v for k, v in missing.items()},
+        },
+    )
+
+    # 5. The deduplicated view must hold exactly one source per country and must
+    # not silently lose a country the merged table covers.
+    sources_per_country = deduped.groupby("country_iso3")["source"].nunique()
+    multi_source = sorted(sources_per_country[sources_per_country > 1].index)
+    lost_countries = sorted(set(events["country_iso3"]) - set(deduped["country_iso3"]))
+    # A fallback fired if any country was won by a source that is not its first
+    # preference — worth surfacing, since it means a source came back empty.
+    fallbacks = {
+        country: source
+        for country, source in authority.items()
+        if source
+        != COUNTRY_SOURCE_PRIORITY.get(country, DEFAULT_SOURCE_PRIORITY)[0]
+    }
+    problems = bool(multi_source or lost_countries)
+    if problems or fallbacks:
+        message = (
+            "❌ Unified screwworm dedupe: "
+            f"countries with more than one source: {multi_source}, "
+            f"countries missing from the deduplicated view: {lost_countries}, "
+            f"countries won by a fallback source (preferred source returned no rows): "
+            f"{fallbacks}."
+        )
+        _slack_alert(context, message)
+    yield AssetCheckResult(
+        check_name="unified_dedupe_one_source_per_country",
+        passed=not problems,
+        severity=AssetCheckSeverity.ERROR if problems else AssetCheckSeverity.WARN,
+        description=(
+            f"Deduplicated view keeps one source per country across "
+            f"{deduped['country_iso3'].nunique()} countries "
+            f"({len(deduped)} of {len(events)} events, "
+            f"{int(deduped['total_cases'].sum())} cases)."
+            if not problems
+            else message
+        ),
+        metadata={
+            "deduped_events": len(deduped),
+            "deduped_total_cases": int(deduped["total_cases"].sum()),
+            "countries_with_multiple_sources": multi_source,
+            "countries_missing_from_dedupe": lost_countries,
+            "fallback_authorities": fallbacks,
+            "authority": authority,
         },
     )
 
