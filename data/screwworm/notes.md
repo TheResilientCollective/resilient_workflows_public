@@ -11,6 +11,110 @@ https://www.aphis.usda.gov/sites/default/files/nws-weekly-status.csv
 Power BI:
 https://app.powerbi.com/view?r=eyJrIjoiYWJmODE4MTUtNjAwYS00NjA0LTllY2UtMzhmYzE2NDFmM2EzIiwidCI6ImM1OWRjNTZhLTkzZWMtNGIwNy1iNzFkLTQzYzg0NDkyNTcxOCIsImMiOjR9
 
+## OMSA regional Power BI dashboard (implemented)
+`https://app.powerbi.com/view?r=eyJrIjoiYWJmODE4MTUtNjAwYS00NjA0LTllY2UtMzhmYzE2NDFmM2EzIiwidCI6ImM1OWRjNTZhLTkzZWMtNGIwNy1iNzFkLTQzYzg0NDkyNTcxOCIsImMiOjR9`
+— "Reportes de Focos de Gusano Barrenador del Ganado en México y Centroamérica,
+OMSA (2022-2026)".
+
+- OMSA/WOAH regional data covering the **whole outbreak region** — Belize, Costa
+  Rica, El Salvador, USA (EUA), Guatemala, Honduras, Mexico, Nicaragua, Panama —
+  as opposed to the two APHIS sources (US-only and Mexico-only).
+- It is a Power BI "publish to web" report backed by one flat table (`GBG_OMSA`)
+  at the grain of a *focus* (outbreak): country, province, locality, lat/lon,
+  start date, and susceptible/confirmed-case counts per species (canine, equine,
+  swine, bovine, ovine, poultry, caprine, feline, buffalo, wild birds,
+  terrestrial wildlife, domestic rabbit) plus totals.
+- **No browser needed.** We query the Power BI public querydata API directly
+  (`wabi-south-central-us-api.analysis.windows.net/public/reports/querydata`).
+  The report resource key is encoded in the share URL; the dataset/report/model
+  IDs come from the report's initial `conceptualschema`/`querydata` calls (browser
+  Network tab) and are hardcoded — they only change if the report is republished.
+  One SemanticQuery dumps the whole table (~4.7k focus rows in one page). The
+  response is Power BI's DSR format (value dictionaries + repeat/null bitmasks),
+  parsed by `_parse_powerbi_dsr`. Row/total counts validate against the
+  dashboard tiles (4,671 focos; 21,156 casos; 3,427,959 susceptibles; 9 países).
+- Asset: `pathogens` code location, key `screwworm/nws_omsa_centroamerica`.
+  Dumps the raw querydata response and produces the cleaned focus line list
+  `nws_omsa_focos` (CSV/JSON) plus an EPSG:4326 point layer `nws_omsa_focos_points`
+  (one point per outbreak, GeoJSON/CSV). Runs 6:30pm ET daily via
+  `nws_omsa_centroamerica_schedule`.
+- **Schema-drift guard.** The query references `GBG_OMSA` columns by their
+  source names (keys of `OMSA_COLUMN_RENAMES`); if OMSA renames/drops one, the
+  querydata call silently returns nulls. Asset `screwworm/nws_omsa_columns`
+  snapshots the authoritative property list from the report's `conceptualschema`
+  endpoint and pickles a baseline; the asset check `nws_omsa_columns_unchanged`
+  compares the live schema to the baseline (and to the queried columns) and
+  fails + Slacks (channel `SLACK_CHANNEL_FAILURES`) on any add/remove — ERROR if
+  a queried column goes missing. Both run in `nws_omsa_centroamerica_job` on the
+  daily schedule. To accept a deliberate schema change, re-materialize
+  `nws_omsa_columns` with config `update_baseline: true`.
+
+## Unified dataset (implemented)
+Merges all three sources above into one schema —
+`workflows/pathogens/src/pathogens/assets/screwworm_unified.py`, asset key
+`screwworm/nws_unified_events`. Depends on the three source assets, so it runs
+after them (6:45pm ET, `nws_unified_schedule` / `nws_unified_job`).
+
+- **Grain is preserved, not flattened.** `grain='focus'` rows are OMSA outbreaks
+  (`total_cases`/`total_susceptible` carry the counts, one row may span species);
+  `grain='case'` rows are single APHIS confirmed animals or fly-trap detections
+  (`total_cases=1`). `source` is `omsa` | `aphis_us` | `aphis_mx`.
+- **Outputs** (all to `SCREWWORM_OUTPUT_PATH` + the latest path):
+  - `nws_unified_events` — one row per event, wide (CSV/JSON).
+  - `nws_unified_events_points` — the same rows with coordinates, EPSG:4326
+    (GeoJSON/CSV).
+  - `nws_unified_event_species` — one row per (event, species) with
+    `case_count`/`susceptible_count`, joined to the events by `event_uid`.
+    OMSA's 12 per-species column pairs melt into this table (species with no
+    cases *and* no susceptible animals are omitted); APHIS rows contribute a
+    single row with `case_count=1`.
+- **Geocoding precision is explicit** in `geo_level`: `point` (OMSA outbreak
+  coordinates), `county_centroid` (APHIS US, joined from the `State Map`
+  worksheet), `state_centroid` (APHIS Mexico — the CSV has only a state name, so
+  `MX_STATE_CENTROIDS` supplies an *approximate* state center), or `none`.
+- **Overlap is flagged, never dropped.** OMSA also covers Mexico and the US, so
+  its rows overlap both APHIS sources. `duplicate_candidate` marks events whose
+  country + admin1 + month is reported by more than one source — deliberately
+  coarse, since the three sources use different date semantics (focus start vs
+  confirmation vs report date). Consequence: **`SUM(total_cases)` over the full
+  table double-counts Mexico and the US** — use the deduplicated view below.
+- **Deduplicated view.** `is_authoritative` marks the one source that wins each
+  country, and the same three outputs are written again as
+  `nws_unified_events_deduped`, `nws_unified_events_points_deduped` and
+  `nws_unified_event_species_deduped`, filtered to those rows. `total_cases` is
+  safe to sum there. The precedence (`COUNTRY_SOURCE_PRIORITY`) is:
+  - **USA → `aphis_us`** — official national reporting, per-case; OMSA lags it.
+  - **Mexico + Central America → `omsa`** — OMSA covers Mexico nationwide
+    (2,636 foci / 2,750 cases) with true outbreak coordinates, whereas the APHIS
+    Mexico CSV is scoped to the border states it exists to track (354 cases in
+    Chihuahua, Coahuila, Nuevo León, Tamaulipas). Preferring APHIS there would
+    drop ~2,400 Mexican cases.
+  - Later entries in each priority list are **fallbacks**, used only when the
+    preferred source returned no rows that run, so one failed scrape cannot
+    silently erase a country. A fallback firing is reported by the
+    `unified_dedupe_one_source_per_country` check.
+  - Grain stays mixed in this view: US rows are individual cases, everything
+    else is outbreak foci. Excluded rows are not wrong — they are the same
+    outbreaks as told by a second publisher, and stay in the full view.
+- **Controlled vocabularies**: `SPECIES_VOCAB` (+ `SPECIES_ALIASES` for APHIS
+  free text and `SPECIES_SUBSTRING_RULES` for compound values such as
+  "Wildlife (American black bear)"), `COUNTRY_ISO3` for OMSA's Spanish country
+  labels (`EUA`→USA, `MÉXICO`→MEX, `BELICE`→BLZ …).
+- **Five in-asset checks** (declared via `check_specs`, Slacked to
+  `SLACK_CHANNEL_FAILURES` on failure):
+  `unified_species_vocab_covered` (WARN — a new upstream species fell to
+  `other`), `unified_mx_states_geocoded` (WARN — a Mexican state with no
+  centroid), `unified_totals_reconcile` (ERROR — long-table case counts must sum
+  to each event's `total_cases`), `unified_required_fields` (ERROR — `event_uid`
+  unique, key dimensions populated, no `UNK` countries), and
+  `unified_dedupe_one_source_per_country` (ERROR if a country ends up with two
+  sources or disappears from the deduplicated view; WARN if a fallback source
+  won a country).
+- The two upstream assets `nws_aphis_us` and `nws_omsa_centroamerica` now return
+  their cleaned frames (a `{"cases", "county"}` dict and the focus DataFrame)
+  instead of row-count dicts, so this asset consumes them directly; the row
+  counts moved to Dagster output metadata.
+
 ## NWS weekly status CSV (implemented)
 `https://www.aphis.usda.gov/sites/default/files/nws-weekly-status.csv` — the "CSV"
 button on the current-status page.

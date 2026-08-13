@@ -33,7 +33,9 @@ asset_checks = [
     assets_pkg.check_measles_zero_counts_preserved,
     assets_pkg.check_nndss_label_mapping_coverage,
     assets_pkg.check_nndss_all_basis_no_negative_counts,
+    assets_pkg.check_nws_omsa_columns,
     assets_pkg.check_wahis_excel_columns,
+
 ]
 
 minio = S3Resource(
@@ -70,6 +72,8 @@ defs = Definitions(
         assets_pkg.nndss_all_job,
         assets_pkg.nws_weekly_status_job,
         assets_pkg.nws_dashboard_job,
+        assets_pkg.nws_omsa_job,
+        assets_pkg.nws_unified_job,
     ],
     schedules=[
         assets_pkg.cdc_nndss_weekly_schedule,
@@ -78,6 +82,8 @@ defs = Definitions(
         assets_pkg.nndss_all_schedule,
         assets_pkg.nws_weekly_status_schedule,
         assets_pkg.nws_dashboard_schedule,
+        assets_pkg.nws_omsa_schedule,
+        assets_pkg.nws_unified_schedule,
     ],
     sensors=[slack_on_run_failure, assets_pkg.wahis_upload_sensor, assets_pkg.mpox_upstream_sensor],
 )
