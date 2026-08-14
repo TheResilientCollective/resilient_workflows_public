@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invasive Aedes &amp; Dengue Risk — VectorSurv prototype</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6;   /* invasive counts line */
+    --series-2: #eb6834;   /* notoscriptus */
+    --series-3: #1baf7a;   /* other */
+    --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec;
+    --seq-400: #3987e5; --seq-500: #256abf; --seq-650: #104281;
+    --no-data: #f0efec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+      --no-data: #232322;
+    }
+    .leaflet-tile { filter: grayscale(0.3) brightness(0.7); }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+  }
+  header { padding: 14px 18px 6px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; color: var(--text-secondary); max-width: 72em; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    padding: 10px 18px;
+  }
+  .controls .group {
+    display: flex; gap: 4px; align-items: center;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 4px 8px;
+  }
+  .controls label { color: var(--text-secondary); }
+  .controls select, .controls input[type=range] { font: inherit; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    font: inherit; border: 0; background: var(--surface-1);
+    color: var(--text-secondary); padding: 5px 12px; cursor: pointer;
+  }
+  .seg button.active { background: var(--series-1); color: #fff; }
+  .layout { display: flex; gap: 12px; padding: 0 18px 18px; height: calc(100vh - 150px); min-height: 480px; }
+  #map { flex: 2 1 60%; border-radius: 10px; border: 1px solid var(--border); min-width: 0; }
+  aside {
+    flex: 1 1 32%; min-width: 300px; max-width: 460px; overflow-y: auto;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px;
+  }
+  aside h2 { margin: 0 0 2px; font-size: 15px; }
+  aside .sub { color: var(--text-muted); margin: 0 0 10px; }
+  .legend { margin: 10px 0; }
+  .legend .row { display: flex; align-items: center; gap: 6px; margin: 2px 0; color: var(--text-secondary); }
+  .swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--border); flex: none; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--text-muted); font-weight: 500; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .chart-wrap { margin-top: 12px; }
+  .chart-title { font-weight: 600; margin-bottom: 2px; }
+  .chart-sub { color: var(--text-muted); margin-bottom: 6px; }
+  .chart-legend { display: flex; gap: 14px; margin: 4px 0 2px; color: var(--text-secondary); font-size: 12px; }
+  .chart-legend .row { display: flex; gap: 5px; align-items: center; }
+  .chart-legend .chip { width: 10px; height: 3px; border-radius: 2px; }
+  #tooltip {
+    position: fixed; pointer-events: none; display: none; z-index: 2000;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 9px; box-shadow: 0 2px 10px rgba(0,0,0,0.18); font-size: 12px;
+  }
+  #tooltip .t-date { color: var(--text-muted); }
+  .status { color: var(--text-muted); padding: 2px 18px 8px; }
+  .footer-note { color: var(--text-muted); font-size: 12px; padding: 0 18px 14px; }
+  a { color: var(--series-1); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Invasive <i>Aedes</i> &amp; Dengue Transmission Risk — California / San Diego</h1>
+  <p>Prototype reading the public VectorSurv map API (the data behind
+     <a href="https://maps.vectorsurv.org/invasive" target="_blank" rel="noopener">maps.vectorsurv.org</a>).
+     Click a surveillance region for its detection history and weekly mosquito counts.</p>
+</header>
+
+<div class="controls">
+  <span class="seg" id="layerSeg">
+    <button data-layer="invasive" class="active">Invasive <i>&nbsp;Aedes</i></button>
+    <button data-layer="dengue">Dengue risk</button>
+  </span>
+  <span class="seg" id="scopeSeg">
+    <button data-scope="sd" class="active">San Diego County</button>
+    <button data-scope="ca">All California</button>
+  </span>
+  <span class="group" id="speciesGroup">
+    <label for="speciesSel">Color by</label>
+    <select id="speciesSel">
+      <option value="aegypti_detections" selected>Aedes aegypti detections</option>
+      <option value="albopictus_detections">Aedes albopictus detections</option>
+      <option value="notoscriptus_detections">Aedes notoscriptus detections</option>
+      <option value="japonicus_detections">Aedes japonicus detections</option>
+    </select>
+  </span>
+</div>
+<div class="status" id="status">Loading VectorSurv layers…</div>
+
+<div class="layout">
+  <div id="map"></div>
+  <aside id="panel">
+    <h2 id="panelTitle">Region detail</h2>
+    <p class="sub" id="panelSub">Click a region on the map.</p>
+    <div class="legend" id="legend"></div>
+    <div id="panelBody"></div>
+  </aside>
+</div>
+<p class="footer-note">
+  Source: VectorSurv Gateway public map API (<code>mathew.vectorsurv.org/v2</code>) —
+  UC Davis / CDPH / Mosquito &amp; Vector Control Association of California.
+  Geometries are decoded client-side from encoded polylines. Weeks without
+  surveillance are omitted from the weekly series; 0 means surveyed with none collected.
+</p>
+<div id="tooltip"></div>
+
+<script>
+const API = new URLSearchParams(location.search).get('api') || 'https://mathew.vectorsurv.org/v2';
+const CA_BBOX = { minLat: 32.3, maxLat: 42.1, minLon: -124.6, maxLon: -114.1 };
+const state = { layer: 'invasive', scope: 'sd', species: 'aegypti_detections',
+                invasive: null, dengue: null, mapLayer: null, selected: null };
+
+// ---- Google polyline5 decoding -> [lat, lon] rings ----
+function decodePolyline(str) {
+  const pts = []; let index = 0, lat = 0, lon = 0;
+  while (index < str.length) {
+    for (const isLon of [false, true]) {
+      let shift = 0, result = 0, b;
+      do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const d = (result & 1) ? ~(result >> 1) : (result >> 1);
+      if (isLon) lon += d; else lat += d;
+    }
+    pts.push([lat * 1e-5, lon * 1e-5]);
+  }
+  return pts;
+}
+function featureLatLngs(feature) {   // -> Leaflet MultiPolygon rings
+  return (feature.geometry.coordinates || []).map(poly => poly.map(ring => decodePolyline(ring.point)));
+}
+function inCalifornia(rings) {
+  const p = rings[0] && rings[0][0] && rings[0][0][0];
+  return p && p[0] >= CA_BBOX.minLat && p[0] <= CA_BBOX.maxLat && p[1] >= CA_BBOX.minLon && p[1] <= CA_BBOX.maxLon;
+}
+
+// ---- map ----
+const map = L.map('map', { zoomSnap: 0.5 }).setView([32.9, -116.7], 9);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO', maxZoom: 18
+}).addTo(map);
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const SEQ = () => [css('--seq-100'), css('--seq-200'), css('--seq-300'), css('--seq-400'), css('--seq-500'), css('--seq-650')];
+
+function seqColor(value, breaks) {
+  const ramp = SEQ();
+  if (value == null || isNaN(value)) return css('--no-data');
+  for (let i = 0; i < breaks.length; i++) if (value <= breaks[i]) return ramp[i];
+  return ramp[ramp.length - 1];
+}
+const INV_BREAKS = [0, 5, 50, 500, 2000];         // detections (0 -> lightest)
+const RISK_BREAKS = [0, 0.05, 0.1, 0.2, 0.35];    // dengue risk index
+
+function fmtBreaks(breaks, suffix) {
+  const ramp = SEQ(), rows = [];
+  const label = i => i === 0 ? `${breaks[0]}` :
+      i < breaks.length ? `&le; ${breaks[i]}` : `&gt; ${breaks[breaks.length-1]}`;
+  for (let i = 0; i <= breaks.length; i++)
+    rows.push(`<div class="row"><span class="swatch" style="background:${ramp[i]}"></span>${label(i)}${suffix}</div>`);
+  return rows.join('');
+}
+
+// ---- data load ----
+async function loadAll() {
+  const status = document.getElementById('status');
+  try {
+    const [inv, den] = await Promise.all([
+      fetch(`${API}/invasive/static2`).then(r => r.json()),
+      fetch(`${API}/dengue`).then(r => r.json()),
+    ]);
+    const prep = fc => fc.features
+      .map(f => ({ props: f.properties, rings: featureLatLngs(f) }))
+      .filter(f => f.rings.length && inCalifornia(f.rings));
+    state.invasive = prep(inv);
+    state.dengue = prep(den);
+    status.textContent =
+      `${state.invasive.length} invasive-surveillance regions and ${state.dengue.length} dengue-risk regions in California.`;
+    render();
+  } catch (e) {
+    status.textContent = `Failed to load VectorSurv data: ${e}`;
+  }
+}
+
+function scoped(features) {
+  return state.scope === 'sd' ? features.filter(f => f.props.county === 'San Diego') : features;
+}
+
+function latestRisk(props) {
+  const risk = props.risk || {};
+  let best = null;
+  for (const k of Object.keys(risk)) {
+    const idx = +k;
+    if (best === null || idx > best.idx) best = { idx, ...risk[k] };
+  }
+  return best; // {idx, risk, date} or null
+}
+
+function render() {
+  if (state.mapLayer) { map.removeLayer(state.mapLayer); state.mapLayer = null; }
+  const group = L.featureGroup();
+  const isInv = state.layer === 'invasive';
+  const feats = scoped(isInv ? state.invasive : state.dengue);
+
+  for (const f of feats) {
+    const value = isInv ? +f.props[state.species] || 0 : (latestRisk(f.props)?.risk ?? null);
+    const color = isInv ? seqColor(value, INV_BREAKS) : seqColor(value, RISK_BREAKS);
+    const poly = L.polygon(f.rings, {
+      color: css('--baseline'), weight: 1, fillColor: color, fillOpacity: 0.75,
+    });
+    poly.bindTooltip(`${f.props.subcounty} — ${f.props.county} County`, { sticky: true });
+    poly.on('click', () => select(f));
+    poly.addTo(group);
+  }
+  state.mapLayer = group.addTo(map);
+  if (feats.length) map.fitBounds(group.getBounds().pad(0.05));
+
+  document.getElementById('speciesGroup').style.display = isInv ? '' : 'none';
+  document.getElementById('legend').innerHTML = isInv
+    ? `<div class="row"><b>${document.querySelector('#speciesSel option:checked').textContent}</b></div>` +
+      fmtBreaks(INV_BREAKS, '')
+    : `<div class="row"><b>Latest weekly dengue risk index</b></div>` + fmtBreaks(RISK_BREAKS, '');
+}
+
+// ---- side panel ----
+const panelTitle = document.getElementById('panelTitle');
+const panelSub = document.getElementById('panelSub');
+const panelBody = document.getElementById('panelBody');
+
+async function select(f) {
+  state.selected = f;
+  const p = f.props;
+  panelTitle.textContent = `${p.subcounty} — ${p.county} County`;
+  if (state.layer === 'invasive') {
+    panelSub.textContent = p.agency;
+    const species = [
+      ['Aedes aegypti', 'aegypti'], ['Aedes albopictus', 'albopictus'],
+      ['Aedes notoscriptus', 'notoscriptus'], ['Aedes japonicus', 'japonicus'],
+    ];
+    const rows = species.map(([name, key]) => `
+      <tr><td><i>${name}</i></td>
+          <td class="num">${p[key + '_detections'] ?? 0}</td>
+          <td>${clean(p[key + '_first_found'])}</td>
+          <td>${clean(p[key + '_last_found'])}</td></tr>`).join('');
+    panelBody.innerHTML = `
+      <table>
+        <thead><tr><th>Species</th><th class="num">Detections</th><th>First found</th><th>Last found</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="chart-wrap" id="weeklyChart"><p class="chart-sub">Loading weekly counts…</p></div>`;
+    try {
+      const url = `${API}/invasive/subcounty2/${encodeURIComponent(p.agency)}/${encodeURIComponent(p.subcounty)}/${p.id}`;
+      const detail = await fetch(url).then(r => r.json());
+      drawWeeklyChart(flattenWeeks(detail), document.getElementById('weeklyChart'));
+    } catch (e) {
+      document.getElementById('weeklyChart').innerHTML = `<p class="chart-sub">Weekly counts unavailable (${e}).</p>`;
+    }
+  } else {
+    panelSub.textContent = 'Weekly dengue transmission-risk index (0 = no risk).';
+    const series = Object.values(f.props.risk || {})
+      .filter(e => e && e.date)
+      .map(e => ({ date: new Date(e.date), values: { risk: e.risk } }))
+      .sort((a, b) => a.date - b.date);
+    panelBody.innerHTML = `<div class="chart-wrap" id="riskChart"></div>`;
+    drawLineChart(document.getElementById('riskChart'), series,
+      [{ key: 'risk', label: 'Risk index', color: css('--series-1') }],
+      { title: 'Dengue risk index by week', yLabel: 'risk index' });
+  }
+}
+const clean = v => (v && v !== 'None') ? String(v).slice(0, 10) : '—';
+
+function flattenWeeks(detail) {
+  const rows = [];
+  for (const q of Object.values(detail)) {
+    for (const m of Object.values(q.months || {})) {
+      for (const w of Object.values(m.weeks || {})) {
+        const vals = { aegypti: w.aegypti, notoscriptus: w.notoscriptus, other: w.other };
+        if (Object.values(vals).every(v => v == null)) continue;
+        rows.push({ date: new Date(w.date), values: vals });
+      }
+    }
+  }
+  return rows.sort((a, b) => a.date - b.date);
+}
+
+function drawWeeklyChart(series, el) {
+  if (!series.length) { el.innerHTML = '<p class="chart-sub">No collections reported for this region.</p>'; return; }
+  drawLineChart(el, series, [
+    { key: 'aegypti', label: 'Ae. aegypti', color: css('--series-1') },
+    { key: 'notoscriptus', label: 'Ae. notoscriptus', color: css('--series-2') },
+    { key: 'other', label: 'Other mosquitoes', color: css('--series-3') },
+  ], { title: 'Weekly mosquito counts', yLabel: 'specimens / week' });
+}
+
+// ---- minimal SVG line chart with crosshair tooltip ----
+function drawLineChart(el, rows, seriesDefs, opts) {
+  const W = Math.max(el.clientWidth || 380, 300), H = 190;
+  const m = { top: 10, right: 8, bottom: 22, left: 40 };
+  const x0 = rows[0].date.getTime(), x1 = rows[rows.length - 1].date.getTime() || x0 + 1;
+  let yMax = 0;
+  for (const r of rows) for (const s of seriesDefs) yMax = Math.max(yMax, r.values[s.key] || 0);
+  yMax = yMax || 1;
+  const X = t => m.left + (W - m.left - m.right) * (t - x0) / Math.max(1, x1 - x0);
+  const Y = v => m.top + (H - m.top - m.bottom) * (1 - v / yMax);
+  const ticks = 4;
+  const fmt = v => yMax >= 10 ? Math.round(v) : yMax >= 1 ? v.toFixed(1) : v.toFixed(2);
+  let grid = '';
+  for (let i = 0; i <= ticks; i++) {
+    const v = yMax * i / ticks, y = Y(v);
+    grid += `<line x1="${m.left}" x2="${W - m.right}" y1="${y}" y2="${y}" stroke="${css('--grid')}" stroke-width="1"/>` +
+            `<text x="${m.left - 5}" y="${y + 3}" text-anchor="end" font-size="10" fill="${css('--text-muted')}">${fmt(v)}</text>`;
+  }
+  let xlabels = '';
+  const yearList = [...new Set(rows.map(r => r.date.getFullYear()))];
+  const step = Math.max(1, Math.ceil(yearList.length / 6));
+  for (let i = 0; i < yearList.length; i += step) {
+    const t = new Date(yearList[i], 0, 1).getTime();
+    if (t >= x0 && t <= x1)
+      xlabels += `<text x="${X(t)}" y="${H - 6}" font-size="10" fill="${css('--text-muted')}">${yearList[i]}</text>`;
+  }
+  const paths = seriesDefs.map(s => {
+    let d = '', pen = false;
+    for (const r of rows) {
+      const v = r.values[s.key];
+      if (v == null) { pen = false; continue; }
+      d += `${pen ? 'L' : 'M'}${X(r.date.getTime()).toFixed(1)},${Y(v).toFixed(1)}`;
+      pen = true;
+    }
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+  }).join('');
+  const legend = seriesDefs.map(s =>
+    `<span class="row"><span class="chip" style="background:${s.color}"></span>${s.label}</span>`).join('');
+  el.innerHTML = `
+    <div class="chart-title">${opts.title}</div>
+    <div class="chart-sub">${rows[0].date.getFullYear()}–${rows[rows.length-1].date.getFullYear()} · ${opts.yLabel}</div>
+    <div class="chart-legend">${legend}</div>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${opts.title}">
+      ${grid}
+      <line x1="${m.left}" x2="${W - m.right}" y1="${Y(0)}" y2="${Y(0)}" stroke="${css('--baseline')}" stroke-width="1"/>
+      ${xlabels}${paths}
+      <line id="xh" y1="${m.top}" y2="${H - m.bottom}" stroke="${css('--baseline')}" stroke-width="1" opacity="0"/>
+      <rect x="${m.left}" y="${m.top}" width="${W - m.left - m.right}" height="${H - m.top - m.bottom}" fill="transparent"/>
+    </svg>`;
+  const svg = el.querySelector('svg'), xh = el.querySelector('#xh'), tip = document.getElementById('tooltip');
+  svg.addEventListener('mousemove', ev => {
+    const rect = svg.getBoundingClientRect();
+    const t = x0 + (x1 - x0) * ((ev.clientX - rect.left) / rect.width * W - m.left) / (W - m.left - m.right);
+    let best = rows[0], bd = Infinity;
+    for (const r of rows) { const d = Math.abs(r.date.getTime() - t); if (d < bd) { bd = d; best = r; } }
+    xh.setAttribute('x1', X(best.date.getTime())); xh.setAttribute('x2', X(best.date.getTime()));
+    xh.setAttribute('opacity', 1);
+    tip.style.display = 'block';
+    tip.style.left = (ev.clientX + 14) + 'px'; tip.style.top = (ev.clientY + 10) + 'px';
+    tip.innerHTML = `<div class="t-date">week of ${best.date.toISOString().slice(0,10)}</div>` +
+      seriesDefs.map(s => `<div><span class="chip" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${s.color}"></span> ${s.label}: <b>${best.values[s.key] ?? '—'}</b></div>`).join('');
+  });
+  svg.addEventListener('mouseleave', () => { xh.setAttribute('opacity', 0); tip.style.display = 'none'; });
+}
+
+// ---- controls ----
+document.getElementById('layerSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  document.querySelectorAll('#layerSeg button').forEach(b => b.classList.toggle('active', b === btn));
+  state.layer = btn.dataset.layer;
+  panelBody.innerHTML = ''; panelSub.textContent = 'Click a region on the map.';
+  panelTitle.textContent = 'Region detail';
+  render();
+});
+document.getElementById('scopeSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  document.querySelectorAll('#scopeSeg button').forEach(b => b.classList.toggle('active', b === btn));
+  state.scope = btn.dataset.scope;
+  render();
+});
+document.getElementById('speciesSel').addEventListener('change', e => {
+  state.species = e.target.value; render();
+});
+
+loadAll();
+</script>
+</body>
+</html>

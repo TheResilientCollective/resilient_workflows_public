@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arbovirus Activity — VectorSurv prototype</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6;   /* positive mosquito pools */
+    --series-2: #eb6834;   /* dead birds */
+    --series-3: #1baf7a;   /* sentinel seroconversions */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+    }
+    .leaflet-tile { filter: grayscale(0.3) brightness(0.7); }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+  }
+  header { padding: 14px 18px 6px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; color: var(--text-secondary); max-width: 72em; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 18px; }
+  .controls .group {
+    display: flex; gap: 6px; align-items: center; background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px;
+  }
+  .controls label { color: var(--text-secondary); }
+  .controls select { font: inherit; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; border: 0; background: var(--surface-1); color: var(--text-secondary); padding: 5px 12px; cursor: pointer; }
+  .seg button.active { background: var(--series-1); color: #fff; }
+  .layout { display: flex; gap: 12px; padding: 0 18px 18px; height: calc(100vh - 150px); min-height: 500px; }
+  #map { flex: 2 1 58%; border-radius: 10px; border: 1px solid var(--border); min-width: 0; }
+  aside {
+    flex: 1 1 34%; min-width: 320px; max-width: 480px; overflow-y: auto;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+  }
+  aside h2 { margin: 0 0 2px; font-size: 15px; }
+  aside .sub { color: var(--text-muted); margin: 0 0 8px; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0; color: var(--text-secondary); font-size: 12px; }
+  .chart-legend .row { display: flex; gap: 5px; align-items: center; }
+  .chart-legend .chip { width: 10px; height: 10px; border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+  th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--text-muted); font-weight: 500; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .status { color: var(--text-muted); padding: 2px 18px 8px; }
+  .footer-note { color: var(--text-muted); font-size: 12px; padding: 0 18px 14px; }
+  #tooltip {
+    position: fixed; pointer-events: none; display: none; z-index: 2000;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 9px; box-shadow: 0 2px 10px rgba(0,0,0,0.18); font-size: 12px;
+  }
+  a { color: var(--series-1); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Arbovirus Surveillance Activity — California / San Diego</h1>
+  <p>Prototype of the data behind
+    <a href="https://maps.vectorsurv.org/arbo" target="_blank" rel="noopener">maps.vectorsurv.org/arbo</a>:
+    positive mosquito pools, dead birds and sentinel-chicken seroconversions by city and month,
+    2003–present. Marker area scales with the number of positives for the current filters.</p>
+</header>
+
+<div class="controls">
+  <span class="group">
+    <label for="pathogenSel">Pathogen</label>
+    <select id="pathogenSel"></select>
+  </span>
+  <span class="group">
+    <label for="yearSel">Year</label>
+    <select id="yearSel"><option value="all" selected>All years</option></select>
+  </span>
+  <span class="seg" id="scopeSeg">
+    <button data-scope="sd" class="active">San Diego region</button>
+    <button data-scope="ca">All California</button>
+  </span>
+</div>
+<div class="status" id="status">Loading VectorSurv arbovirus data (~10 MB)…</div>
+
+<div class="layout">
+  <div id="map"></div>
+  <aside>
+    <h2 id="panelTitle">Statewide summary</h2>
+    <p class="sub" id="panelSub"></p>
+    <div class="chart-legend" id="legend"></div>
+    <div id="chart"></div>
+    <div id="tableWrap"></div>
+  </aside>
+</div>
+<p class="footer-note">
+  Source: VectorSurv Gateway public map API (<code>mathew.vectorsurv.org/v2/arbo/</code>) —
+  UC Davis / CDPH / MVCAC. “San Diego region” filters points to the San Diego County
+  bounding box (32.5–33.51&nbsp;N, 118.2–116.15&nbsp;W). A “record” is one reported positive
+  collection (pool, bird or seroconversion event) in that city-month.
+</p>
+<div id="tooltip"></div>
+
+<script>
+const API = new URLSearchParams(location.search).get('api') || 'https://mathew.vectorsurv.org/v2';
+// San Diego County bounding box (33.51 N keeps out southern Riverside County
+// cities; -116.15 W keeps out the Salton Sea communities in Imperial/Riverside).
+const SD_BBOX = { minLat: 32.5, maxLat: 33.51, minLon: -118.2, maxLon: -116.15 };
+
+// layer key -> [pathogen, indicator]
+const LAYERS = {
+  WNVPools: ['West Nile virus', 'pools'], WNVBirds: ['West Nile virus', 'birds'],
+  WNVSentinels: ['West Nile virus', 'sentinels'],
+  SLEVPools: ['St. Louis encephalitis virus', 'pools'],
+  SLEVSentinels: ['St. Louis encephalitis virus', 'sentinels'],
+  WEEVPools: ['Western equine encephalitis virus', 'pools'],
+  WEEVSentinels: ['Western equine encephalitis virus', 'sentinels'],
+  CVVPools: ['Cache Valley virus', 'pools'], LACVPools: ['La Crosse virus', 'pools'],
+  JCVPools: ['Jamestown Canyon virus', 'pools'], EEEVPools: ['Eastern equine encephalitis virus', 'pools'],
+  FLAVPools: ['Flanders virus', 'pools'],
+};
+const INDICATORS = {
+  pools:     { label: 'Positive mosquito pools', varName: '--series-1' },
+  birds:     { label: 'Dead birds',              varName: '--series-2' },
+  sentinels: { label: 'Sentinel seroconversions', varName: '--series-3' },
+};
+const MONTHS = { Jan:1, Feb:2, Mar:3, Apr:4, May:5, Jun:6, Jul:7, Aug:8, Sep:9, Oct:10, Nov:11, Dec:12 };
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+const state = { rows: [], pathogen: 'West Nile virus', year: 'all', scope: 'sd', markers: null };
+
+const map = L.map('map', { zoomSnap: 0.5 }).setView([32.9, -116.9], 9);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO', maxZoom: 18
+}).addTo(map);
+
+async function loadAll() {
+  const status = document.getElementById('status');
+  try {
+    const payload = await fetch(`${API}/arbo/`).then(r => r.json());
+    const rows = [];
+    for (const [layer, fc] of Object.entries(payload)) {
+      const [pathogen, indicator] = LAYERS[layer] || [layer, 'pools'];
+      for (const f of fc.features || []) {
+        const p = f.properties || {};
+        if (p.state !== 'CA') continue;
+        const [lon, lat] = f.geometry.coordinates;
+        const monthly = new Map();
+        for (const entry of p.collections || []) {
+          for (const [label, value] of Object.entries(entry)) {
+            const [mon, year] = label.split(' ');
+            if (!MONTHS[mon]) continue;
+            const key = `${year}-${String(MONTHS[mon]).padStart(2, '0')}`;
+            const bucket = monthly.get(key) || { count: 0, records: 0 };
+            bucket.count += value || 0; bucket.records += 1;
+            monthly.set(key, bucket);
+          }
+        }
+        for (const [ym, bucket] of monthly) {
+          rows.push({ pathogen, indicator, city: p.city, lat, lon,
+                      year: +ym.slice(0, 4), month: +ym.slice(5), ym,
+                      count: bucket.count, records: bucket.records });
+        }
+      }
+    }
+    state.rows = rows;
+    initControls();
+    status.textContent = `${rows.length.toLocaleString()} California city-month records, ` +
+      `${Math.min(...rows.map(r => r.year))}–${Math.max(...rows.map(r => r.year))}.`;
+    render();
+  } catch (e) {
+    status.textContent = `Failed to load VectorSurv data: ${e}`;
+  }
+}
+
+function initControls() {
+  const pathogens = [...new Set(state.rows.map(r => r.pathogen))];
+  // WNV first, then by total count descending
+  const totals = Object.fromEntries(pathogens.map(p =>
+    [p, state.rows.filter(r => r.pathogen === p).reduce((s, r) => s + r.count, 0)]));
+  pathogens.sort((a, b) => totals[b] - totals[a]);
+  document.getElementById('pathogenSel').innerHTML =
+    pathogens.map(p => `<option ${p === state.pathogen ? 'selected' : ''}>${p}</option>`).join('');
+  const years = [...new Set(state.rows.map(r => r.year))].sort((a, b) => b - a);
+  document.getElementById('yearSel').innerHTML =
+    `<option value="all" selected>All years</option>` + years.map(y => `<option>${y}</option>`).join('');
+}
+
+function filtered() {
+  return state.rows.filter(r =>
+    r.pathogen === state.pathogen &&
+    (state.year === 'all' || r.year === +state.year) &&
+    (state.scope === 'ca' ||
+      (r.lat >= SD_BBOX.minLat && r.lat <= SD_BBOX.maxLat && r.lon >= SD_BBOX.minLon && r.lon <= SD_BBOX.maxLon)));
+}
+
+function render() {
+  const rows = filtered();
+  if (state.markers) { map.removeLayer(state.markers); state.markers = null; }
+  const group = L.featureGroup();
+
+  // aggregate per city+indicator for the map
+  const byCity = new Map();
+  for (const r of rows) {
+    const key = `${r.city}|${r.indicator}`;
+    const cur = byCity.get(key) || { ...r, count: 0, records: 0 };
+    cur.count += r.count; cur.records += r.records;
+    byCity.set(key, cur);
+  }
+  const values = [...byCity.values()];
+  const maxCount = Math.max(1, ...values.map(v => v.count));
+  for (const v of values.sort((a, b) => b.count - a.count)) {
+    const color = css(INDICATORS[v.indicator].varName);
+    const radius = 5 + 22 * Math.sqrt(v.count / maxCount);
+    const marker = L.circleMarker([v.lat, v.lon], {
+      radius, color, weight: 1.5, fillColor: color, fillOpacity: 0.45,
+    });
+    marker.bindTooltip(
+      `<b>${v.city}</b><br>${INDICATORS[v.indicator].label}: ${v.count}` +
+      (state.year === 'all' ? ' (all years)' : ` (${state.year})`), { sticky: true });
+    marker.addTo(group);
+  }
+  state.markers = group.addTo(map);
+  if (values.length) map.fitBounds(group.getBounds().pad(0.15));
+
+  document.getElementById('legend').innerHTML = Object.values(INDICATORS).map(ind =>
+    `<span class="row"><span class="chip" style="background:${css(ind.varName)}"></span>${ind.label}</span>`).join('');
+
+  document.getElementById('panelTitle').textContent =
+    state.scope === 'sd' ? 'San Diego region summary' : 'California summary';
+  document.getElementById('panelSub').textContent =
+    `${state.pathogen} · ${state.year === 'all' ? 'all years' : state.year}`;
+  drawYearChart(rows);
+  drawTopTable(values);
+}
+
+// yearly stacked-by-indicator bar chart (2px gaps, baseline, hover tooltip)
+function drawYearChart(rows) {
+  const el = document.getElementById('chart');
+  if (!rows.length) { el.innerHTML = '<p class="sub">No records for this selection.</p>'; return; }
+  const byYear = new Map();
+  for (const r of rows) {
+    const cur = byYear.get(r.year) || { pools: 0, birds: 0, sentinels: 0 };
+    cur[r.indicator] += r.count;
+    byYear.set(r.year, cur);
+  }
+  const years = [...byYear.keys()].sort((a, b) => a - b);
+  const yMin = years[0], yMax = years[years.length - 1];
+  const allYears = []; for (let y = yMin; y <= yMax; y++) allYears.push(y);
+  const W = Math.max(el.clientWidth || 400, 320), H = 180;
+  const m = { top: 8, right: 6, bottom: 20, left: 40 };
+  const maxTotal = Math.max(...allYears.map(y => {
+    const v = byYear.get(y); return v ? v.pools + v.birds + v.sentinels : 0;
+  }), 1);
+  const bw = Math.max(2, (W - m.left - m.right) / allYears.length - 2);
+  const X = i => m.left + (W - m.left - m.right) * i / allYears.length;
+  const Y = v => m.top + (H - m.top - m.bottom) * (1 - v / maxTotal);
+  let grid = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = maxTotal * i / 4, y = Y(v);
+    grid += `<line x1="${m.left}" x2="${W - m.right}" y1="${y}" y2="${y}" stroke="${css('--grid')}"/>` +
+            `<text x="${m.left - 5}" y="${y + 3}" text-anchor="end" font-size="10" fill="${css('--text-muted')}">${Math.round(v)}</text>`;
+  }
+  let bars = '';
+  allYears.forEach((year, i) => {
+    const v = byYear.get(year); if (!v) return;
+    let acc = 0;
+    for (const ind of ['pools', 'birds', 'sentinels']) {
+      if (!v[ind]) continue;
+      const y1 = Y(acc), y0 = Y(acc + v[ind]);
+      bars += `<rect data-year="${year}" x="${X(i).toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" ` +
+              `height="${Math.max(1, y1 - y0 - (acc ? 2 : 0)).toFixed(1)}" rx="2" fill="${css(INDICATORS[ind].varName)}"/>`;
+      acc += v[ind];
+    }
+  });
+  let xlabels = '';
+  const step = Math.max(1, Math.ceil(allYears.length / 6));
+  for (let i = 0; i < allYears.length; i += step)
+    xlabels += `<text x="${X(i)}" y="${H - 5}" font-size="10" fill="${css('--text-muted')}">${allYears[i]}</text>`;
+  el.innerHTML = `
+    <div style="font-weight:600">Positives by year</div>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Positives by year">
+      ${grid}
+      <line x1="${m.left}" x2="${W - m.right}" y1="${Y(0)}" y2="${Y(0)}" stroke="${css('--baseline')}"/>
+      ${bars}${xlabels}
+    </svg>`;
+  const tip = document.getElementById('tooltip');
+  el.querySelectorAll('rect[data-year]').forEach(rect => {
+    rect.addEventListener('mousemove', ev => {
+      const year = +rect.dataset.year, v = byYear.get(year);
+      tip.style.display = 'block';
+      tip.style.left = (ev.clientX + 14) + 'px'; tip.style.top = (ev.clientY + 10) + 'px';
+      tip.innerHTML = `<div><b>${year}</b></div>` + Object.entries(INDICATORS)
+        .filter(([k]) => v[k]).map(([k, ind]) =>
+          `<div><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${css(ind.varName)}"></span> ${ind.label}: <b>${v[k]}</b></div>`).join('');
+    });
+    rect.addEventListener('mouseleave', () => tip.style.display = 'none');
+  });
+}
+
+function drawTopTable(values) {
+  const byCity = new Map();
+  for (const v of values) {
+    const cur = byCity.get(v.city) || { city: v.city, pools: 0, birds: 0, sentinels: 0 };
+    cur[v.indicator] += v.count;
+    byCity.set(v.city, cur);
+  }
+  const top = [...byCity.values()]
+    .sort((a, b) => (b.pools + b.birds + b.sentinels) - (a.pools + a.birds + a.sentinels))
+    .slice(0, 15);
+  document.getElementById('tableWrap').innerHTML = `
+    <table>
+      <thead><tr><th>City</th><th class="num">Pools</th><th class="num">Birds</th><th class="num">Sentinels</th></tr></thead>
+      <tbody>${top.map(r => `<tr><td>${r.city}</td><td class="num">${r.pools || ''}</td>
+        <td class="num">${r.birds || ''}</td><td class="num">${r.sentinels || ''}</td></tr>`).join('')}</tbody>
+    </table>`;
+}
+
+document.getElementById('pathogenSel').addEventListener('change', e => { state.pathogen = e.target.value; render(); });
+document.getElementById('yearSel').addEventListener('change', e => { state.year = e.target.value; render(); });
+document.getElementById('scopeSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  document.querySelectorAll('#scopeSeg button').forEach(b => b.classList.toggle('active', b === btn));
+  state.scope = btn.dataset.scope; render();
+});
+
+loadAll();
+</script>
+</body>
+</html>
