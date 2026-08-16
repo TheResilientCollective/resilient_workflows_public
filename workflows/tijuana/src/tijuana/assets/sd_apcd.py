@@ -15,7 +15,7 @@ from dagster import (asset, op,
                      schedule, RunRequest, define_asset_job, AssetKey, AssetIn,
                      AutomationCondition,
                      AssetCheckSpec, AssetCheckResult, asset_check, AssetCheckExecutionContext,
-                     TimeWindowPartitionsDefinition
+                     TimeWindowPartitionsDefinition, PartitionsDefinition
                      )
 from resilient_core.utils.constants import ICONS
 from resilient_core.resources import minio
@@ -780,13 +780,14 @@ apcd_yearly_job = define_asset_job(
     selection=[
         AssetKey(["apcd", "yearly_aggregated_all"]),
         AssetKey(["apcd", "yearly_aggregated_h2s"]),
-        AssetKey(["apcd", "h2s_all"])
-    ]
+       # AssetKey(["apcd", "h2s_all"])
+    ],
+    partitions_def=yearly_apcd_partitions
 )
 
 # Weekly schedule for yearly aggregation (runs on Sundays at 4 AM)
 @schedule(job=apcd_yearly_job, cron_schedule="0 4 * * 0", name="apcd_yearly_aggregation",
-          execution_timezone="America/Los_Angeles", )
+          execution_timezone="America/Los_Angeles" )
 def apcd_yearly_schedule(context):
     return RunRequest(
     )
