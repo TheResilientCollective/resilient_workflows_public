@@ -75,6 +75,8 @@ defs = Definitions(
         assets_pkg.nws_omsa_job,
         assets_pkg.nws_unified_job,
         assets_pkg.vectorsurv_weekly_job,
+        assets_pkg.arbonet_weekly_job,
+        assets_pkg.vectorborne_unified_job,
     ],
     schedules=[
         assets_pkg.cdc_nndss_weekly_schedule,
@@ -86,6 +88,8 @@ defs = Definitions(
         assets_pkg.nws_omsa_schedule,
         assets_pkg.nws_unified_schedule,
         assets_pkg.vectorsurv_weekly_schedule,
+        assets_pkg.arbonet_weekly_schedule,
+        assets_pkg.vectorborne_unified_schedule,
     ],
     sensors=[slack_on_run_failure, assets_pkg.wahis_upload_sensor, assets_pkg.mpox_upstream_sensor],
 )
