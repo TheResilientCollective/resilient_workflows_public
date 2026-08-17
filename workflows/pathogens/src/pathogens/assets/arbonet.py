@@ -226,7 +226,24 @@ def wnv_state_cumulative_to_df(
     hist = pd.read_csv(pd.io.common.StringIO(state_hist_csv_text), dtype=str)
     hist.columns = [c.strip() for c in hist.columns]
     hist["Reported Cases"] = pd.to_numeric(hist["Reported Cases"], errors="coerce")
-    wide = hist.pivot_table(
+
+    # This file mixes CDC's precomputed cumulative rows (Year e.g.
+    # "1999-2025") with per-year breakdown rows for the same (State, Type)
+    # — Year is the only reliable discriminator. Do not rely on row order
+    # (e.g. pivot_table aggfunc="first") to pick the cumulative row: it is
+    # not a documented contract of this URL and silently returns a single
+    # year's count instead of the cumulative if the order ever changes.
+    cumulative_years = hist.loc[hist["Year"].str.contains("-", na=False), "Year"].unique()
+    if len(cumulative_years) != 1:
+        raise ValueError(
+            "Expected exactly one cumulative-period Year label (e.g. "
+            f"'1999-2025') in the WNV state historic file, found {sorted(cumulative_years)}. "
+            "CDC's file shape may have changed."
+        )
+    year_range = cumulative_years[0]
+    cumulative_hist = hist[hist["Year"] == year_range]
+
+    wide = cumulative_hist.pivot_table(
         index="State", columns="Type", values="Reported Cases", aggfunc="first"
     ).reset_index()
     wide = wide.rename(
@@ -239,7 +256,7 @@ def wnv_state_cumulative_to_df(
     for col in ("total_human_cases", "total_neuroinvasive_cases"):
         if col not in wide.columns:
             wide[col] = pd.NA
-    wide["cumulative_year_range"] = hist["Year"].iloc[0] if len(hist) else None
+    wide["cumulative_year_range"] = year_range
 
     current_year = datetime.now(timezone.utc).year
     if state_current_csv_text:
