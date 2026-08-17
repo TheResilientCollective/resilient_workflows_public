@@ -58,6 +58,19 @@ from .vectorsurv import (
     vectorsurv_weekly_job,
     vectorsurv_weekly_schedule,
 )
+from .arbonet import (
+    arbonet_wnv_county_yearly,
+    arbonet_wnv_state_cumulative,
+    arbonet_wnv_current,
+    arbonet_dengue_current,
+    arbonet_weekly_job,
+    arbonet_weekly_schedule,
+)
+from .vectorborne_unified import (
+    vectorborne_cases_unified,
+    vectorborne_unified_job,
+    vectorborne_unified_schedule,
+)
 from . import cdc_nnds
 
 # respnet and wastewaterscan modules are present but not wired in; enable them
