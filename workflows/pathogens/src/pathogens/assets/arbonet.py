@@ -71,7 +71,14 @@ S3_OUTPUT_PATH = "pathogens/vectorborne/output"
 ARBONET_LATEST_PATH = "pathogens/vectorborne/arbonet"
 
 REQUEST_TIMEOUT = 60
-REQUEST_HEADERS = {"User-Agent": "resilient-workflows/arbonet (+resilientservice.org)"}
+# cdc.gov's WAF 403s unrecognized User-Agent strings, so the identifier has to
+# trail a client token it allowlists (curl/, python-requests/, Wget/).
+REQUEST_HEADERS = {
+    "User-Agent": (
+        f"python-requests/{requests.__version__} "
+        "resilient-workflows-arbonet (+resilientservice.org)"
+    )
+}
 
 # Standard 2-digit state/territory FIPS -> USPS abbreviation, covering every
 # prefix that appears in CDC's ArboNET county files (50 states + DC + PR).
@@ -105,6 +112,17 @@ def _get_csv(url: str, logger=None, retries: int = 3) -> str:
             )
             response.raise_for_status()
             return response.text
+        except requests.HTTPError as e:
+            # 4xx is a deterministic refusal (bad URL, WAF-blocked User-Agent);
+            # retrying just burns the backoff before the same failure.
+            status = e.response.status_code if e.response is not None else None
+            if status is not None and 400 <= status < 500:
+                raise
+            if attempt == retries - 1:
+                raise
+            if logger:
+                logger.warning(f"retry {attempt + 1} for {url}: {e}")
+            time.sleep(2 ** attempt)
         except Exception as e:  # noqa: BLE001 - retry any network error
             if attempt == retries - 1:
                 raise
@@ -838,7 +856,7 @@ def arbonet_dengue_current(context):
         enable_latest_path=True,
         formats=["csv", "parquet"],
     )
-    return Output(
+    yield Output(
         county_df,
         metadata={
             "county_rows": len(county_df),

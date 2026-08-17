@@ -4420,6 +4420,7 @@ name = "resilient-core"
 version = "0.1.0"
 source = { editable = "workflows/resilient_core" }
 dependencies = [
+    { name = "awswrangler" },
     { name = "dagster" },
     { name = "dagster-aws" },
     { name = "foursquare-data-sdk" },
@@ -4437,6 +4438,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "awswrangler" },
     { name = "dagster", specifier = ">=1.12.2" },
     { name = "dagster-aws", specifier = ">=0.28.2" },
     { name = "foursquare-data-sdk" },

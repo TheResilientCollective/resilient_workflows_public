@@ -10,6 +10,7 @@ dependencies = [
     "geopandas",
     "pyarrow>=20",
     "minio==7.1.13",
+    "awswrangler",
     "pyairtable>3",
     "requests",
     "pandera[pandas]",
