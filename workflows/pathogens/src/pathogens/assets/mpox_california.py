@@ -175,6 +175,14 @@ def mpox_california_weekly(context, mpox_california_daily: pd.DataFrame) -> pd.D
 
     return validated_basic
 
+mpox_california_job = define_asset_job(
+    "mpox_california_data",
+    selection=[AssetKey(["mpox", "mpox_california_daily"]), AssetKey(["mpox", "mpox_california_weekly"])]
+)
+
+@schedule(job=mpox_california_job, cron_schedule="@weekly", name="mpox_california_weekly_schedule")
+def mpox_california_weekly_schedule(context):
+    return RunRequest()
 
 if __name__ == "__main__":
     scrape_mpox_data()
