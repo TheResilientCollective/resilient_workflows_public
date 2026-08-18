@@ -29,7 +29,8 @@ from resilient_core.utils import store_assets
 
 MPOX_BUCKET = os.environ.get("MPOX_RESILIENTSIMS_BUCKET", "resilientmpox")
 MPOX_API_RUN_PATH = os.environ.get("MPOX_API_RUN_PATH", "api_run/")
-MPOX_LATEST_PATH = os.environ.get("MPOX_LATEST_PATH", "latest/pathogens/mpox/aggregated/")
+#MPOX_LATEST_PATH = os.environ.get("MPOX_LATEST_PATH", "latest/pathogens/mpox/aggregated/")
+MPOX_LATEST_PATH = os.environ.get("MPOX_LATEST_PATH", "latest/pathogens/mpox/")
 MPOX_OUTPUT_PATH = os.environ.get("MPOX_OUTPUT_PATH", "pathogens/mpox/output/")
 MPOX_GITHUB_URL = os.environ.get(
     "FORECAST_GITHUB_RT",
@@ -168,17 +169,21 @@ def copy_mpox_latest(context, mpox_simulation: str):
     updated_files = []
     for f in files:
         source_object = CopySource(MPOX_BUCKET, f.object_name)
-        object_name = Path(f.object_name).name.replace("mpox_forecast", "mpox_case_reports")
-        dest_path = f"{MPOX_LATEST_PATH}{object_name}"
+        object_name = Path(f.object_name).name.replace("mpox_forecasts", "mpox_case_reports")
+        dest_path = f"{MPOX_LATEST_PATH}forecast/{object_name}"
         s3_client.copy_object(s3_resource.S3_BUCKET, dest_path, source_object)
         updated_files.append(dest_path)
 
-    logger.info(f"Copied {len(updated_files)} files to {MPOX_LATEST_PATH}")
+    files_str = " ".join(f"• `{f}`" for f in updated_files)
+    logger.info(f"Copied {len(updated_files)} files to {files_str}")
 
     try:
+        message = (
+            f"Mpox simulation outputs copied to latest path `{MPOX_LATEST_PATH}`. "
+            f"{len(updated_files)} files updated:\n{files_str}"
+        )
         slack_resource.get_client().chat_postMessage(
-            channel=SLACK_CHANNEL,
-            text=f"Mpox simulation outputs copied to latest/: {len(updated_files)} files",
+            channel=SLACK_CHANNEL, text=message
         )
     except Exception as e:
         logger.warning(f"Slack notification failed: {e}")
