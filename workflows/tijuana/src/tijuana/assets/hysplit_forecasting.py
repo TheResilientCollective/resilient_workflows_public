@@ -14,10 +14,8 @@ from dagster import (asset,
 import duckdb
 from resilient_core.resources import minio
 from resilient_core.utils import store_assets
-from ..utils import forecast_features
+from ..utils import astro_calendar, forecast_features
 #from .sd_apcd import s3_output_path as apcd_s3_output_path
-from astral import LocationInfo
-from astral.sun import sun
 
 OUTPUT_PATH='tijuana/forecast_data/output/'
 LATEST='tijuana/forecast_data'
@@ -163,31 +161,14 @@ def add_tidal_encoding(tidal_df):
 
 
 def add_day_night(df, logger):
-    """Add day_night column based on San Diego sunrise/sunset times. Reads from df['time'] column."""
-    san_diego_location = LocationInfo(
-        name='San Diego',
-        region='USA',
-        timezone='America/Los_Angeles',
-        latitude=32.7157,
-        longitude=-117.1611
-    )
-    unique_dates = df['time'].dt.date.unique()
-    daily_sun_times = {}
-    for date in unique_dates:
-        s = sun(san_diego_location.observer, date=date, tzinfo=san_diego_location.timezone)
-        daily_sun_times[date] = {'sunrise': s['sunrise'], 'sunset': s['sunset']}
+    """Add day_night column based on San Diego sunrise/sunset times. Reads from df['time'] column.
 
-    def get_day_night(timestamp, sun_times_dict):
-        date_only = timestamp.date()
-        if date_only in sun_times_dict:
-            sun_info = sun_times_dict[date_only]
-            if sun_info['sunrise'] <= timestamp < sun_info['sunset']:
-                return 'day'
-            else:
-                return 'night'
-        return 'unknown'
-
-    df['day_night'] = df['time'].apply(lambda x: get_day_night(x, daily_sun_times))
+    Delegates to the shared astronomical calendar so this asset module and the
+    astronomical_day datasets cannot drift apart. Output is unchanged from the
+    original per-asset implementation, which is pinned by
+    tests/test_astro_calendar.py::test_add_day_night_helper_matches_original.
+    """
+    df['day_night'] = astro_calendar.label_day_night(df['time'])
     return df
 
 
