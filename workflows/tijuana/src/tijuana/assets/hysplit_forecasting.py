@@ -15,6 +15,7 @@ import duckdb
 from resilient_core.resources import minio
 from resilient_core.utils import store_assets
 from ..utils import astro_calendar, forecast_features
+from ..utils.h2s_exceedance import aggregate_exceedances
 #from .sd_apcd import s3_output_path as apcd_s3_output_path
 
 OUTPUT_PATH='tijuana/forecast_data/output/'
@@ -801,6 +802,13 @@ def h2s_peaks_analysis(context, modeldata_h2s):
 
     Counts hourly occurrences when H2S exceeds 5 ppb and 30 ppb thresholds,
     separated by day (6 AM - 6 PM) and night (6 PM - 6 AM) periods.
+
+    Exceedance counts, max_h2s and mean_h2s cover measured observations only.
+    The input is modeldata_h2s_nofill (despite the parameter being named
+    modeldata_h2s), where unmeasured H2S is already null, so count_filled is 0 in
+    practice. Excluding gap-filled values is enforced in aggregate_exceedances
+    regardless, so the counts stay correct if this is ever repointed at the
+    filled modeldata_h2s.
     """
     meta = context.assets_def.metadata_by_key[context.asset_key]
     description = meta["description"]
@@ -849,28 +857,33 @@ def h2s_peaks_analysis(context, modeldata_h2s):
             dagster_logger.warning("No valid H2S measurements found")
             return pd.DataFrame()
 
-        # Create threshold exceedance flags
-        h2s_valid['exceeds_5'] = h2s_valid['H2S'] > 5
-        h2s_valid['exceeds_30'] = h2s_valid['H2S'] > 30
+        # Exceedance counts over measured observations only. Gap-filled values are
+        # excluded from the counts and from max/mean; a synthetic reading must not
+        # be reported as an observed exceedance. The nofill input already nulls
+        # them, so this is a guard rather than a behaviour change. Shared with
+        # h2s_peaks_astronomical_day so the two assets cannot diverge on it.
+        daily_totals = aggregate_exceedances(
+            h2s_valid, group_keys=['site_name', 'date', 'period']
+        )
+        if daily_totals.empty:
+            dagster_logger.warning("No measured H2S observations to summarise")
+            return pd.DataFrame()
 
-        dagster_logger.info(f"Processing {len(h2s_valid)} valid H2S measurements")
-        dagster_logger.info(f"Found {h2s_valid['exceeds_5'].sum()} exceedances > 5 ppb")
-        dagster_logger.info(f"Found {h2s_valid['exceeds_30'].sum()} exceedances > 30 ppb")
-
-        # Calculate daily totals by site and period (no hourly summaries)
-        daily_totals = h2s_valid.groupby(['site_name', 'date', 'period']).agg({
-            'exceeds_5': 'sum',
-            'exceeds_30': 'sum',
-            'H2S': ['count', 'max', 'mean'],
-            'h2s_measured': lambda x: (~x).sum()
-        }).reset_index()
-
-        # Flatten column names for daily totals
-        daily_totals.columns = [
+        # Preserve the original column order; measured_observations is appended.
+        daily_totals = daily_totals[[
             'site_name', 'date', 'period',
             'count_exceeds_5', 'count_exceeds_30',
-            'total_measurements', 'max_h2s', 'mean_h2s', 'count_filled'
-        ]
+            'total_measurements', 'max_h2s', 'mean_h2s', 'count_filled',
+            'measured_observations',
+        ]]
+
+        dagster_logger.info(
+            f"Processing {len(h2s_valid)} valid H2S rows "
+            f"({int(daily_totals['measured_observations'].sum())} measured, "
+            f"{int(daily_totals['count_filled'].sum())} gap-filled and excluded from counts)"
+        )
+        dagster_logger.info(f"Found {int(daily_totals['count_exceeds_5'].sum())} measured exceedances > 5 ppb")
+        dagster_logger.info(f"Found {int(daily_totals['count_exceeds_30'].sum())} measured exceedances > 30 ppb")
 
         daily_totals['summary_type'] = 'daily_by_period'
         daily_totals['date_processed'] = datetime.now().isoformat()

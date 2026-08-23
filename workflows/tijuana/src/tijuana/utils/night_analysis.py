@@ -14,9 +14,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-#: H2S exceedance thresholds in ppb. 5 is the odour/nuisance level used in the
-#: existing h2s_peaks asset; 30 is the higher health-referenced level.
-THRESHOLDS = (5, 30)
+from .h2s_exceedance import THRESHOLDS, aggregate_exceedances
+
+__all__ = [
+    "THRESHOLDS",
+    "FLOW_COL",
+    "exceedances_by_segment",
+    "summarize_nights",
+    "filter_exceedance_segments",
+]
 
 FLOW_COL = "Flow (m^3/s)--Border"
 
@@ -68,33 +74,17 @@ def exceedances_by_segment(
 ) -> pd.DataFrame:
     """Exceedance counts per site, astronomical day, and day/night segment.
 
-    The astronomical-frame counterpart of the ``h2s_peaks`` asset. Two differences
-    from that asset, both deliberate:
-
-    1. the day/night split is the true sunset/sunrise boundary, not ``6 <= hour < 18``;
-    2. counts cover measured observations only, because the input is the
-       ``_nofill`` dataset -- ``h2s_peaks`` counts gap-filled values as exceedances.
+    The astronomical-frame counterpart of the ``h2s_peaks`` asset, differing from
+    it in one deliberate respect: the day/night split is the true sunset/sunrise
+    boundary rather than ``6 <= hour < 18``. Both assets share
+    ``aggregate_exceedances``, so they count gap-filled values identically.
     """
-    if df.empty:
-        return pd.DataFrame()
-
-    valid = df[df["H2S"].notna()].copy()
-    if valid.empty:
-        return pd.DataFrame()
-
-    for thr in thresholds:
-        valid[f"exceeds_{thr}"] = valid["H2S"] > thr
-
-    keys = ["site_name", "astro_day_date", "day_night"]
-    agg = {f"exceeds_{thr}": "sum" for thr in thresholds}
-    agg.update({"H2S": ["count", "max", "mean"]})
-    out = valid.groupby(keys, dropna=False).agg(agg)
-    out.columns = [f"count_exceeds_{thr}" for thr in thresholds] + [
-        "total_measurements",
-        "max_h2s",
-        "mean_h2s",
-    ]
-    out = out.reset_index().rename(columns={"day_night": "period"})
+    segments = aggregate_exceedances(
+        df, group_keys=["site_name", "astro_day_date", "day_night"], thresholds=thresholds
+    )
+    if segments.empty:
+        return segments
+    out = segments.rename(columns={"day_night": "period"})
 
     # Carry the frame's own descriptors so the table is usable without a re-join.
     frame_cols = [

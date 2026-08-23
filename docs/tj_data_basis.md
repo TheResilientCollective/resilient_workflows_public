@@ -413,26 +413,37 @@ Logic lives in `tijuana/utils/night_analysis.py` (pure functions, unit-tested);
 
 ### Before / after on the exceedance counts
 
-The new counts differ from `h2s_peaks` for **two** independent reasons, separated
-here on identical current data (exceedance-hours):
+The astronomical counts differ from `h2s_peaks` for exactly **one** reason: the
+day/night boundary. Exceedance-hours on identical current data:
 
 | variant | >5 night | >5 day | >30 night | >30 day |
 |---|---|---|---|---|
-| 1. clock 6–18 + gap-filled *(original `h2s_peaks`)* | 2,011 | 782 | 311 | 51 |
-| 2. clock 6–18, measured only | 1,945 | 682 | 311 | 51 |
-| 3. true sun boundary + gap-filled | 2,136 | 657 | 332 | 30 |
-| 4. true sun boundary, measured only *(new asset)* | 2,075 | 552 | 332 | 30 |
+| clock 6–18 *(`h2s_peaks`)* | 1,945 | 682 | 311 | 51 |
+| true sun boundary *(new asset)* | 2,075 | 552 | 332 | 30 |
 
-- **Boundary effect** (1→3): moves 125 exceedance-hours from day to night at
-  5 ppb, and 21 at 30 ppb. The clock split systematically under-counts night
-  exceedances, because it calls 06:00–06:59 "day" year-round and 18:00–19:59
-  "night" year-round; 8.7% of all valid hours are reclassified.
-- **Gap-fill effect** (3→4): the original counts gap-filled values as
-  exceedances. 166 of its >5 ppb exceedance-hours (about 6%) are synthetic. No
-  gap-filled value ever exceeds 30 ppb, which is why that column is unaffected.
+The clock split systematically under-counts night exceedances, because it calls
+06:00–06:59 "day" year-round and 18:00–19:59 "night" year-round. 8.7% of all
+valid hours are reclassified; the net effect is 130 exceedance-hours moving from
+day to night at 5 ppb and 21 at 30 ppb.
 
-Consumers comparing the two datasets need to be aware of both, not just the
-boundary change.
+> **Correction.** An earlier revision of this document, and PR #58 as originally
+> opened, claimed a second cause: that `h2s_peaks` counts gap-filled values as
+> exceedances, inflating its >5 ppb figures by ~6%. **That was wrong.**
+> `h2s_peaks` takes `modeldata_h2s_nofill` as its input — the `AssetIn` points
+> there even though the parameter is named `modeldata_h2s` — so unmeasured
+> values are already null and `count_filled` is 0 in the published data. The
+> mistaken figures came from computing the comparison against the filled
+> `modeldata_h2s` dataset. There was no gap-fill defect. The only difference
+> between the clock and astronomical counts is the boundary.
+
+Both assets now share `utils/h2s_exceedance.aggregate_exceedances()`, which
+excludes gap-filled values from the counts and from `max_h2s` / `mean_h2s`. This
+is a **guard, not a fix**: it is behaviour-neutral on the current nofill inputs
+(verified — the refactored `h2s_peaks` reproduces the published 1,391 rows and
+2,627 / 362 exceedance totals exactly). It exists so the counts stay correct if
+the asset is ever repointed at the filled dataset, and so the two peaks assets
+cannot diverge on the question. `h2s_peaks` gains one appended column,
+`measured_observations`; no existing column changes meaning or value.
 
 ### What the nightly summary gives you
 
