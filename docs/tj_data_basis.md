@@ -486,8 +486,11 @@ First results, none of which were straightforward to compute under the old frame
   means retraining `data/discharge_tj/train_models_auto.py` and comparing skill —
   separate work with its own success criteria, not a pipeline change.
 - **Retiring the clock-based assets.** `h2s_peaks` and `h2s_exceedance_periods`
-  still publish the 6 AM / 6 PM split. Now that the astronomical versions exist
-  side by side, decide whether and when to deprecate them.
+  are now **marked deprecated** (see below) but still published and still
+  updating. Actually withdrawing them needs an answer to "does anything outside
+  this repo read them?" — inside the repo the only consumer of `h2s_peaks` is
+  `h2s_exceedance_periods_filter`, so the real consumers, if any, are the portal,
+  dashboards or notebooks not visible from here.
 
 ## Unified `day_night` source
 
@@ -513,3 +516,25 @@ disagreement now fails the asset, so reintroducing a second solar source cannot
 pass silently. `attach_astro_frame`'s `day_night_tolerance_minutes` parameter
 remains available, and tested, for any future input genuinely on a different
 solar model.
+
+## Deprecation of the clock-based assets
+
+`h2s_peaks` and `h2s_exceedance_periods` keep publishing unchanged, but are now
+marked deprecated so no new consumer picks the weaker dataset by accident. The
+marking is in three places:
+
+- the **Dagster asset description**, prefixed `DEPRECATED - superseded by ...`,
+  naming the replacement and quantifying the difference;
+- a Dagster **tag** `deprecated=true` plus metadata keys `deprecated` and
+  `superseded_by`, so they can be filtered in the UI;
+- the **schema.org `.metadata.json` sidecar published next to the data in S3** —
+  the one an external consumer actually sees, since it travels with the file
+  rather than living in the orchestrator.
+
+Nothing about the data changes. This is option 2 of four considered: leave both,
+deprecate in place, switch the values behind the existing names, or stop
+publishing. Options 3 and 4 both need the consumer question answered first.
+
+Migration note for consumers: the astronomical tables are not drop-in. The key
+column is `astro_day_date` rather than `date`, with the frame's descriptors
+alongside.

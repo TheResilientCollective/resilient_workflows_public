@@ -789,16 +789,33 @@ def data_for_hysplit(context, data_for_models):
             key=AssetKey(['h2sforecast', 'modeldata_h2s_nofill'])
         )
     },
+    tags={"deprecated": "true"},
     metadata={
         "source": "San Diego APCD H2S data analysis"
-        , "description": "Hourly counts of H2S threshold exceedances by day/night periods"
+        , "description": (
+            "DEPRECATED - superseded by h2s_peaks_astronomical_day. "
+            "Hourly counts of H2S threshold exceedances by day/night periods, where "
+            "day/night is split at a fixed 6 AM / 6 PM clock boundary. The replacement "
+            "splits at true sunset/sunrise; because the clock boundary calls 06:00-06:59 "
+            "'day' year-round and 18:00-19:59 'night' year-round, it systematically "
+            "under-counts night exceedances - 130 exceedance-hours at 5 ppb and 21 at "
+            "30 ppb sit on the wrong side of it. This dataset is still published and "
+            "still updating; new consumers should use the astronomical version, where "
+            "the key column is astro_day_date rather than date."
+        )
         , "variableMeasured": ["H2S", "Exceedance Counts"]
+        , "deprecated": True
+        , "superseded_by": "h2sforecast/h2s_peaks_astronomical_day"
     },
     automation_condition=AutomationCondition.eager()
 )
 def h2s_peaks_analysis(context, modeldata_h2s):
     """
     Create hourly counts of H2S exceedances for day and night periods
+
+    DEPRECATED: superseded by h2s_peaks_astronomical_day, which splits day and
+    night at true sunset/sunrise instead of a fixed clock boundary. Still
+    published and maintained until consumers have migrated.
 
     Counts hourly occurrences when H2S exceeds 5 ppb and 30 ppb thresholds,
     separated by day (6 AM - 6 PM) and night (6 PM - 6 AM) periods.
@@ -1051,14 +1068,28 @@ def h2s_wind_lag_analysis(context, modeldata_h2s):
     },
     metadata={
         "source": "San Diego APCD H2S exceedance analysis"
-        , "description": "Filtered datasets for day/night periods with H2S exceedances above thresholds"
+        , "description": (
+            "DEPRECATED - superseded by h2s_exceedance_periods_astronomical_day. "
+            "Filtered datasets for day/night periods with H2S exceedances above "
+            "thresholds, windowed on a fixed 6 AM / 6 PM clock boundary. It inherits "
+            "that boundary from h2s_peaks, so the selected periods differ from the "
+            "astronomical version. Still published and still updating; new consumers "
+            "should use the astronomical version."
+        )
         , "variableMeasured": ["H2S Exceedances", "Day/Night Periods"]
+        , "deprecated": True
+        , "superseded_by": "h2sforecast/h2s_exceedance_periods_astronomical_day"
     },
+    tags={"deprecated": "true"},
     automation_condition=AutomationCondition.eager()
 )
 def h2s_exceedance_periods_filter(context, h2s_peaks, modeldata_h2s):
     """
     Return hourly model data for periods where H2S exceedances occurred.
+
+    DEPRECATED: superseded by h2s_exceedance_periods_astronomical_day. This
+    windows on the 6 AM / 6 PM clock split it inherits from h2s_peaks. Still
+    published and maintained until consumers have migrated.
 
     Creates two datasets with full hourly environmental data (H2S, weather, streamflow, tidal):
     1. Hours within day/night periods where H2S exceeded 5 ppb
