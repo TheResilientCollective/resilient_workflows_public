@@ -1475,8 +1475,12 @@ def modeldata_forecast_15min(
             .transform(lambda x: x.rolling(window=n_rows, min_periods=1).max())
         )
 
-    # Derive day_night from OpenMeteo is_day flag (avoids re-computing astral sunrise/sunset)
-    weather_df["day_night"] = weather_df["is_day"].map({1: "day", 0: "night"}).fillna("night")
+    # day_night comes from the shared astronomical calendar, the same source used by
+    # data_for_models and model_forecast. Previously this derived it from OpenMeteo's
+    # is_day flag, which is a different solar model: the two agreed on all current
+    # data but were free to disagree at the interval straddling sunrise/sunset, which
+    # would put a train/serve skew into is_night, source_regime and stable_atm.
+    weather_df = add_day_night(weather_df, logger)
 
     # Guard: wind_direction_10m is required by add_inference_features but may be absent
     # in data materialized before it was added to MINUTELY_15_VARIABLES.

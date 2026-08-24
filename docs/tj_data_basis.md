@@ -326,19 +326,14 @@ The training data actually begins **2023-11-19**, slightly earlier than the
 
 **Two findings:**
 
-- **The two datasets derive `day_night` from different solar models.**
-  `modeldata_h2s_nofill` uses astral via `add_day_night()`;
-  `modeldata_forecast_15min` uses OpenMeteo's `is_day` flag
-  (`hysplit_forecasting.py:1467`). On current published data they agree on
-  **100%** of rows (0 of 17,212 and 0 of 576), but they are not guaranteed to,
-  and a strict equality check would hard-fail the scheduled forecast pipeline the
-  first time OpenMeteo flips `is_day` one interval early. `attach_astro_frame`
-  therefore takes a `day_night_tolerance_minutes` argument: the forecast asset
-  allows disagreement within 15 minutes (one grid step) of sunrise/sunset and
-  raises beyond it, so a genuine bug far from a boundary is still caught. The
-  dataset's own labels always win; the calendar's are dropped.
-  Worth deciding separately whether that train/serve difference should be
-  eliminated at the source.
+- **The two datasets derived `day_night` from different solar models.**
+  `modeldata_h2s_nofill` used astral via `add_day_night()`;
+  `modeldata_forecast_15min` used OpenMeteo's `is_day` flag. They agreed on 100%
+  of observed data, but were free to disagree at the interval straddling
+  sunrise/sunset, which would have put a train/serve skew into `is_night`,
+  `source_regime` and `stable_atm` — features the model consumes directly.
+  **Now unified** (see below); at the time this was handled with a tolerance on
+  the join.
 - **Materializing the forecast chain from the CLI needs an explicit selection.**
   `--select "+h2sforecast/modeldata_forecast_15min_astronomical_day"` pulls in
   `sd_apcd/yearly_aggregated_all`, which is partitioned and fails with
@@ -475,9 +470,7 @@ First results, none of which were straightforward to compute under the old frame
 - `astro_day_date` is a `datetime.date` in memory but round-trips through parquet
   as a midnight timestamp. Harmless — it is midnight-normalized either way — but
   worth normalizing if it ever becomes a join key on the consumer side.
-- The train/serve `day_night` difference (astral vs OpenMeteo `is_day`) is
-  tolerated rather than eliminated. Worth deciding whether to unify at the
-  source.
+
 
 ## Resolved
 
@@ -495,3 +488,28 @@ First results, none of which were straightforward to compute under the old frame
 - **Retiring the clock-based assets.** `h2s_peaks` and `h2s_exceedance_periods`
   still publish the 6 AM / 6 PM split. Now that the astronomical versions exist
   side by side, decide whether and when to deprecate them.
+
+## Unified `day_night` source
+
+`modeldata_forecast_15min` previously derived `day_night` from OpenMeteo's
+`is_day` flag, making it the only one of the three producers not using astral —
+`data_for_models` (`hysplit_forecasting.py:627`) and `model_forecast`
+(`:1255`) already called `add_day_night()`. It now calls the same helper, so
+every `day_night` in the pipeline resolves to one function over one calendar.
+
+Why it mattered even though the two agreed: `is_night`, `source_regime` and
+`stable_atm` are all derived from `day_night` and are consumed directly by the
+model. A boundary-interval disagreement would have meant the model seeing a
+subtly different definition at serve time than it was trained on — the kind of
+skew that is invisible in aggregate metrics and hard to trace later.
+
+Measured impact: **zero rows change**. On the current forecast window the old
+`is_day` rule and astral agree on all 576 rows, so this removes a latent
+divergence rather than correcting live values.
+
+With one source, `modeldata_forecast_15min_astronomical_day` no longer needs the
+15-minute tolerance and joins **strictly**. That is the stronger guarantee: any
+disagreement now fails the asset, so reintroducing a second solar source cannot
+pass silently. `attach_astro_frame`'s `day_night_tolerance_minutes` parameter
+remains available, and tested, for any future input genuinely on a different
+solar model.

@@ -37,10 +37,6 @@ LOOKAHEAD_YEARS = 1
 #: The reframed data assets keep the existing multi-format output.
 DATA_FORMATS = ["csv", "parquet"]
 
-#: modeldata_forecast_15min derives day_night from OpenMeteo's is_day flag rather
-#: than from astral, so its labels may flip one 15-minute interval either side of
-#: sunrise/sunset. Disagreement further from a boundary than this still raises.
-FORECAST_DAY_NIGHT_TOLERANCE_MIN = 15.0
 
 
 @asset(
@@ -243,7 +239,8 @@ def modeldata_h2s_nofill_astronomical_day(context, modeldata_h2s_nofill, astrono
             "15-minute H2S forecast inference data reframed onto the sunset-to-sunset "
             "astronomical day, matching the training dataset's frame so night-relative "
             "features mean the same thing at train and serve time. Purely additive: "
-            "every original column is unchanged."
+            "every original column is unchanged. day_night comes from the shared "
+            "astronomical calendar, the same source as the training data."
         ),
         "variableMeasured": [
             "Wind Direction",
@@ -264,22 +261,11 @@ def modeldata_forecast_15min_astronomical_day(
     meta = context.assets_def.metadata_by_key[context.asset_key]
     logger = get_dagster_logger()
 
-    mismatches = astro_calendar.day_night_mismatches(
-        modeldata_forecast_15min, astronomical_calendar
-    )
-    if not mismatches.empty:
-        logger.info(
-            f"{len(mismatches)} rows where OpenMeteo is_day disagrees with astral "
-            f"(worst {mismatches['minutes_from_boundary'].max():.1f} min from a boundary); "
-            "existing labels are kept"
-        )
-
     before = len(modeldata_forecast_15min)
-    reframed = astro_calendar.attach_astro_frame(
-        modeldata_forecast_15min,
-        astronomical_calendar,
-        day_night_tolerance_minutes=FORECAST_DAY_NIGHT_TOLERANCE_MIN,
-    )
+    # Strict: modeldata_forecast_15min now takes day_night from the same shared
+    # calendar, so any disagreement at all is a regression, not a difference of
+    # solar model. This is what would fail if a second source were reintroduced.
+    reframed = astro_calendar.attach_astro_frame(modeldata_forecast_15min, astronomical_calendar)
     logger.info(
         f"Reframed {before} 15-minute rows onto "
         f"{reframed['astro_day_date'].nunique()} astronomical days"
@@ -293,7 +279,6 @@ def modeldata_forecast_15min_astronomical_day(
         meta.get("source"),
         meta.get("variableMeasured"),
     )
-    context.add_output_metadata({"day_night_source_mismatches": len(mismatches)})
     return reframed
 
 
