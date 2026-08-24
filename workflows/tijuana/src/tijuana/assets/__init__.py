@@ -38,6 +38,9 @@ from .openmeteo import (forecast,
                         weather_current_year,
                         forecast_15min,
                         weather_all_schedule)
+from .effluent_deficit import effluent_deficit_asset
+from .wind_grid import (wind_grid,
+                        wind_grid_schedule)
 from .synoptic import (synoptic_recent,
                        synoptic_historical,
                        synoptic_current_year,
