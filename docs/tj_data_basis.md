@@ -483,11 +483,6 @@ First results, none of which were straightforward to compute under the old frame
 
 ## Deferred
 
-- **Model-feature evaluation.** Whether `solar_elevation_deg` and
-  `night_fraction` improve model skill enough to enter `MODEL_FEATURES`, and
-  whether they can retire `hour_sin`/`hour_cos`/`month_sin`/`month_cos`. This
-  means retraining `data/discharge_tj/train_models_auto.py` and comparing skill —
-  separate work with its own success criteria, not a pipeline change.
 - **Retiring the clock-based assets.** `h2s_peaks` and `h2s_exceedance_periods`
   are now **marked deprecated** (see below) but still published and still
   updating. Actually withdrawing them needs an answer to "does anything outside
@@ -621,3 +616,64 @@ reachable while the timestamps were date-only.
 `sd_complaints_freshness_check` currently fails: the newest complaint is 6 days
 old against a 4-day threshold. That is source lag, unrelated to this work — it
 fails identically on the old and new timestamp fields.
+
+## Model-feature evaluation — answered: do not change `FEATURES`
+
+Run via `data/discharge_tj/evaluate_astro_features.py`.
+
+**Method.** `train_models_auto.py` uses a single chronological 80/20 split, which
+is fine for shipping a model but too fragile for comparing features: one number,
+no uncertainty, and its test block is one particular season in data whose
+exceedances concentrate in ISO weeks 6–15. Instead: walk-forward CV (expanding
+window, 4 contiguous test blocks, no fold trains on data following its test
+block), 3 seeds, 3 stations, every arm on identical folds so differences are
+paired. Seeds are averaged **before** testing — they are repeated fits on the
+same site-fold, not independent samples, and treating all 36 as independent
+would overstate significance.
+
+`night_fraction` is null by construction during the day, and `prepare_data()`
+ends with `dropna(subset=FEATURES)`, so adding it raw would have silently deleted
+every daytime row and made the arms incomparable. It enters as `night_phase`:
+the fraction at night, −1 during the day.
+
+**Result** (n = 12 site-folds per comparison):
+
+| arm | vs | metric | delta | 95% CI | p | verdict |
+|---|---|---|---|---|---|---|
+| +astro | baseline | R² | −0.0032 | [−0.0085, +0.0020] | 0.26 | no effect |
+| +astro | baseline | RMSE | +0.044 | [−0.017, +0.104] | 0.18 | no effect |
+| +astro | baseline | PR-AUC | +0.0039 | [−0.0049, +0.0128] | 0.40 | no effect |
+| replace cyclicals | baseline | R² | **−0.0086** | [−0.0145, −0.0027] | **0.015** | **worse** |
+| replace cyclicals | baseline | RMSE | **+0.118** | [+0.029, +0.208] | **0.025** | **worse** |
+| +astro, no H2S lags | no-lag baseline | R² | −0.0031 | [−0.0087, +0.0026] | 0.31 | no effect |
+| +astro, no H2S lags | no-lag baseline | PR-AUC | +0.0047 | [−0.0029, +0.0124] | 0.25 | no effect |
+
+So: **adding `night_fraction` and `solar_elevation_deg` does not improve skill,
+and retiring the hour/month cyclicals in their favour measurably hurts
+regression.** `FEATURES` should stay as it is.
+
+The confidence intervals make this a bounded negative rather than merely an
+underpowered one: any true improvement from the astro features is smaller than
+about 0.002 R², which is not worth a schema change.
+
+**Why, and it is not that the model ignores them.** With both present,
+`solar_elevation_deg` ranks **#5–#9** of 39 features and `night_phase` #6–#13 —
+*above* `hour_sin`, `month_sin`/`month_cos` and `is_night` (#33–34). The model
+prefers them; it just gains nothing, because they re-express information the
+baseline already carries. That the cyclicals still cannot be removed without cost
+suggests they hold a little the solar features do not — plausibly wall-clock
+rather than solar effects, since some complaint and activity patterns follow the
+clock, not the sun. That reading is a hypothesis, not a measurement.
+
+**A separate finding about the model.** Dropping the H2S lag/rolling features
+collapses skill from R² 0.363 to **0.068** and AUC 0.934 to **0.786**. This model
+is overwhelmingly an autocorrelation nowcast, leaning on recent H2S rather than
+on meteorology. Since `add_h2s_lag_features()` is documented as training-only,
+that gap is worth attention on its own terms — it says more about forecast
+headroom than any temporal encoding does.
+
+**Limitations.** XGBoost is not installed in this environment and is not a
+declared dependency, so this covers RandomForest only; `train_models_auto.py`
+auto-selects between the two, and the conclusion may not transfer to XGBoost.
+Twelve site-folds is modest power — enough to bound the effect at the level
+above, not to resolve differences of ~0.002 R².
