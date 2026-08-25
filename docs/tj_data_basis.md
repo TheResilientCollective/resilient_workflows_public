@@ -668,12 +668,79 @@ clock, not the sun. That reading is a hypothesis, not a measurement.
 **A separate finding about the model.** Dropping the H2S lag/rolling features
 collapses skill from R² 0.363 to **0.068** and AUC 0.934 to **0.786**. This model
 is overwhelmingly an autocorrelation nowcast, leaning on recent H2S rather than
-on meteorology. Since `add_h2s_lag_features()` is documented as training-only,
-that gap is worth attention on its own terms — it says more about forecast
-headroom than any temporal encoding does.
+on meteorology. Investigated below — it turned out to be the more consequential
+issue.
 
 **Limitations.** XGBoost is not installed in this environment and is not a
 declared dependency, so this covers RandomForest only; `train_models_auto.py`
 auto-selects between the two, and the conclusion may not transfer to XGBoost.
 Twelve site-folds is modest power — enough to bound the effect at the level
 above, not to resolve differences of ~0.002 R².
+
+## The H2S lag collapse — the published skill is a nowcast number
+
+Run via `data/discharge_tj/evaluate_forecast_horizon.py`.
+
+### What is happening
+
+`train_models_auto.py` trains on **true** H2S lags, and reports R² ≈ 0.36 and
+AUC ≈ 0.93. But those features do not exist at forecast time.
+`forecast_features.engineer_station_features()` synthesises them as an
+exponential decay from the last observation:
+
+```
+h2s_lag_1h      = last_H2S      * exp(-h/12)
+h2s_rolling_24h = last_24h_mean * exp(-h/36)
+```
+
+At 24 hours out that is 14% of the seed value; at 36 hours, 5%. These are the
+model's two highest-importance features (≈0.20–0.23 each). So the model is
+trained on one distribution and served another, and the headline metrics
+describe a nowcast the product does not actually make.
+
+### Skill by lead time
+
+Simulating forecasts exactly as they are issued — last-known state, decayed lags,
+walk-forward folds, 2 seeds:
+
+| lead | R² served | R² true-lag | R² no-lag | AUC served | AUC no-lag | bias served | bias no-lag |
+|---|---|---|---|---|---|---|---|
+| 1–6h | 0.245 | 0.496 | 0.263 | 0.823 | 0.795 | −2.9 | −2.9 |
+| 7–12h | 0.055 | 0.414 | **0.189** | 0.678 | **0.709** | −2.0 | **−0.9** |
+| 13–24h | 0.087 | 0.411 | **0.195** | 0.695 | **0.747** | −2.8 | **−1.3** |
+| 25–36h | 0.059 | 0.435 | **0.184** | 0.761 | 0.739 | −4.6 | **−2.0** |
+| 37–48h | 0.006 | 0.372 | **0.081** | 0.683 | **0.726** | −3.3 | **−1.0** |
+
+Three things follow.
+
+1. **The published R² overstates forecast skill by roughly 5–60×.** Beyond six
+   hours the served regression is close to uninformative (R² 0.006–0.087) against
+   a reported 0.36.
+2. **Predictions are biased low by 2–5 ppb**, and the mechanism is exactly the
+   decay: the lag features tell the model recent H2S was near zero, so it predicts
+   low. For an exceedance-warning product that is the dangerous direction — it
+   under-warns.
+3. **Dropping the lag features outright is better at every lead beyond six
+   hours** — 2–13× the R², better AUC at three of four buckets, and roughly half
+   the bias. A no-lag model also has no horizon dependence, because it never
+   depended on a decaying seed.
+
+The classifier is more robust than the regressor throughout: even served, AUC
+holds at 0.68–0.76, well above chance. If the product is "will it exceed
+tonight", that is the component to lean on.
+
+### Recommendation
+
+Train the forecast model on the features that exist at forecast time. Concretely:
+drop `h2s_lag_*` and `h2s_rolling_*` from the deployed forecast model, or keep
+them only for a separate ≤6h nowcast product where they genuinely help, and
+publish the operational metrics rather than the nowcast ones. This is a change to
+a deployed model and is not made here.
+
+### Limitations
+
+Every non-lag feature in this experiment is the **observed** weather, tide and
+flow at the target hour. A real forecast uses forecast weather, with its own
+error, so these curves are an upper bound on operational skill rather than an
+estimate of it — the true served numbers are lower than the table shows.
+RandomForest only, as before.
