@@ -22,6 +22,16 @@ additional columns.
 
 Pass 1 and pass 2 are done. Model-feature evaluation is deferred; see the end of this document.
 
+## Data basis for the figures below
+
+All measured figures in this document were recomputed against the **production**
+bucket (`resilentpublic`) on **2026-08-25**, after the astronomical assets were
+first materialized there. Earlier revisions quoted development-bucket (`test`)
+numbers over a shorter, sparser record — production carries 53,476 hourly rows
+against 17,212, covering 2023-11-20 to 2026-08-24. The direction of every finding
+was unchanged; several got stronger. Where a number is quoted below it is the
+production one.
+
 ## Decisions made
 
 | Question | Decision | Rationale |
@@ -370,22 +380,22 @@ The training data actually begins **2023-11-19**, slightly earlier than the
     | check | rows | astro days | nights | result |
     |---|---|---|---|---|
     | calendar | 455,808 | 4,749 (4,747 complete) | — | passed |
-    | training | 17,212 | 493 | 492 | passed |
-    | forecast | 576 | 3 | 2 | passed |
+    | training | 53,476 | 1,009 | 1,008 | passed |
+    | complaints | 7,689 | 1,002 | — | passed |
+    | nightly summary | 2,243 | 1,008 | — | passed |
 
 11. **Spot-check against real H2S events.** The largest observation in the record
-    is **602 ppb at 2026-03-30 00:00 at NESTOR - BES** — the worst possible case
-    for a midnight-anchored frame, since the peak lands exactly on the boundary.
-    Under the new frame it sits at `night_fraction` 0.424, mid-night of astro day
-    **2026-03-29**, whose night runs 20:00 → 06:00 across both calendar dates as
-    a single unit.
+    is **915 ppb at 2026-06-02 01:00 at NESTOR - BES** — an hour past midnight, so
+    a midnight-anchored frame splits the event from the evening that produced it.
+    Under the new frame it sits at `night_fraction` 0.52, mid-night of astro day
+    **2026-06-01**.
 
-    Across the whole training record:
+    Across the whole record:
 
-    - **4 of the top 5** nightly peaks occur on nights spanning two calendar dates;
-    - **56.5%** of all night observations (4,688 of 8,292) fall after midnight and
+    - **57.3%** of night observations (13,179 of 23,018) fall after midnight and
       would be attributed to the following calendar day;
-    - **669 of 712** night groups would be split in two by a midnight frame.
+    - **1,935 of 1,964** night groups — 98.5% — would be split in two by a
+      midnight frame.
 
     That is the quantified case for the reframing.
 
@@ -413,13 +423,13 @@ day/night boundary. Exceedance-hours on identical current data:
 
 | variant | >5 night | >5 day | >30 night | >30 day |
 |---|---|---|---|---|
-| clock 6–18 *(`h2s_peaks`)* | 1,945 | 682 | 311 | 51 |
-| true sun boundary *(new asset)* | 2,075 | 552 | 332 | 30 |
+| clock 6–18 *(`h2s_peaks`)* | 4,937 | 1,500 | 908 | 107 |
+| true sun boundary *(new asset)* | 5,223 | 1,214 | 947 | 68 |
 
 The clock split systematically under-counts night exceedances, because it calls
-06:00–06:59 "day" year-round and 18:00–19:59 "night" year-round. 8.7% of all
-valid hours are reclassified; the net effect is 130 exceedance-hours moving from
-day to night at 5 ppb and 21 at 30 ppb.
+06:00–06:59 "day" year-round and 18:00–19:59 "night" year-round. 8.9% of all
+valid hours are reclassified (4,081 of 45,969, 8.9%); the net effect is 286
+exceedance-hours moving from day to night at 5 ppb and 39 at 30 ppb.
 
 > **Correction.** An earlier revision of this document, and PR #58 as originally
 > opened, claimed a second cause: that `h2s_peaks` counts gap-filled values as
@@ -442,7 +452,7 @@ cannot diverge on the question. `h2s_peaks` gains one appended column,
 
 ### What the nightly summary gives you
 
-750 night × site rows over 492 nights, 34 columns. Peak H2S and its timing, hours
+2,243 night × site rows over 1,008 nights, 34 columns. Peak H2S and its timing, hours
 above 5/30 ppb, vector-mean wind, and the night's flow, effluent, tide and
 meteorology. Timing is reported as `peak_night_fraction` as well as raw hours,
 because night length here ranges from 9.7 to 14.0 hours and raw hours are not
@@ -455,13 +465,14 @@ wind boxes the compass.
 
 First results, none of which were straightforward to compute under the old frame:
 
-- Peaks cluster **mid-night**: for the 124 nights above 30 ppb, median
-  `peak_night_fraction` 0.42, IQR 0.27–0.65.
-- The worst nights concentrate in **ISO weeks 6–15** (late winter into spring).
-- High-H2S nights are *less* directionally steady than quiet ones (0.67 vs 0.80),
-  at a similar mean bearing (~180°).
-- All five worst nights sat at the **2.1 m³/s dry-season baseline flow**, not at
-  high flow.
+- Peaks cluster **mid-night**: for the 342 nights above 30 ppb, median
+  `peak_night_fraction` 0.48, IQR 0.33–0.71.
+- The worst nights concentrate in **ISO weeks 12–21** (spring).
+- High-H2S nights are *less* directionally steady than quiet ones (0.67 vs 0.79),
+  at a similar mean bearing (~190°).
+- Four of the five worst nights sat at the **2.1 m³/s dry-season baseline flow**;
+  the exception (703 ppb at SAN YSIDRO, 2025-01-26) came during a 25.7 m³/s storm
+  flow, so high H2S is not confined to low-flow conditions.
 
 ## Open items
 
@@ -578,7 +589,7 @@ and the event path cannot disagree about the same instant; a test asserts it.
 | asset | contents |
 |---|---|
 | `complaints/sd_complaints_astronomical_day` | 7,689 complaints on the frame, 1,002 astronomical days |
-| `h2sforecast/h2s_nightly_summary_with_complaints` | the nightly summary plus per-night complaint counts |
+| `h2sforecast/h2s_nightly_summary_with_complaints` | 2,243 night-site rows; 2,045 have at least one complaint in the same astronomical day |
 
 Complaint counts are night-wide, not per-site: a complaint's location is not
 matched to a monitoring station, so the count is attached to every site row for
@@ -603,12 +614,13 @@ notably earlier than H2S peaks, which sit at 0.42.
 
 | that night's H2S peak | nights | complaints/night | at night |
 |---|---|---|---|
-| ≤ 5 ppb | 12 | 4.4 | 1.3 |
-| 5–30 | 75 | 7.7 | 4.1 |
-| 30–100 | 35 | 10.4 | 4.8 |
-| > 100 | 36 | **20.9** | 11.4 |
+| ≤ 5 ppb | 181 | 2.5 | 0.6 |
+| 5–30 | 244 | 5.1 | 2.2 |
+| 30–100 | 120 | 7.4 | 3.4 |
+| > 100 | 111 | **14.8** | 7.6 |
 
-Spearman 0.52 between nightly H2S peak and complaint count. None of this was
+Spearman **0.59** between nightly H2S peak and complaint count (0.54 between
+hours above 30 ppb and night-time complaints). None of this was
 reachable while the timestamps were date-only.
 
 ### Note
@@ -640,21 +652,28 @@ the fraction at night, −1 during the day.
 
 | arm | vs | metric | delta | 95% CI | p | verdict |
 |---|---|---|---|---|---|---|
-| +astro | baseline | R² | −0.0032 | [−0.0085, +0.0020] | 0.26 | no effect |
-| +astro | baseline | RMSE | +0.044 | [−0.017, +0.104] | 0.18 | no effect |
-| +astro | baseline | PR-AUC | +0.0039 | [−0.0049, +0.0128] | 0.40 | no effect |
-| replace cyclicals | baseline | R² | **−0.0086** | [−0.0145, −0.0027] | **0.015** | **worse** |
-| replace cyclicals | baseline | RMSE | **+0.118** | [+0.029, +0.208] | **0.025** | **worse** |
-| +astro, no H2S lags | no-lag baseline | R² | −0.0031 | [−0.0087, +0.0026] | 0.31 | no effect |
-| +astro, no H2S lags | no-lag baseline | PR-AUC | +0.0047 | [−0.0029, +0.0124] | 0.25 | no effect |
+| +astro | baseline | R² | −0.0138 | [−0.0365, +0.0088] | 0.26 | no effect |
+| +astro | baseline | RMSE | +0.028 | [−0.006, +0.062] | 0.13 | no effect |
+| +astro | baseline | AUC | −0.0003 | [−0.0011, +0.0006] | 0.53 | no effect |
+| replace cyclicals | baseline | R² | −0.0043 | [−0.0094, +0.0009] | 0.13 | no effect |
+| replace cyclicals | baseline | RMSE | +0.037 | [−0.024, +0.099] | 0.26 | no effect |
+| +astro, no H2S lags | no-lag baseline | R² | +0.043 | [−0.036, +0.122] | 0.31 | no effect |
+| +astro, no H2S lags | no-lag baseline | AUC | +0.0011 | [−0.0013, +0.0036] | 0.38 | no effect |
 
-So: **adding `night_fraction` and `solar_elevation_deg` does not improve skill,
-and retiring the hour/month cyclicals in their favour measurably hurts
-regression.** `FEATURES` should stay as it is.
+**Every comparison is null.** Adding `night_fraction` and `solar_elevation_deg`
+changes nothing, in the full model or in the harder no-lag regime.
 
-The confidence intervals make this a bounded negative rather than merely an
-underpowered one: any true improvement from the astro features is smaller than
-about 0.002 R², which is not worth a schema change.
+> **A finding that did not replicate.** On the smaller development record,
+> replacing the hour/month cyclicals looked *significantly worse* (R² −0.0086,
+> p=0.015; RMSE +0.118, p=0.025). On the full production record the same
+> comparison is null (p=0.13 and 0.26). That earlier result was a marginal
+> p-value on roughly a third of the data and did not survive. The practical
+> conclusion is unchanged — there is still no reason to swap the cyclicals out,
+> since nothing is gained — but the claim that removing them *hurts* is
+> withdrawn.
+
+So: **`FEATURES` should stay as it is**, on the grounds that the astronomical
+features add nothing measurable, not that the alternative is harmful.
 
 **Why, and it is not that the model ignores them.** With both present,
 `solar_elevation_deg` ranks **#5–#9** of 39 features and `night_phase` #6–#13 —
@@ -666,7 +685,7 @@ rather than solar effects, since some complaint and activity patterns follow the
 clock, not the sun. That reading is a hypothesis, not a measurement.
 
 **A separate finding about the model.** Dropping the H2S lag/rolling features
-collapses skill from R² 0.363 to **0.068** and AUC 0.934 to **0.786**. This model
+collapses skill from R² 0.515 to **−1.85** and AUC 0.956 to **0.822**. This model
 is overwhelmingly an autocorrelation nowcast, leaning on recent H2S rather than
 on meteorology. Investigated below — it turned out to be the more consequential
 issue.
@@ -705,25 +724,26 @@ walk-forward folds, 2 seeds:
 
 | lead | R² served | R² true-lag | R² no-lag | AUC served | AUC no-lag | bias served | bias no-lag |
 |---|---|---|---|---|---|---|---|
-| 1–6h | 0.245 | 0.496 | 0.263 | 0.823 | 0.795 | −2.9 | −2.9 |
-| 7–12h | 0.055 | 0.414 | **0.189** | 0.678 | **0.709** | −2.0 | **−0.9** |
-| 13–24h | 0.087 | 0.411 | **0.195** | 0.695 | **0.747** | −2.8 | **−1.3** |
-| 25–36h | 0.059 | 0.435 | **0.184** | 0.761 | 0.739 | −4.6 | **−2.0** |
-| 37–48h | 0.006 | 0.372 | **0.081** | 0.683 | **0.726** | −3.3 | **−1.0** |
+| 1–6h | 0.066 | 0.533 | 0.060 | 0.803 | 0.791 | −0.7 | +0.9 |
+| 7–12h | 0.106 | 0.648 | **0.179** | 0.731 | **0.779** | −2.8 | **+0.1** |
+| 13–24h | 0.094 | 0.499 | 0.083 | 0.767 | **0.787** | −2.3 | **+0.9** |
+| 25–36h | 0.055 | 0.600 | **0.120** | 0.757 | **0.783** | −3.2 | **+0.7** |
+| 37–48h | 0.020 | 0.466 | **0.062** | 0.725 | **0.784** | −3.0 | **+1.0** |
 
 Three things follow.
 
-1. **The published R² overstates forecast skill by roughly 5–60×.** Beyond six
-   hours the served regression is close to uninformative (R² 0.006–0.087) against
-   a reported 0.36.
-2. **Predictions are biased low by 2–5 ppb**, and the mechanism is exactly the
+1. **The published R² overstates forecast skill by roughly 5–25×**, at *every*
+   lead including the shortest. Served R² is 0.02–0.11 against a reported 0.47–0.65.
+2. **Predictions are biased low by 0.7–3.2 ppb**, and the mechanism is exactly the
    decay: the lag features tell the model recent H2S was near zero, so it predicts
    low. For an exceedance-warning product that is the dangerous direction — it
    under-warns.
-3. **Dropping the lag features outright is better at every lead beyond six
-   hours** — 2–13× the R², better AUC at three of four buckets, and roughly half
-   the bias. A no-lag model also has no horizon dependence, because it never
-   depended on a decaying seed.
+3. **Dropping the lag features is better on the measures that matter.** AUC is
+   higher at four of five leads, and the bias essentially disappears (−3.2…−0.7
+   becomes +0.1…+1.0, i.e. a slight over-prediction, the safe direction for a
+   warning product). On R² it is mixed — better at 7–12h, 25–36h and 37–48h,
+   about equal at 1–6h and 13–24h. A no-lag model also has no horizon dependence,
+   because it never depended on a decaying seed.
 
 The classifier is more robust than the regressor throughout: even served, AUC
 holds at 0.68–0.76, well above chance. If the product is "will it exceed
@@ -731,11 +751,14 @@ tonight", that is the component to lean on.
 
 ### Recommendation
 
-Train the forecast model on the features that exist at forecast time. Concretely:
-drop `h2s_lag_*` and `h2s_rolling_*` from the deployed forecast model, or keep
-them only for a separate ≤6h nowcast product where they genuinely help, and
-publish the operational metrics rather than the nowcast ones. This is a change to
-a deployed model and is not made here.
+Train the forecast model on the features that exist at forecast time — drop
+`h2s_lag_*` and `h2s_rolling_*` from the deployed forecast model — and publish the
+operational metrics rather than the nowcast ones. On the production record the
+case rests on **bias and AUC rather than R²**: removing the decayed lags takes the
+systematic 0.7–3.2 ppb under-prediction to a slight over-prediction and raises AUC
+at four of five leads, while R² is mixed. For an exceedance-warning product that
+trade is worth taking, because the current failure direction is under-warning.
+This is a change to a deployed model and is not made here.
 
 ### Limitations
 
