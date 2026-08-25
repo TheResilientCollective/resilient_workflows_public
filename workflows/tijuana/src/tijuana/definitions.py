@@ -29,6 +29,10 @@ asset_checks = [
     assets_pkg.current_freshness_check,
     assets_pkg.synoptic_recent_freshness_check,
     assets_pkg.effluent_flow_freshness_check,
+    assets_pkg.astronomical_calendar_check,
+    assets_pkg.modeldata_h2s_nofill_astronomical_day_check,
+    assets_pkg.modeldata_forecast_15min_astronomical_day_check,
+    assets_pkg.h2s_nightly_summary_check,
 ]
 
 all_schedules = [

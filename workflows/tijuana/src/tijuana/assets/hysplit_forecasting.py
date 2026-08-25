@@ -14,10 +14,9 @@ from dagster import (asset,
 import duckdb
 from resilient_core.resources import minio
 from resilient_core.utils import store_assets
-from ..utils import forecast_features
+from ..utils import astro_calendar, forecast_features
+from ..utils.h2s_exceedance import aggregate_exceedances
 #from .sd_apcd import s3_output_path as apcd_s3_output_path
-from astral import LocationInfo
-from astral.sun import sun
 
 OUTPUT_PATH='tijuana/forecast_data/output/'
 LATEST='tijuana/forecast_data'
@@ -163,31 +162,14 @@ def add_tidal_encoding(tidal_df):
 
 
 def add_day_night(df, logger):
-    """Add day_night column based on San Diego sunrise/sunset times. Reads from df['time'] column."""
-    san_diego_location = LocationInfo(
-        name='San Diego',
-        region='USA',
-        timezone='America/Los_Angeles',
-        latitude=32.7157,
-        longitude=-117.1611
-    )
-    unique_dates = df['time'].dt.date.unique()
-    daily_sun_times = {}
-    for date in unique_dates:
-        s = sun(san_diego_location.observer, date=date, tzinfo=san_diego_location.timezone)
-        daily_sun_times[date] = {'sunrise': s['sunrise'], 'sunset': s['sunset']}
+    """Add day_night column based on San Diego sunrise/sunset times. Reads from df['time'] column.
 
-    def get_day_night(timestamp, sun_times_dict):
-        date_only = timestamp.date()
-        if date_only in sun_times_dict:
-            sun_info = sun_times_dict[date_only]
-            if sun_info['sunrise'] <= timestamp < sun_info['sunset']:
-                return 'day'
-            else:
-                return 'night'
-        return 'unknown'
-
-    df['day_night'] = df['time'].apply(lambda x: get_day_night(x, daily_sun_times))
+    Delegates to the shared astronomical calendar so this asset module and the
+    astronomical_day datasets cannot drift apart. Output is unchanged from the
+    original per-asset implementation, which is pinned by
+    tests/test_astro_calendar.py::test_add_day_night_helper_matches_original.
+    """
+    df['day_night'] = astro_calendar.label_day_night(df['time'])
     return df
 
 
@@ -807,10 +789,23 @@ def data_for_hysplit(context, data_for_models):
             key=AssetKey(['h2sforecast', 'modeldata_h2s_nofill'])
         )
     },
+    tags={"deprecated": "true"},
     metadata={
         "source": "San Diego APCD H2S data analysis"
-        , "description": "Hourly counts of H2S threshold exceedances by day/night periods"
+        , "description": (
+            "DEPRECATED - superseded by h2s_peaks_astronomical_day. "
+            "Hourly counts of H2S threshold exceedances by day/night periods, where "
+            "day/night is split at a fixed 6 AM / 6 PM clock boundary. The replacement "
+            "splits at true sunset/sunrise; because the clock boundary calls 06:00-06:59 "
+            "'day' year-round and 18:00-19:59 'night' year-round, it systematically "
+            "under-counts night exceedances - 130 exceedance-hours at 5 ppb and 21 at "
+            "30 ppb sit on the wrong side of it. This dataset is still published and "
+            "still updating; new consumers should use the astronomical version, where "
+            "the key column is astro_day_date rather than date."
+        )
         , "variableMeasured": ["H2S", "Exceedance Counts"]
+        , "deprecated": True
+        , "superseded_by": "h2sforecast/h2s_peaks_astronomical_day"
     },
     automation_condition=AutomationCondition.eager()
 )
@@ -818,8 +813,19 @@ def h2s_peaks_analysis(context, modeldata_h2s):
     """
     Create hourly counts of H2S exceedances for day and night periods
 
+    DEPRECATED: superseded by h2s_peaks_astronomical_day, which splits day and
+    night at true sunset/sunrise instead of a fixed clock boundary. Still
+    published and maintained until consumers have migrated.
+
     Counts hourly occurrences when H2S exceeds 5 ppb and 30 ppb thresholds,
     separated by day (6 AM - 6 PM) and night (6 PM - 6 AM) periods.
+
+    Exceedance counts, max_h2s and mean_h2s cover measured observations only.
+    The input is modeldata_h2s_nofill (despite the parameter being named
+    modeldata_h2s), where unmeasured H2S is already null, so count_filled is 0 in
+    practice. Excluding gap-filled values is enforced in aggregate_exceedances
+    regardless, so the counts stay correct if this is ever repointed at the
+    filled modeldata_h2s.
     """
     meta = context.assets_def.metadata_by_key[context.asset_key]
     description = meta["description"]
@@ -868,28 +874,33 @@ def h2s_peaks_analysis(context, modeldata_h2s):
             dagster_logger.warning("No valid H2S measurements found")
             return pd.DataFrame()
 
-        # Create threshold exceedance flags
-        h2s_valid['exceeds_5'] = h2s_valid['H2S'] > 5
-        h2s_valid['exceeds_30'] = h2s_valid['H2S'] > 30
+        # Exceedance counts over measured observations only. Gap-filled values are
+        # excluded from the counts and from max/mean; a synthetic reading must not
+        # be reported as an observed exceedance. The nofill input already nulls
+        # them, so this is a guard rather than a behaviour change. Shared with
+        # h2s_peaks_astronomical_day so the two assets cannot diverge on it.
+        daily_totals = aggregate_exceedances(
+            h2s_valid, group_keys=['site_name', 'date', 'period']
+        )
+        if daily_totals.empty:
+            dagster_logger.warning("No measured H2S observations to summarise")
+            return pd.DataFrame()
 
-        dagster_logger.info(f"Processing {len(h2s_valid)} valid H2S measurements")
-        dagster_logger.info(f"Found {h2s_valid['exceeds_5'].sum()} exceedances > 5 ppb")
-        dagster_logger.info(f"Found {h2s_valid['exceeds_30'].sum()} exceedances > 30 ppb")
-
-        # Calculate daily totals by site and period (no hourly summaries)
-        daily_totals = h2s_valid.groupby(['site_name', 'date', 'period']).agg({
-            'exceeds_5': 'sum',
-            'exceeds_30': 'sum',
-            'H2S': ['count', 'max', 'mean'],
-            'h2s_measured': lambda x: (~x).sum()
-        }).reset_index()
-
-        # Flatten column names for daily totals
-        daily_totals.columns = [
+        # Preserve the original column order; measured_observations is appended.
+        daily_totals = daily_totals[[
             'site_name', 'date', 'period',
             'count_exceeds_5', 'count_exceeds_30',
-            'total_measurements', 'max_h2s', 'mean_h2s', 'count_filled'
-        ]
+            'total_measurements', 'max_h2s', 'mean_h2s', 'count_filled',
+            'measured_observations',
+        ]]
+
+        dagster_logger.info(
+            f"Processing {len(h2s_valid)} valid H2S rows "
+            f"({int(daily_totals['measured_observations'].sum())} measured, "
+            f"{int(daily_totals['count_filled'].sum())} gap-filled and excluded from counts)"
+        )
+        dagster_logger.info(f"Found {int(daily_totals['count_exceeds_5'].sum())} measured exceedances > 5 ppb")
+        dagster_logger.info(f"Found {int(daily_totals['count_exceeds_30'].sum())} measured exceedances > 30 ppb")
 
         daily_totals['summary_type'] = 'daily_by_period'
         daily_totals['date_processed'] = datetime.now().isoformat()
@@ -1057,14 +1068,28 @@ def h2s_wind_lag_analysis(context, modeldata_h2s):
     },
     metadata={
         "source": "San Diego APCD H2S exceedance analysis"
-        , "description": "Filtered datasets for day/night periods with H2S exceedances above thresholds"
+        , "description": (
+            "DEPRECATED - superseded by h2s_exceedance_periods_astronomical_day. "
+            "Filtered datasets for day/night periods with H2S exceedances above "
+            "thresholds, windowed on a fixed 6 AM / 6 PM clock boundary. It inherits "
+            "that boundary from h2s_peaks, so the selected periods differ from the "
+            "astronomical version. Still published and still updating; new consumers "
+            "should use the astronomical version."
+        )
         , "variableMeasured": ["H2S Exceedances", "Day/Night Periods"]
+        , "deprecated": True
+        , "superseded_by": "h2sforecast/h2s_exceedance_periods_astronomical_day"
     },
+    tags={"deprecated": "true"},
     automation_condition=AutomationCondition.eager()
 )
 def h2s_exceedance_periods_filter(context, h2s_peaks, modeldata_h2s):
     """
     Return hourly model data for periods where H2S exceedances occurred.
+
+    DEPRECATED: superseded by h2s_exceedance_periods_astronomical_day. This
+    windows on the 6 AM / 6 PM clock split it inherits from h2s_peaks. Still
+    published and maintained until consumers have migrated.
 
     Creates two datasets with full hourly environmental data (H2S, weather, streamflow, tidal):
     1. Hours within day/night periods where H2S exceeded 5 ppb
@@ -1481,8 +1506,12 @@ def modeldata_forecast_15min(
             .transform(lambda x: x.rolling(window=n_rows, min_periods=1).max())
         )
 
-    # Derive day_night from OpenMeteo is_day flag (avoids re-computing astral sunrise/sunset)
-    weather_df["day_night"] = weather_df["is_day"].map({1: "day", 0: "night"}).fillna("night")
+    # day_night comes from the shared astronomical calendar, the same source used by
+    # data_for_models and model_forecast. Previously this derived it from OpenMeteo's
+    # is_day flag, which is a different solar model: the two agreed on all current
+    # data but were free to disagree at the interval straddling sunrise/sunset, which
+    # would put a train/serve skew into is_night, source_regime and stable_atm.
+    weather_df = add_day_night(weather_df, logger)
 
     # Guard: wind_direction_10m is required by add_inference_features but may be absent
     # in data materialized before it was added to MINUTELY_15_VARIABLES.
