@@ -66,8 +66,10 @@ def get_sd_complaints(context) -> None:
     params = {
         "where": where,
         "outFields": (
-            "nature_of_complaint,date_received,record_number,record_status,"
-            "investigation_outcome,response_duration__hours_,x_coordinate,"
+            # date_and_time_received carries the real time of day; date_received is
+            # date-only (local midnight), so it cannot support any sub-daily analysis.
+            "nature_of_complaint,date_received,date_and_time_received,record_number,"
+            "record_status,investigation_outcome,response_duration__hours_,x_coordinate,"
             "y_coordinate,cross_street___intersection,zip,city"
         ),
         "returnGeometry": "true",
@@ -104,8 +106,29 @@ def sd_complaints(context):
             all_features.extend(data.get("features", []))
     featueres = {"type": "FeatureCollection", "features": all_features}
     complaints_gdf = gpd.GeoDataFrame.from_features(featueres)
-    complaints_gdf['datetime'] = pd.to_datetime(complaints_gdf['date_received'], unit='ms')
-    complaints_gdf['datetime']=complaints_gdf['datetime'].dt.tz_localize('US/Pacific')
+    # ArcGIS epoch-ms fields are UTC. This previously did tz_localize('US/Pacific')
+    # on the naive UTC value, which relabelled rather than converted and published
+    # every complaint at a spurious 07:00/08:00 local. Convert, do not localize.
+    #
+    # Prefer date_and_time_received (real time of day) and fall back to
+    # date_received (date-only, local midnight) for records or raw extracts that
+    # predate it. time_of_day_known marks which is which, so sub-daily analysis can
+    # exclude the date-only rows instead of treating midnight as a real observation.
+    received_ms = pd.to_numeric(
+        complaints_gdf.get('date_and_time_received', pd.Series(index=complaints_gdf.index, dtype='float64')),
+        errors='coerce',
+    )
+    date_only_ms = pd.to_numeric(complaints_gdf['date_received'], errors='coerce')
+    complaints_gdf['time_of_day_known'] = received_ms.notna()
+    complaints_gdf['datetime'] = (
+        pd.to_datetime(received_ms.fillna(date_only_ms), unit='ms', utc=True)
+        .dt.tz_convert('America/Los_Angeles')
+    )
+    known = int(complaints_gdf['time_of_day_known'].sum())
+    get_dagster_logger().info(
+        f"complaints: {known}/{len(complaints_gdf)} rows have a real time of day; "
+        f"{len(complaints_gdf) - known} fall back to date-only (local midnight)"
+    )
     complaints_gdf['date'] = complaints_gdf['datetime'].dt.strftime('%Y-%m-%d')
     complaints_gdf.dropna(how='any', subset=['x_coordinate', 'y_coordinate','geometry'], inplace=True)
     complaints_gdf= complaints_gdf[(complaints_gdf['x_coordinate']!=0) | (complaints_gdf['y_coordinate']!=0)]

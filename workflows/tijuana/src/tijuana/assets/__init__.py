@@ -63,6 +63,11 @@ from .astronomical_night_analysis import (
     h2s_exceedance_periods_astronomical_day,
     h2s_nightly_summary_check,
 )
+from .complaints_astronomical_day import (
+    sd_complaints_astronomical_day,
+    h2s_nightly_summary_with_complaints,
+    sd_complaints_astronomical_day_check,
+)
 from .hysplit_forecasting import (
     data_for_models,modeldata_h2s_nofill,
     data_for_hysplit,

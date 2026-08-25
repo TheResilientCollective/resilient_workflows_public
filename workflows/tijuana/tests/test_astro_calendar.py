@@ -638,3 +638,116 @@ def test_summary_counts_nights_that_cross_midnight(reframed):
     # split a midnight-anchored frame would have introduced.
     assert summary["nights_crossing_midnight"] > 0
     assert summary["nights_crossing_midnight"] <= summary["nights_with_data"] * 2
+
+
+# --------------------------------------------------------------------------
+# Event path: irregular timestamps (complaints, spills, ...)
+# --------------------------------------------------------------------------
+
+
+def test_event_frame_agrees_with_the_grid_frame(hourly):
+    """The two paths must describe the same instant identically.
+
+    frame_for_timestamps computes solar geometry per timestamp; build_astro_calendar
+    tiles a grid. They share _frame_for_index precisely so they cannot disagree --
+    this asserts it on real grid instants.
+    """
+    sample = hourly.iloc[::97].reset_index(drop=True)
+    event = ac.frame_for_timestamps(sample["time"])
+    for col in (
+        "astro_day_date",
+        "astro_year",
+        "astro_week_of_year",
+        "night_of_year",
+        "day_night",
+        "is_night",
+        "night_length_hours",
+        "hours_into_astro_day",
+        "night_fraction",
+    ):
+        pd.testing.assert_series_equal(
+            event[col].reset_index(drop=True),
+            sample[col].reset_index(drop=True),
+            check_names=False,
+        )
+
+
+def test_event_frame_handles_irregular_and_unsorted_times(cal):
+    times = pd.to_datetime(
+        [
+            "2024-03-14 22:47:13",
+            "2024-01-02 03:11:00",
+            "2024-07-04 12:00:30",
+            "2024-11-03 01:30:00",  # inside the repeated fall-back hour
+        ]
+    ).tz_localize(TZ, ambiguous=True)
+    frame = ac.frame_for_timestamps(times)
+    assert len(frame) == 4
+    assert frame["astro_day_date"].notna().all()
+    inside = (frame["time"] >= frame["astro_day_start"]) & (
+        frame["time"] < frame["astro_day_end"]
+    )
+    assert inside.all()
+
+
+def test_event_frame_marks_every_day_complete(cal):
+    """Completeness describes coverage of a generated range, meaningless for events."""
+    times = pd.to_datetime(["2024-05-01 22:00", "2024-05-02 04:00"]).tz_localize(TZ)
+    assert ac.frame_for_timestamps(times)["astro_day_complete"].all()
+
+
+def test_event_frame_rejects_naive_timestamps():
+    with pytest.raises(TypeError, match="tz-aware"):
+        ac.frame_for_timestamps(pd.to_datetime(["2024-01-01 12:00"]))
+
+
+def test_an_evening_event_and_next_morning_share_one_astro_day():
+    """The property that makes complaints linkable to overnight H2S events."""
+    times = pd.to_datetime(["2024-02-10 21:30", "2024-02-11 08:15"]).tz_localize(TZ)
+    frame = ac.frame_for_timestamps(times)
+    assert frame["astro_day_date"].nunique() == 1
+    assert frame["astro_day_date"].iloc[0] == dt.date(2024, 2, 10)
+    # ... even though they fall on two different calendar dates.
+    assert frame["time"].dt.date.nunique() == 2
+    assert list(frame["day_night"]) == ["night", "day"]
+
+
+# --------------------------------------------------------------------------
+# attach_astro_frame_to_events
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def events() -> pd.DataFrame:
+    times = pd.to_datetime(
+        ["2024-02-10 21:30", "2024-02-11 08:15", "2024-06-21 23:59", "2024-09-02 13:00"]
+    ).tz_localize(TZ)
+    return pd.DataFrame({"reported_at": times, "kind": ["Odor", "Odor", "Dust", "Smoke"]})
+
+
+def test_attach_events_preserves_rows_and_order(events):
+    out = ac.attach_astro_frame_to_events(events, time_col="reported_at")
+    assert len(out) == len(events)
+    assert list(out["kind"]) == list(events["kind"])
+    pd.testing.assert_series_equal(out["reported_at"], events["reported_at"])
+    assert out["astro_day_date"].notna().all()
+
+
+def test_attach_events_keeps_null_timestamps_as_null_frame(events):
+    with_gap = pd.concat(
+        [events, pd.DataFrame({"reported_at": [pd.NaT], "kind": ["Odor"]})], ignore_index=True
+    )
+    with_gap["reported_at"] = pd.to_datetime(with_gap["reported_at"]).dt.tz_convert(TZ)
+    out = ac.attach_astro_frame_to_events(with_gap, time_col="reported_at")
+    assert len(out) == len(with_gap)
+    assert pd.isna(out["astro_day_date"].iloc[-1])
+    assert out["astro_day_date"].iloc[:-1].notna().all()
+
+
+def test_attach_events_rejects_naive_and_missing_columns(events):
+    naive = events.copy()
+    naive["reported_at"] = naive["reported_at"].dt.tz_localize(None)
+    with pytest.raises(TypeError, match="tz-aware"):
+        ac.attach_astro_frame_to_events(naive, time_col="reported_at")
+    with pytest.raises(KeyError):
+        ac.attach_astro_frame_to_events(events, time_col="nope")

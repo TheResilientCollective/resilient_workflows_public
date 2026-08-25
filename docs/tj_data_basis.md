@@ -468,8 +468,11 @@ First results, none of which were straightforward to compute under the old frame
 - Whether the reframed datasets should also be published as year-partitioned
   parquet for efficient DuckDB scans, matching the `H2S_PATH` pattern.
 - `astro_day_date` is a `datetime.date` in memory but round-trips through parquet
-  as a midnight timestamp. Harmless — it is midnight-normalized either way — but
-  worth normalizing if it ever becomes a join key on the consumer side.
+  as a midnight timestamp, and cannot be written to geojson at all (geopandas
+  converts datetime64 columns to ISO strings but leaves object-dtype dates alone).
+  `sd_complaints_astronomical_day` casts it to a string for the stored copy only,
+  keeping real dates on the returned frame so downstream joins still work. Worth
+  normalizing the dtype at source if more geo-bearing datasets are reframed.
 
 
 ## Resolved
@@ -538,3 +541,83 @@ publishing. Options 3 and 4 both need the consumer question answered first.
 Migration note for consumers: the astronomical tables are not drop-in. The key
 column is `astro_day_date` rather than `date`, with the frame's descriptors
 alongside.
+
+## Complaints on the astronomical day
+
+`sd_complaints` is the first **event** dataset on the frame, and it needed two
+prerequisites before framing was even possible.
+
+### The source field was date-only
+
+`sd_complaints` requested `date_received`, which carries **no time of day** — every
+value converts to exactly 00:00 local. Framing on it would have put every
+complaint at local midnight: always "night", always in the *previous* astro day.
+A uniform off-by-one, not an analysis.
+
+The source layer already exposes `date_and_time_received`, with real times across
+the full 24 hours. The pipeline now requests it and falls back to `date_received`
+only where it is missing, flagging which is which in a new `time_of_day_known`
+column so date-only rows can be excluded from sub-daily work. After backfilling
+the year partitions, **7,705 of 7,705 rows have a real time of day**.
+
+### A timezone bug
+
+`sd_complaints.py` did `to_datetime(unit='ms')` then `tz_localize('US/Pacific')`.
+ArcGIS epoch-ms is UTC, so this *relabelled* rather than converted, publishing
+every complaint at a spurious **07:00/08:00 local**. The `date` column survived it
+(both land on the same calendar date), but any hour-of-day analysis on the
+published `datetime` was reading an artifact. Now `tz_localize('UTC')` then
+`tz_convert`.
+
+### Framing events rather than grids
+
+Events are irregular, so the exact-join path in `attach_astro_frame()` does not
+apply. `frame_for_timestamps()` computes the frame directly from solar geometry
+per timestamp — exact, rather than snapping to the nearest grid row — and
+`attach_astro_frame_to_events()` attaches it preserving row count and order.
+Both share `_frame_for_index()` with `build_astro_calendar()`, so the grid path
+and the event path cannot disagree about the same instant; a test asserts it.
+
+### New assets
+
+| asset | contents |
+|---|---|
+| `complaints/sd_complaints_astronomical_day` | 7,689 complaints on the frame, 1,002 astronomical days |
+| `h2sforecast/h2s_nightly_summary_with_complaints` | the nightly summary plus per-night complaint counts |
+
+Complaint counts are night-wide, not per-site: a complaint's location is not
+matched to a monitoring station, so the count is attached to every site row for
+that night. This is the one modelling choice in the linkage and it is recorded in
+the dataset description.
+
+### What it shows
+
+**Odour is a night phenomenon; the other complaint types are not.**
+
+| nature_of_complaint | n | % at night |
+|---|---|---|
+| Odor | 6,363 | **44.4%** |
+| Smoke | 142 | 34.5% |
+| Asbestos | 213 | 9.4% |
+| Dust | 475 | 6.3% |
+
+Night complaints arrive early in the night (median `night_fraction` 0.30) —
+notably earlier than H2S peaks, which sit at 0.42.
+
+**Complaints track H2S nights**, at NESTOR - BES:
+
+| that night's H2S peak | nights | complaints/night | at night |
+|---|---|---|---|
+| ≤ 5 ppb | 12 | 4.4 | 1.3 |
+| 5–30 | 75 | 7.7 | 4.1 |
+| 30–100 | 35 | 10.4 | 4.8 |
+| > 100 | 36 | **20.9** | 11.4 |
+
+Spearman 0.52 between nightly H2S peak and complaint count. None of this was
+reachable while the timestamps were date-only.
+
+### Note
+
+`sd_complaints_freshness_check` currently fails: the newest complaint is 6 days
+old against a 4-day threshold. That is source lag, unrelated to this work — it
+fails identically on the old and new timestamp fields.

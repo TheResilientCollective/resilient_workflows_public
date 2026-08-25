@@ -33,6 +33,7 @@ asset_checks = [
     assets_pkg.modeldata_h2s_nofill_astronomical_day_check,
     assets_pkg.modeldata_forecast_15min_astronomical_day_check,
     assets_pkg.h2s_nightly_summary_check,
+    assets_pkg.sd_complaints_astronomical_day_check,
 ]
 
 all_schedules = [

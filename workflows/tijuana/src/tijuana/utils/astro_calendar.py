@@ -200,7 +200,44 @@ def build_astro_calendar(
         tz="UTC",
     ).tz_convert(TZ)
 
-    df = pd.DataFrame({"time": grid})
+    if end_year is None:
+        end_year = start_year
+    if end_year < start_year:
+        raise ValueError(f"end_year {end_year} precedes start_year {start_year}")
+
+    # Grid bounds: local midnight on Jan 1 through the last step before local
+    # midnight on Jan 1 of the following year. Built in UTC so the DST-affected
+    # local days come out with their true 23 or 25 hours.
+    local_start = pd.Timestamp(f"{start_year}-01-01 00:00", tz=TZ)
+    local_end = pd.Timestamp(f"{end_year + 1}-01-01 00:00", tz=TZ)
+    grid = pd.date_range(
+        local_start.tz_convert("UTC"),
+        local_end.tz_convert("UTC"),
+        freq=freq,
+        inclusive="left",
+        tz="UTC",
+    ).tz_convert(TZ)
+    return _frame_for_index(
+        grid, with_solar_position=with_solar_position, grid_bounds=(local_start, local_end)
+    )
+
+
+def _frame_for_index(
+    times,
+    with_solar_position: bool = True,
+    grid_bounds: tuple | None = None,
+) -> pd.DataFrame:
+    """Compute the astronomical-day frame for any set of tz-aware timestamps.
+
+    Shared by :func:`build_astro_calendar`, which passes a regular grid, and
+    :func:`frame_for_timestamps`, which passes irregular event times. Keeping one
+    implementation is what stops a grid-derived frame and an event-derived frame
+    disagreeing about the same instant.
+
+    ``grid_bounds`` is the ``(start, end)`` of a generated range, used only to
+    flag the two astro days truncated at its edges. Event data passes ``None``.
+    """
+    df = pd.DataFrame({"time": pd.DatetimeIndex(times)})
     local_date = df["time"].dt.date
 
     # One day of padding on each side: rows before the first sunset of the range
@@ -252,9 +289,14 @@ def build_astro_calendar(
     # The astro days at the two grid edges are truncated by the range bounds.
     # Flagged explicitly so per-night aggregation can exclude partial nights
     # instead of silently under-counting them.
-    df["astro_day_complete"] = (df["astro_day_start"] >= local_start) & (
-        df["astro_day_end"] <= local_end
-    )
+    if grid_bounds is None:
+        # Event data does not tile a range, so "complete" has no coverage meaning.
+        df["astro_day_complete"] = True
+    else:
+        grid_start, grid_end = grid_bounds
+        df["astro_day_complete"] = (df["astro_day_start"] >= grid_start) & (
+            df["astro_day_end"] <= grid_end
+        )
 
     astro_ts = pd.to_datetime(astro_date)
     iso = astro_ts.dt.isocalendar()
@@ -310,6 +352,55 @@ def build_astro_calendar(
     df["dst_transition"] = _dst_transition_labels(pd.Series(local_date, index=df.index), offsets)
 
     return df[["time"] + FRAME_COLUMNS].reset_index(drop=True)
+
+
+def frame_for_timestamps(times, with_solar_position: bool = True) -> pd.DataFrame:
+    """The astronomical-day frame for irregular event timestamps.
+
+    Complaint records, spill reports and similar event data are not on a regular
+    grid, so they cannot use the exact-join path in :func:`attach_astro_frame`.
+    This computes the frame directly from solar geometry for each timestamp, which
+    is exact rather than snapping to the nearest grid row.
+
+    ``astro_day_complete`` is always True here: it describes coverage of a
+    generated range, which has no meaning for sparse events.
+    """
+    idx = pd.DatetimeIndex(pd.to_datetime(times))
+    if idx.tz is None:
+        raise TypeError("times must be tz-aware")
+    return _frame_for_index(idx.tz_convert(TZ), with_solar_position=with_solar_position)
+
+
+def attach_astro_frame_to_events(
+    df: pd.DataFrame, time_col: str = "time", with_solar_position: bool = True
+) -> pd.DataFrame:
+    """Attach the astronomical-day frame to an event table, in row order.
+
+    The counterpart of :func:`attach_astro_frame` for irregular timestamps. Row
+    count and order are preserved; rows with a null timestamp get a null frame
+    rather than being dropped.
+    """
+    if time_col not in df.columns:
+        raise KeyError(f"{time_col!r} not in dataframe columns")
+    times = pd.to_datetime(df[time_col])
+    if not isinstance(times.dtype, pd.DatetimeTZDtype):
+        raise TypeError(f"{time_col!r} must be tz-aware; got {times.dtype}")
+
+    out = df.copy()
+    usable = times.notna()
+    if not usable.any():
+        for col in FRAME_COLUMNS:
+            out[col] = pd.NA
+        return out
+
+    frame = frame_for_timestamps(
+        times[usable], with_solar_position=with_solar_position
+    ).drop(columns=["time"])
+    frame.index = times[usable].index
+    for col in FRAME_COLUMNS:
+        out[col] = frame[col] if col in frame.columns else pd.NA
+    return out
+
 
 
 def label_day_night(times: pd.Series) -> pd.Series:
