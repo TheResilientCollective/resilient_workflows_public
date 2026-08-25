@@ -14,11 +14,12 @@ AutomationCondition,
 SensorEvaluationContext,AssetCheckSpec,
                       AssetCheckResult,
                       asset_check,
-                      AssetCheckExecutionContext, AssetIn
+                      AssetCheckExecutionContext, AssetCheckSeverity, AssetIn
                       )
 from resilient_core.utils.constants import ICONS
 from .gis import subregions
 from resilient_core.utils import store_assets
+from ..utils.freshness import freshness_verdict
 import datetime
 import pytz
 
@@ -36,6 +37,15 @@ output_path="tijuana/sd_complaints"
 # )
 
 sd_complaints_arcgis_base = "https://gis-public.sandiegocounty.gov/arcgis/rest/services/Hosted/SDAPCD_Complaints/FeatureServer/0/"
+
+# The county publishes complaints on a lag, not continuously. Measured 2026-08-24:
+# the source's own newest record was 6.6 days old while complaints arrive nearly
+# every day (median gap 1 day, max 3 over the last year), so the lag is publication
+# cadence rather than missing complaints - consistent with roughly weekly updates.
+# Warn once a publication looks skipped, fail only when several have been.
+# Revisit once several weeks of lag observations exist; this is calibrated from one.
+COMPLAINTS_WARN_AFTER_DAYS = 10
+COMPLAINTS_FAIL_AFTER_DAYS = 21
 
 sd_complaints_yearly_partitions = TimeWindowPartitionsDefinition(
     start=datetime.datetime(2023, 1, 1),
@@ -163,42 +173,48 @@ def sd_complaints(context):
            #  specs=[AssetCheckSpec(name="sd_complaints_freshness_check")]
              )
 def sd_complaints_freshness_check(context: AssetCheckExecutionContext, sd_complaints):
-    """
-    Checks if the most recent data point in the sd_complaints asset is
-    no older than three days ago.
+    """Check the newest complaint against the source's publication lag.
+
+    Two tiers, because the county publishes on a lag the pipeline cannot control:
+    normal lag passes, a seemingly skipped publication warns, and a long silence
+    fails. See COMPLAINTS_WARN_AFTER_DAYS / COMPLAINTS_FAIL_AFTER_DAYS for how
+    those were calibrated.
     """
     if sd_complaints.empty:
         return AssetCheckResult(
             passed=False,
-            metadata={
-                "reason": "Asset is empty, cannot determine freshness."
-            }
+            severity=AssetCheckSeverity.ERROR,
+            metadata={"reason": "Asset is empty, cannot determine freshness."},
         )
 
-    # Find the most recent datetime in the asset
-    sd_complaints['datetime'] = pd.to_datetime(sd_complaints['datetime'], errors='coerce')
-    sd_complaints = sd_complaints.dropna(subset=['datetime'])
+    # Do not mutate the asset's output in a check.
+    received = pd.to_datetime(sd_complaints["datetime"], errors="coerce", utc=True).dropna()
+    if received.empty:
+        return AssetCheckResult(
+            passed=False,
+            severity=AssetCheckSeverity.ERROR,
+            metadata={"reason": "No parseable datetime values."},
+        )
 
-    most_recent_datetime = sd_complaints['datetime'].max()
+    most_recent = received.max().tz_convert("America/Los_Angeles")
+    current = datetime.datetime.now(tz=pytz.timezone("America/Los_Angeles"))
+    age_days = (current - most_recent).total_seconds() / 86400
 
-    # Get the current datetime in the same timezone as the data
-    current_datetime = datetime.datetime.now(tz=pytz.timezone("America/Los_Angeles"))  # Assuming US/Pacific
-
-    # Calculate the difference
-    time_difference = current_datetime - most_recent_datetime
-
-    # Check if the difference is greater than three days
-    passed = time_difference <= datetime.timedelta(days=4)
-
-    metadata = {
-        "most_recent_datetime": str(most_recent_datetime),
-        "current_datetime": str(current_datetime),
-        "time_difference": str(time_difference),
-    }
-
-    if not passed:
-        metadata["reason"] = "Data is older than three days."
-    return AssetCheckResult(passed=passed, metadata=metadata)
+    passed, is_error, reason = freshness_verdict(
+        age_days, COMPLAINTS_WARN_AFTER_DAYS, COMPLAINTS_FAIL_AFTER_DAYS
+    )
+    return AssetCheckResult(
+        passed=passed,
+        severity=AssetCheckSeverity.ERROR if is_error else AssetCheckSeverity.WARN,
+        metadata={
+            "most_recent_datetime": str(most_recent),
+            "current_datetime": str(current),
+            "age_days": round(age_days, 2),
+            "warn_after_days": COMPLAINTS_WARN_AFTER_DAYS,
+            "fail_after_days": COMPLAINTS_FAIL_AFTER_DAYS,
+            "reason": reason,
+        },
+    )
 
 @asset(group_name="tijuana", key_prefix="complaints",
        name="sd_complaints_90_days",
