@@ -49,7 +49,10 @@ STATIONS = {
     'IB CIVIC CTR': {'key': 'IB_CIVIC_CTR'},
 }
 
-FEATURES = [
+# Features available at forecast time. Flow lags stay: streamflow is separately
+# forecast and changes slowly, so persisting it is honest. H2S history does not
+# stay -- see H2S_HISTORY below.
+FORECAST_FEATURES = [
     'temperature_2m', 'wind_speed_10m', 'wind_direction_sin', 'wind_direction_cos',
     'wind_gusts_10m', 'precipitation', 'relative_humidity_2m', 'surface_pressure',
     'cloud_cover', 'dewpoint_2m',
@@ -61,10 +64,28 @@ FEATURES = [
     'flow_log', 'flow_low', 'flow_high',
     'wind_temp_interaction', 'humidity_temp_interaction',
     'stable_atm',
-    'h2s_lag_1h', 'h2s_lag_3h', 'h2s_lag_6h',
-    'h2s_rolling_6h', 'h2s_rolling_24h',
     'flow_lag_6h', 'flow_rolling_24h',
 ]
+
+# Recent H2S. Excluded from the deployed model: these do not exist at forecast
+# time, and forecast_features.py used to synthesise them as exp(-h/12) decay from
+# the last observation. Training on real lags and serving decayed surrogates made
+# the reported skill a nowcast number the product never achieved -- measured in
+# docs/tj_data_basis.md: served R2 0.02-0.11 against a reported 0.47-0.65, with a
+# systematic 0.7-3.2 ppb under-prediction, the wrong direction for an exceedance
+# warning. Dropping them raises AUC at four of five lead times and removes the
+# bias.
+H2S_HISTORY = [
+    'h2s_lag_1h', 'h2s_lag_3h', 'h2s_lag_6h',
+    'h2s_rolling_6h', 'h2s_rolling_24h',
+]
+
+# Only meaningful where recent observations genuinely exist, i.e. a nowcast rather
+# than a forecast. Kept for that use and for reproducing the earlier analysis;
+# not what gets deployed.
+NOWCAST_FEATURES = FORECAST_FEATURES + H2S_HISTORY
+
+FEATURES = FORECAST_FEATURES
 
 # Margin within which we ensemble instead of picking a winner
 ENSEMBLE_AUC_MARGIN = 0.01   # for classifiers
@@ -326,6 +347,7 @@ def train_all(df, output_dir):
         'trained_at': datetime.now(timezone.utc).isoformat(),
         'total_records': len(df),
         'features': FEATURES,
+        'feature_set': 'forecast (no H2S history)' if FEATURES == FORECAST_FEATURES else 'custom',
         'train_fraction': TRAIN_FRACTION,
         'ensemble_auc_margin': ENSEMBLE_AUC_MARGIN,
         'ensemble_r2_margin': ENSEMBLE_R2_MARGIN,
