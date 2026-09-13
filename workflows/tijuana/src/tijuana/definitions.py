@@ -29,6 +29,7 @@ asset_checks = [
     assets_pkg.current_freshness_check,
     assets_pkg.synoptic_recent_freshness_check,
     assets_pkg.effluent_flow_freshness_check,
+    assets_pkg.influent_flow_freshness_check,
     assets_pkg.astronomical_calendar_check,
     assets_pkg.modeldata_h2s_nofill_astronomical_day_check,
     assets_pkg.modeldata_forecast_15min_astronomical_day_check,
@@ -50,6 +51,8 @@ all_schedules = [
     assets_pkg.tides_hourly_schedule,
     assets_pkg.effluent_flow_current_schedule,
     assets_pkg.effluent_flow_yearly_schedule,
+    assets_pkg.influent_flow_current_schedule,
+    assets_pkg.influent_flow_yearly_schedule,
     assets_pkg.apcd_yearly_schedule,
     assets_pkg.wind_grid_schedule,
 ]
