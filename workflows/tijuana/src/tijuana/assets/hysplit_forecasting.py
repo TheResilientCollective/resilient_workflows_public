@@ -16,6 +16,7 @@ from resilient_core.resources import minio
 from resilient_core.utils import store_assets
 from ..utils import astro_calendar, forecast_features
 from ..utils.h2s_exceedance import aggregate_exceedances
+from .plant_balance import add_plant_balance_features, PLANT_BALANCE_FEATURE_COLUMNS
 #from .sd_apcd import s3_output_path as apcd_s3_output_path
 
 OUTPUT_PATH='tijuana/forecast_data/output/'
@@ -34,6 +35,7 @@ TIDAL_BASE='latest/tijuana/tides'
 EFFLUENT_BASE='latest/tijuana/effluent_flow'
 EFFLUENT_CURRENT_YEAR='yearly'
 EFFLUENT_TODAY='today'
+INFLUENT_BASE='latest/tijuana/influent_flow'
 
 DIURNAL_FACTORS = {
     0: 0.70, 1: 0.65, 2: 0.60, 3: 0.58, 4: 0.60, 5: 0.70,
@@ -238,6 +240,49 @@ def add_h2s_lag_features(df: pd.DataFrame, logger) -> pd.DataFrame:
     return df
 
 
+def load_plant_flow_series(duckdb_con, s3_resource, latest_path: str, name: str, logger) -> pd.Series:
+    """Read one SBIWTP flow series (effluent or influent) from its latest parquet files.
+
+    Returns a Series in MGD indexed by America/Los_Angeles time. The IBWC export
+    stamps a fixed UTC-8 offset, so it is localised as such before conversion.
+    """
+    files = f"s3://{s3_resource.S3_BUCKET}/{latest_path}/{PARQUET_PATTERN}"
+    flow_df = duckdb_con.read_parquet(files, union_by_name=True).df()
+    logger.info(f"Loaded {len(flow_df)} {name} records from {files} with columns: {flow_df.columns.tolist()}")
+
+    # Find the timestamp column (check both columns and index)
+    time_col = next(
+        (c for c in flow_df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
+        None
+    )
+    if time_col:
+        flow_df['time'] = pd.to_datetime(flow_df[time_col])
+        flow_df['time'] = flow_df['time'].dt.tz_localize('Etc/GMT+8').dt.tz_convert('America/Los_Angeles')
+    elif flow_df.index.name and isinstance(flow_df.index.name, str) and ('timestamp' in flow_df.index.name.lower() or 'time' in flow_df.index.name.lower()):
+        index_name = flow_df.index.name
+        flow_df = flow_df.reset_index()
+        flow_df['time'] = pd.to_datetime(flow_df[index_name])
+        flow_df['time'] = flow_df['time'].dt.tz_localize('Etc/GMT+8').dt.tz_convert('America/Los_Angeles')
+        time_col = index_name
+    else:
+        raise ValueError(f"No timestamp column found in {name} data")
+
+    # The MGD value column is the first numeric column other than the timestamp
+    value_col = next(
+        (c for c in flow_df.columns if c not in [time_col, 'time'] and pd.api.types.is_numeric_dtype(flow_df[c])),
+        None
+    )
+    if value_col is None:
+        logger.error(f"Available columns: {flow_df.columns.tolist()}")
+        logger.error(f"Column dtypes: {flow_df.dtypes.to_dict()}")
+        raise ValueError(f"No numeric value column found in {name} data")
+
+    logger.info(f"Using {name} time column: {time_col} -> 'time', value column: {value_col}")
+    series = flow_df.set_index('time')[value_col].rename(name)
+    logger.info(f"{name} series: {len(series)} records from {series.index.min()} to {series.index.max()}")
+    return series
+
+
 def add_sbiwtp_features(df: pd.DataFrame, sbiwtp_daily: pd.Series, logger) -> pd.DataFrame:
     """Merge SBIWTP effluent flow features into df.
 
@@ -397,6 +442,7 @@ def h2s_locations(context):
           AssetKey(['weather', 'openmeteo_current_year']),
           AssetKey(['ibwc', 'effluent_flow_current_year']),
           AssetKey(['ibwc', 'effluent_flow_today']),
+          AssetKey(['ibwc', 'influent_flow_current_year']),
           ],
        metadata={
            "source": "San Diego APCD, IBWC Streamflow and OpenMeteo historical data"
@@ -579,49 +625,35 @@ def data_for_models(context):
 
     # --- SBIWTP effluent flow features ---
     try:
-        effluent_files = f"s3://{s3_resource.S3_BUCKET}/{EFFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}/{PARQUET_PATTERN}"
-        effluent_df = duckdb_con.read_parquet(effluent_files, union_by_name=True).df()
-        dagster_logger.info(f"Loaded {len(effluent_df)} effluent flow records with columns: {effluent_df.columns.tolist()}")
-
-        # Find the timestamp column (check both columns and index)
-        time_col = next(
-            (c for c in effluent_df.columns if 'timestamp' in c.lower() or 'time' in c.lower()),
-            None
+        effluent_series = load_plant_flow_series(
+            duckdb_con, s3_resource, f"{EFFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}", 'sbiwtp_flow_mgd', dagster_logger
         )
-        if time_col:
-            effluent_df['time'] = pd.to_datetime(effluent_df[time_col])
-            # Data is UTC-8 fixed offset
-            effluent_df['time'] = effluent_df['time'].dt.tz_localize('Etc/GMT+8').dt.tz_convert('America/Los_Angeles')
-        elif effluent_df.index.name and isinstance(effluent_df.index.name, str) and ('timestamp' in effluent_df.index.name.lower() or 'time' in effluent_df.index.name.lower()):
-            # Timestamp is in the index, reset it to a column
-            index_name = effluent_df.index.name
-            effluent_df = effluent_df.reset_index()
-            effluent_df['time'] = pd.to_datetime(effluent_df[index_name])
-            effluent_df['time'] = effluent_df['time'].dt.tz_localize('Etc/GMT+8').dt.tz_convert('America/Los_Angeles')
-            time_col = index_name  # Track the original column name for exclusion below
-        else:
-            raise ValueError("No timestamp column found in effluent flow data")
-
-        # Find the MGD value column (first numeric column other than timestamp/time)
-        value_col = next(
-            (c for c in effluent_df.columns if c not in [time_col, 'time'] and pd.api.types.is_numeric_dtype(effluent_df[c])),
-            None
-        )
-        if value_col is None:
-            dagster_logger.error(f"Available columns: {effluent_df.columns.tolist()}")
-            dagster_logger.error(f"Column dtypes: {effluent_df.dtypes.to_dict()}")
-            raise ValueError("No numeric value column found in effluent flow data")
-
-        dagster_logger.info(f"Using effluent time column: {time_col} -> 'time', value column: {value_col}")
-        effluent_series = effluent_df.set_index('time')[value_col].rename('sbiwtp_flow_mgd')
-        dagster_logger.info(f"Effluent series: {len(effluent_series)} records from {effluent_series.index.min()} to {effluent_series.index.max()}")
         matched_df = add_sbiwtp_features(matched_df, effluent_series, dagster_logger)
     except Exception as e:
         dagster_logger.error(f"Could not load SBIWTP effluent flow, skipping features: {e}")
         import traceback
         dagster_logger.error(traceback.format_exc())
+        effluent_series = pd.Series(dtype=float)
         for col in ['sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
                     'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli']:
+            matched_df[col] = np.nan
+
+    # --- SBIWTP plant balance: influent vs effluent, capacity, border vs effluent ---
+    # Candidate features only; see plant_balance.py. Not in MODEL_FEATURES.
+    try:
+        influent_series = load_plant_flow_series(
+            duckdb_con, s3_resource, f"{INFLUENT_BASE}/{EFFLUENT_CURRENT_YEAR}", 'sbiwtp_influent_mgd', dagster_logger
+        )
+    except Exception as e:
+        dagster_logger.error(f"Could not load SBIWTP influent flow, plant balance daily features will be NaN: {e}")
+        influent_series = pd.Series(dtype=float)
+    try:
+        matched_df = add_plant_balance_features(matched_df, influent_series, effluent_series, dagster_logger)
+    except Exception as e:
+        dagster_logger.error(f"Could not compute plant balance features, skipping: {e}")
+        import traceback
+        dagster_logger.error(traceback.format_exc())
+        for col in PLANT_BALANCE_FEATURE_COLUMNS:
             matched_df[col] = np.nan
 
     matched_df = add_day_night(matched_df, dagster_logger)
