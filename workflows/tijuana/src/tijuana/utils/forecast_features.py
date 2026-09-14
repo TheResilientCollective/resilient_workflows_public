@@ -5,13 +5,21 @@ Feature engineering utilities for H2S forecasting.
 
 Takes a forecast DataFrame (weather/tides/flow/SBIWTP) and an observation
 DataFrame (recent H2S measurements), and produces a forecast-ready DataFrame
-with all 43 model features populated.
+with the model features populated.
 
 This module ensures train/inference feature parity by applying the same
-transformations used during model training.
+transformations used during model training. That parity is the point: it used to
+synthesise h2s_lag_* / h2s_rolling_* as an exponential decay from the last
+observation, because the model was trained on real H2S history that does not
+exist at forecast time. Training on one distribution and serving another made the
+published skill a nowcast number -- see docs/tj_data_basis.md. Those features are
+now excluded from the model and no longer produced here.
+
+Flow persistence is retained: streamflow is separately forecast and changes
+slowly, so carrying the last known value forward is a defensible approximation
+rather than a stand-in for something unknowable.
 """
 
-import numpy as np
 import pandas as pd
 
 
@@ -29,8 +37,6 @@ MODEL_FEATURES = [
     'is_night', 'source_regime',
     'flow_log', 'flow_low', 'flow_high',
     'wind_temp_interaction', 'humidity_temp_interaction', 'stable_atm',
-    'h2s_lag_1h', 'h2s_lag_3h', 'h2s_lag_6h',
-    'h2s_rolling_6h', 'h2s_rolling_24h',
     'flow_lag_6h', 'flow_rolling_24h',
     'sbiwtp_flow_mgd', 'sbiwtp_anomaly', 'sbiwtp_deficit',
     'sbiwtp_flow_x_temp', 'sbiwtp_hourly_mgd', 'sbiwtp_sli',
@@ -116,8 +122,6 @@ def engineer_station_features(sfc, last_state):
     DataFrame with all MODEL_FEATURES columns populated.
     """
     df = sfc.copy()
-    n = len(df)
-    h = np.arange(n)
     ls = last_state
 
     # ------------------------------------------------------------------
@@ -148,19 +152,14 @@ def engineer_station_features(sfc, last_state):
             df[col] = fallback
 
     # ------------------------------------------------------------------
-    # 2. H2S PERSISTENCE (exponential decay from last known)
-    #    12h e-folding for short lags, 36h for 24h rolling
-    #    These degrade gracefully: strong signal hours 1-12, weak by 36-48
+    # 2. H2S PERSISTENCE -- removed.
+    #    This block used to synthesise h2s_lag_1h/3h/6h and h2s_rolling_6h/24h as
+    #    exp(-h/12) and exp(-h/36) decays from the last observation. By 24h out
+    #    they were 14% of the seed and by 36h, 5%. They were the model's highest
+    #    importance features, so it was effectively told "recent H2S was near
+    #    zero" and predicted accordingly -- a 0.7-3.2 ppb low bias that
+    #    under-warned. The features are out of the model; nothing is synthesised.
     # ------------------------------------------------------------------
-    decay_fast = np.exp(-h / 12)
-    decay_slow = np.exp(-h / 36)
-
-    lh = ls['h2s']
-    df['h2s_lag_1h'] = np.concatenate([[lh], lh * decay_fast[:-1]])
-    df['h2s_lag_3h'] = np.concatenate([[lh] * min(3, n), (lh * decay_fast)[:max(n - 3, 0)]])
-    df['h2s_lag_6h'] = np.concatenate([[lh] * min(6, n), (lh * decay_fast)[:max(n - 6, 0)]])
-    df['h2s_rolling_6h'] = ls['h2s_6h'] * decay_fast
-    df['h2s_rolling_24h'] = ls['h2s_24h'] * decay_slow
 
     # ------------------------------------------------------------------
     # 3. FLOW PERSISTENCE (last known value — changes slowly)
