@@ -134,7 +134,7 @@ Defined in `definitions.py` and configured via environment variables:
 | `slack` | Notifications and alerts | `SLACK_TOKEN`, `SLACK_SIMS_CHANNEL` |
 | `openai` | AI processing | `OPENAI_API_KEY`, `OPENAI_BASE_URL` |
 | `resilientsims` | Simulator API client | `RESILIENTSIMS_SERVER_URL`, `RESILIENTSIMS_USERNAME`, `RESILIENTSIMS_PASSWORD`, `RESILIENTSIMS_SIMULATOR_ID`, `RESILIENTSIMS_BUCKET` |
-| `resilientllm` | LLM API client | `RESILIENTLLM_API_TOKEN`, `RESILIENTLLM_WEBHOOK`, `RESILIENTLLM_WEBHOOK_UUID` |
+| `resilientllm` | LLM API client | `RESILIENTLLM_API_TOKEN`, `RESILIENTLLM_WEBHOOK`, `RESILIENTLLM_WEBHOOK_UUID`, `RESILIENTLLM_POLL_INTERVAL`, `RESILIENTLLM_TIMEOUT` |
 
 Additional environment variables:
 - `FORECAST_GITHUB_RT_TOKEN`, `FORECAST_GITHUB_RT` — GitHub Rt export
@@ -154,10 +154,13 @@ Session-based API client for the epidemic simulation service.
 - **Polling:** 30s interval, 3600s timeout by default
 
 ### ResilientLLM API (`resilientllm.py`)
-Webhook-based client that sends forecast data to an n8n-powered LLM workflow.
+Webhook-based client that sends forecast data to an LLM agent workflow. The API is asynchronous: the initial request returns a run id, and the client polls a status endpoint until the run reports `status == "done"`.
 
 - **Auth:** Bearer token
-- **Methods:** `execute(report_id)` (GET), `execute_with_data(report_id, data)` (POST with disease data JSON)
+- **Endpoints:** run at `{RESILIENTLLM_WEBHOOK}{uuid}/v3`, status at `{RESILIENTLLM_WEBHOOK}{uuid}/v3/status` (POST `{"id": "<run id>"}`)
+- **Methods:** `submit(report_id, data=None)` → run id; `get_status(report_id, run_id)`; `wait_for_completion(report_id, run_id)` → `data`; `execute(report_id)` / `execute_with_data(report_id, data)` wrap submit + wait and return the completed run's `data` payload
+- **Polling:** 30s interval, 3600s timeout by default (`RESILIENTLLM_POLL_INTERVAL`, `RESILIENTLLM_TIMEOUT`); only `status == "done"` completes the run, since `data` may be partially populated beforehand
+- **Errors:** `ResilientLLMError` on a failed/cancelled status, timeout, or a response without a run id
 
 ### S3 Key Paths
 
