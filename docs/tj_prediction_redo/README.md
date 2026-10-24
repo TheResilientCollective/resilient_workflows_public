@@ -141,6 +141,51 @@ Spearman with the night's peak:
 - The 2024 canal gauge is strongly anti-correlated with the border gauge
   (−0.8), consistent with it measuring diverted flow.
 
+### Choosing the upper threshold (`04_upper_threshold.py`)
+
+Is there a better break than 100 ppb? Three readings on the NESTOR record,
+the only station with a usable sample above 50 ppb (figures computed
+2026-10-24; the record now runs to 2026-10-21).
+
+**Sample size.** Positive NESTOR nights fall smoothly: 230 at 30 ppb, 174 at
+50, 129 at 75, 109 at 100, 74 at 150, 51 at 200. SAN YSIDRO and IB CIVIC CTR
+have 19–23 positive nights at 50 ppb and 5–10 at 100.
+
+**Predictability.** A walk-forward nightly RandomForest (features known the
+evening before plus the night's observed weather, so an upper bound), scored
+on 425 NESTOR test nights:
+
+| threshold | positives | AP (90% CI) | recall at precision 0.5 (90% CI) | persistence |
+|---|---|---|---|---|
+| 30 | 122 | 0.81 (0.75–0.86) | 0.91 (0.85–0.96) | 0.68 |
+| 50 | 99 | 0.75 (0.68–0.81) | 0.90 (0.81–0.95) | 0.66 |
+| 75 | 76 | 0.71 (0.64–0.78) | 0.87 (0.72–0.95) | 0.57 |
+| 100 | 67 | 0.65 (0.56–0.73) | 0.69 (0.49–0.83) | 0.54 |
+| 150 | 47 | 0.56 (0.44–0.69) | 0.64 (0.40–0.79) | 0.47 |
+| 200 | 31 | 0.49 (0.36–0.63) | 0.45 (0.11–0.68) | 0.36 |
+
+AUC is flat (0.85–0.90) at every threshold; what degrades is precision,
+because positives thin out. Skill holds to about 75 ppb and steps down at
+100. Adjacent thresholds are within each other's intervals; the trend is
+what is reliable, not any single pairwise difference.
+
+**Natural breaks.** The density of NESTOR nightly peaks (log scale) has modes
+near 19, 50 and 150 ppb and valleys at 34 and **101 ppb**. So 100 ppb is not
+arbitrary: it separates two populations of high nights, and it approximates
+the WHO 24-hour guideline (150 µg/m³, about 107 ppb). The complaint response
+breaks elsewhere: odour complaints per 100 measured hours go 51 (30–40 ppb),
+72 (40–50), 106 (50–75), 142 (75–100), then plateau at 120–160; nights with
+ten or more complaints rise from about 1 in 10 below 50 ppb to 3 in 10 at
+50–100 and 6 in 10 above 150.
+
+**Reading.** 50 ppb is where the public response steps up, keeps nearly the
+skill of 30 ppb, and is the first level with any sample at all three
+stations. 100 ppb is a real break in the concentration distribution but a
+poor place to train a classifier. 150 ppb is where nights become reliably
+complaint-heavy, with 74 examples. Health references for the session: the
+California 1-hour standard is 30 ppb; the ATSDR acute minimal risk level is
+70 ppb.
+
 ## Planning sessions
 
 Each session has a notebook to look at, decisions to make, and an output.
@@ -152,8 +197,12 @@ Decide what "predict H2S levels at 30 ppb and above" means as a target.
 - Hourly value, nightly peak, or nightly hours above threshold? Recommendation
   going in: **nightly peak per station, issued for the coming astronomical
   night**, with hourly detail as a secondary product.
-- Threshold set: 5 / 10 / 30 / 100? Recommendation: keep 5 and 10 for
-  continuity, add **30 at all stations** and **100 at NESTOR only**.
+- Threshold set. **Decided (2026-10-24):** the 5 and 10 ppb classifiers stay
+  as they are, and the County alerts only on 30 ppb. Open: the upper tier.
+  100 ppb was chosen by convention; see *Choosing the upper threshold* below.
+  Going in: **50 ppb as the "elevated" tier at all stations**, with a
+  NESTOR-only "severe" descriptor at 100 or 150 ppb read off one ordinal
+  model rather than trained as its own classifier.
 - Station scope for 100 ppb (see the counts above).
 - Whether the 500 ppb training filter stays. Recommendation: remove it.
 - Which lead times matter to APCD: same evening, 24 h, 48 h?
