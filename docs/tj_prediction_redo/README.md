@@ -159,6 +159,7 @@ on 425 NESTOR test nights:
 |---|---|---|---|---|
 | 30 | 122 | 0.81 (0.75–0.86) | 0.91 (0.85–0.96) | 0.68 |
 | 50 | 99 | 0.75 (0.68–0.81) | 0.90 (0.81–0.95) | 0.66 |
+| **70** | 79 | 0.72 (0.65–0.80) | 0.92 (0.70–0.97) | 0.58 |
 | 75 | 76 | 0.71 (0.64–0.78) | 0.87 (0.72–0.95) | 0.57 |
 | 100 | 67 | 0.65 (0.56–0.73) | 0.69 (0.49–0.83) | 0.54 |
 | 150 | 47 | 0.56 (0.44–0.69) | 0.64 (0.40–0.79) | 0.47 |
@@ -178,13 +179,27 @@ breaks elsewhere: odour complaints per 100 measured hours go 51 (30–40 ppb),
 ten or more complaints rise from about 1 in 10 below 50 ppb to 3 in 10 at
 50–100 and 6 in 10 above 150.
 
-**Reading.** 50 ppb is where the public response steps up, keeps nearly the
-skill of 30 ppb, and is the first level with any sample at all three
-stations. 100 ppb is a real break in the concentration distribution but a
-poor place to train a classifier. 150 ppb is where nights become reliably
-complaint-heavy, with 74 examples. Health references for the session: the
-California 1-hour standard is 30 ppb; the ATSDR acute minimal risk level is
-70 ppb.
+**Reading.** 50 ppb is where the public response steps up and keeps nearly
+the skill of 30 ppb. 100 ppb is a real break in the concentration
+distribution but a poor place to train a classifier. 150 ppb is where nights
+become reliably complaint-heavy, with 74 examples.
+
+**Decision: 70 ppb.** It is a published health reference (the ATSDR acute
+inhalation MRL, 0.07 ppm) rather than a data-derived number, and it sits on
+the skill plateau: 136 positive NESTOR nights (8 / 61 / 67 by year), AP 0.72
+and recall 0.92 at 50% precision, against 0.65 and 0.69 at 100 ppb. It lies
+just below the 101 ppb density valley, so it takes in the whole upper
+population of nights, and above the 50 ppb complaint step. At SAN YSIDRO and
+IB CIVIC CTR it has 9 and 15 positive nights; a 70 ppb probability at those
+stations will be poorly calibrated until the record grows and should be
+labelled as such in the product.
+
+One caveat to carry into the documentation and the portal text: the MRL is a
+screening level for exposures lasting 1 to 14 days, not a 1-hour health
+effect threshold. Using it as an hourly classifier threshold is a policy
+choice. The honest phrasing is that an hour above 70 ppb is above a level
+ATSDR considers without appreciable risk for a fortnight of continuous
+exposure.
 
 ## Planning sessions
 
@@ -197,12 +212,21 @@ Decide what "predict H2S levels at 30 ppb and above" means as a target.
 - Hourly value, nightly peak, or nightly hours above threshold? Recommendation
   going in: **nightly peak per station, issued for the coming astronomical
   night**, with hourly detail as a secondary product.
-- Threshold set. **Decided (2026-10-24):** the 5 and 10 ppb classifiers stay
-  as they are, and the County alerts only on 30 ppb. Open: the upper tier.
-  100 ppb was chosen by convention; see *Choosing the upper threshold* below.
-  Going in: **50 ppb as the "elevated" tier at all stations**, with a
-  NESTOR-only "severe" descriptor at 100 or 150 ppb read off one ordinal
-  model rather than trained as its own classifier.
+- Threshold set. **Decided:** the 5 and 10 ppb classifiers stay as they are
+  (2026-10-24); the County alerts only on 30 ppb (2026-10-24); the upper
+  classifier is set at **70 ppb, the ATSDR acute inhalation Minimal Risk
+  Level** (2026-10-25, see *Choosing the upper threshold* and *References*).
+  `CLASSIFIER_THRESHOLDS = [5, 10, 30, 70]` in
+  `data/discharge_tj/train_models_auto.py` carries the decision; a classifier
+  with too few exceedances in its train or test block is skipped and the
+  reason recorded in the training report. The script has not been re-run for
+  deployment. A check run on the 2026-10-22 record trained 30 ppb models at
+  SAN YSIDRO and NESTOR and a 70 ppb model at NESTOR only: the chronological
+  80/20 split leaves the summer-autumn 2026 test block with no 30 ppb hours
+  at IB CIVIC CTR and no 70 ppb hours anywhere but NESTOR. That is the
+  Session 2 problem in miniature, and its AUC figures are nowcast numbers
+  with true lags, not operational skill. 100 ppb stays as a descriptive break
+  in the data, not a trained target.
 - Station scope for 100 ppb (see the counts above).
 - Whether the 500 ppb training filter stays. Recommendation: remove it.
 - Which lead times matter to APCD: same evening, 24 h, 48 h?
@@ -261,6 +285,22 @@ protocol.
   `products_latest.model_version` names it).
 - What the portal shows: probabilities at 30 and 100 ppb, nightly framing.
 - What we report back to APCD, and what we ask them for (see below).
+
+## References
+
+- Agency for Toxic Substances and Disease Registry (2016). *Toxicological
+  Profile for Hydrogen Sulfide and Carbonyl Sulfide.* U.S. Department of
+  Health and Human Services. Acute-duration inhalation Minimal Risk Level
+  0.07 ppm (1–14 days, respiratory end point, uncertainty factor 27, final,
+  cover date 11/2016); intermediate-duration 0.02 ppm.
+  https://www.atsdr.cdc.gov/toxprofiles/tp114.pdf — MRL list:
+  https://wwwn.cdc.gov/TSP/MRLS/mrlsListing.aspx (verified 2026-10-25).
+- California Air Resources Board. California Ambient Air Quality Standards:
+  hydrogen sulfide 0.03 ppm (42 µg/m³), 1-hour average.
+  https://ww2.arb.ca.gov/resources/california-ambient-air-quality-standards
+- World Health Organization (2000). *Air Quality Guidelines for Europe*, 2nd
+  edition. Hydrogen sulfide guideline value 150 µg/m³, 24-hour average
+  (about 0.1 ppm).
 
 ## Questions for APCD
 

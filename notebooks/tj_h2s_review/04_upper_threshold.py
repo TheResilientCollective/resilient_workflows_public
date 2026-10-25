@@ -26,10 +26,12 @@ def _(mo):
     mo.md(r"""
     # Is 100 ppb the right upper threshold?
 
-    **Decision for session 1.** The County alerts on 30 ppb, and the 5 and 10 ppb
-    classifiers stay as they are. The open question is the *upper* tier: 100 ppb
-    was chosen by convention. Three things can tell us whether another level
-    would serve better:
+    **Decision (2026-10-25): the upper classifier is set at 70 ppb**, the ATSDR
+    acute-duration inhalation Minimal Risk Level for hydrogen sulfide (0.07 ppm;
+    see references at the end). The County alerts on 30 ppb, and the 5 and 10 ppb
+    classifiers stay as they are. This notebook is the evidence the decision was
+    taken on: 100 ppb had been chosen by convention, and three things tell us how
+    candidate levels compare:
 
     1. **Sample size** — positive nights per station and per year.
     2. **Predictability** — a walk-forward nightly classifier at each candidate
@@ -60,7 +62,7 @@ def _(d, np):
     nightly["m_cos"] = np.cos(2 * np.pi * nightly["month"] / 12)
     nightly["wd_sin"] = np.sin(np.radians(nightly["wind_resultant_direction"]))
     nightly["wd_cos"] = np.cos(np.radians(nightly["wind_resultant_direction"]))
-    THRESHOLDS = [30, 40, 50, 60, 75, 100, 150, 200]
+    THRESHOLDS = [30, 40, 50, 60, 70, 75, 100, 150, 200]
     FEATURES = [
         "prev_peak_log", "prev_h30", "prev_h5", "prev3_peak_log", "prev7_peak_log",
         "m_sin", "m_cos", "night_length_hours", "sbiwtp_flow_mgd_mean",
@@ -346,11 +348,35 @@ def _(mo):
       become reliably complaint-heavy, but there are 74 of them and skill is
       modest (AP 0.56).
 
-    Candidate tiering for session 1: 30 ppb as the County alert, **50 ppb as the
-    "elevated" tier at all stations**, and a NESTOR-only "severe" tier at 100 or
-    150 ppb read off a single ordinal or quantile model rather than trained as a
-    separate classifier. Treat the 75-vs-100 and 100-vs-150 differences as
-    indicative only; the bootstrap intervals overlap.
+    **70 ppb, the level chosen,** sits on the skill plateau: 136 positive NESTOR
+    nights, AP about 0.72 and recall about 0.92 at 50% precision, against 0.65 and
+    0.69 at 100 ppb. It is just below the 101 ppb density valley, so it includes
+    the whole upper population of nights rather than cutting into it, and it is
+    above the 50 ppb step in the complaint response. At the other two stations it
+    has 9 and 15 positive nights; a 70 ppb probability there will be poorly
+    calibrated until the record grows, and should be labelled as such.
+
+    Treat the 60-vs-70-vs-75 differences as noise; the bootstrap intervals
+    overlap. What is reliable is the step down between 75 and 100.
+
+    ## References
+
+    - ATSDR (2016). *Toxicological Profile for Hydrogen Sulfide and Carbonyl
+      Sulfide.* U.S. Department of Health and Human Services, Agency for Toxic
+      Substances and Disease Registry. Acute-duration inhalation MRL 0.07 ppm
+      (1–14 days, respiratory end point, uncertainty factor 27, final, 11/2016).
+      https://www.atsdr.cdc.gov/toxprofiles/tp114.pdf ; MRL list:
+      https://wwwn.cdc.gov/TSP/MRLS/mrlsListing.aspx
+    - California Air Resources Board. California Ambient Air Quality Standard for
+      hydrogen sulfide: 0.03 ppm (42 µg/m³), 1-hour average.
+      https://ww2.arb.ca.gov/resources/california-ambient-air-quality-standards
+    - WHO (2000). *Air Quality Guidelines for Europe*, 2nd ed. Hydrogen sulfide
+      guideline 150 µg/m³, 24-hour average (about 0.1 ppm).
+
+    The MRL is a screening level for exposures lasting 1 to 14 days, not a
+    1-hour health effect threshold. Using it as an hourly classifier threshold is
+    a policy choice: an hour above 70 ppb is above a level ATSDR considers safe
+    for a fortnight of continuous exposure.
     """)
     return
 

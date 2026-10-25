@@ -31,7 +31,7 @@ STATION_COLORS = {"SAN YSIDRO": "#2a78d6", "NESTOR - BES": "#eb6834", "IB CIVIC 
 
 #: Thresholds the review is framed around. 5 and 10 ppb are what the deployed
 #: classifiers predict today; 30 ppb is the APCD ask; 100 ppb is the question.
-THRESHOLDS = [5, 10, 30, 50, 100, 200]
+THRESHOLDS = [5, 10, 30, 50, 70, 100, 200]
 
 #: Bounding box used to call an odour complaint "Tijuana River Valley".
 TRV_BOX = dict(lon_min=-117.14, lon_max=-117.02, lat_min=32.52, lat_max=32.61)
