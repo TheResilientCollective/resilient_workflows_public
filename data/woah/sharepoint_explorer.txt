@@ -1,0 +1,263 @@
+https://oieoffice365.sharepoint.com/:u:/r/sites/PeriodicaldataextractionsOIE-WAHIS/SitePages/Home.aspx?d=wba9d40d34faf4a88b3e488d299bd801c&csf=1&web=1&e=codMp6
+{"group":"network-errors","max_age":7200,"endpoints":[{"url":"https://spo.nel.measure.office.net/api/report?tenantId=4a133e74-ea9b-4c5c-b861-fdc928ed8a26&destinationEndpoint=Edge-Prod-LAXr4b&frontEnd=AFD&RemoteIP=75.84.16.0"}]}
+tenantId=4a133e74-ea9b-4c5c-b861-fdc928ed8a26&
+blob:https://oieoffice365.sharepoint.com/af36262f-5666-41a7-ab9f-3479c2380825
+
+https://graph.microsoft.com/v1.0/organization
+{
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#organization",
+    "@microsoft.graph.tips": "Use $select to choose only the properties your app needs, as this can lead to performance improvements. For example: GET organization?$select=assignedPlans,businessPhones",
+    "value": [
+        {
+            "id": "f1faf563-b06d-4c35-8739-34ccc280dcaf",
+            "deletedDateTime": null,
+            "businessPhones": [],
+            "city": null,
+            "country": null,
+            "countryLetterCode": null,
+            "createdDateTime": null,
+            "defaultUsageLocation": null,
+            "displayName": "World Organisation For Animal Health",
+            "isMultipleDataLocationsForServicesEnabled": null,
+            "marketingNotificationEmails": [],
+            "onPremisesLastSyncDateTime": null,
+            "onPremisesSyncEnabled": null,
+            "partnerTenantType": null,
+            "postalCode": null,
+            "preferredLanguage": null,
+            "securityComplianceNotificationMails": [],
+            "securityComplianceNotificationPhones": [],
+            "state": null,
+            "street": null,
+            "technicalNotificationMails": [],
+            "tenantType": "AAD",
+            "directorySizeQuota": {
+                "used": 13294,
+                "total": 300000
+            },
+            "assignedPlans": [],
+            "onPremisesSyncStatus": [],
+            "privacyProfile": {
+                "contactEmail": "dpo@woah.org",
+                "statementUrl": "https://www.woah.org/privacy-policy/"
+            },
+            "provisionedPlans": [],
+            "verifiedDomains": [
+                {
+                    "capabilities": "Email",
+                    "isDefault": false,
+                    "isInitial": false,
+                    "name": "oie.int",
+                    "type": "Managed"
+                },
+                {
+                    "capabilities": "None",
+                    "isDefault": false,
+                    "isInitial": false,
+                    "name": "oieoffice365.mail.onmicrosoft.com",
+                    "type": "Managed"
+                },
+                {
+                    "capabilities": "Email, OfficeCommunicationsOnline",
+                    "isDefault": false,
+                    "isInitial": true,
+                    "name": "oieoffice365.onmicrosoft.com",
+                    "type": "Managed"
+                },
+                {
+                    "capabilities": "Email, Intune",
+                    "isDefault": true,
+                    "isInitial": false,
+                    "name": "woah.org",
+                    "type": "Managed"
+                }
+            ]
+        }
+    ]
+}
+https://graph.microsoft.com/v1.0/me
+{
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users/$entity",
+    "@microsoft.graph.tips": "This request only returns a subset of the resource's properties. Your app will need to use $select to return non-default properties. To find out what other properties are available for this resource see https://learn.microsoft.com/graph/api/resources/user",
+    "businessPhones": [],
+    "displayName": "Valentine, David",
+    "givenName": null,
+    "jobTitle": null,
+    "mail": "dwvalentine@ucsd.edu",
+    "mobilePhone": null,
+    "officeLocation": null,
+    "preferredLanguage": null,
+    "surname": null,
+    "userPrincipalName": "dwvalentine_ucsd.edu#EXT#@oieoffice365.onmicrosoft.com",
+    "id": "8b63daf3-e422-456a-bb69-7e4ba9ecca92"
+}
+
+https://graph.microsoft.com/v1.0/me/memberOf 
+{
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#directoryObjects",
+    "@microsoft.graph.tips": "Use $select to choose only the properties your app needs, as this can lead to performance improvements. For example: GET me/memberOf?$select=deletedDateTime,id",
+    "value": [
+        {
+            "@odata.type": "#microsoft.graph.group",
+            "id": "a1b744e6-ca7b-4893-bb9a-0ca8fb376173",
+            "deletedDateTime": null,
+            "classification": null,
+            "createdDateTime": "2019-04-05T11:07:39Z",
+            "creationOptions": [],
+            "description": "Groupe généré automatiquement, ne pas modifier",
+            "displayName": "Tous les utilisateurs",
+            "expirationDateTime": null,
+            "groupTypes": [
+                "DynamicMembership"
+            ],
+            "infoCatalogs": [],
+            "isAssignableToRole": null,
+            "mail": null,
+            "mailEnabled": false,
+            "mailNickname": "d22f9195-f7a3-4f43-8e1c-fe686856442f",
+            "membershipRule": "All Users",
+            "membershipRuleProcessingState": "On",
+            "onPremisesDomainName": null,
+            "onPremisesLastSyncDateTime": null,
+            "onPremisesNetBiosName": null,
+            "onPremisesSamAccountName": null,
+            "onPremisesSecurityIdentifier": null,
+            "onPremisesSyncEnabled": null,
+            "preferredDataLocation": null,
+            "preferredLanguage": null,
+            "proxyAddresses": [],
+            "renewedDateTime": "2019-04-05T11:07:39Z",
+            "resourceBehaviorOptions": [],
+            "resourceProvisioningOptions": [],
+            "securityEnabled": true,
+            "securityIdentifier": "S-1-12-1-2713142502-1217645179-2819398331-1935751163",
+            "theme": null,
+            "uniqueName": null,
+            "visibility": null,
+            "onPremisesProvisioningErrors": [],
+            "serviceProvisioningErrors": [
+                {
+                    "@odata.type": "#microsoft.graph.serviceProvisioningXmlError",
+                    "createdDateTime": "2026-08-19T13:11:10Z",
+                    "isResolved": false,
+                    "serviceInstance": "exchange/eurprd09-005-01",
+                    "errorDetail": "<ServiceInstance Name=\"exchange/eurprd09-005-01\" xmlns=\"http://schemas.microsoft.com/online/error/2010/07\">\r\n  <ObjectErrors />\r\n  <LinkErrors>\r\n    <Property Name=\"{Unknown}\">\r\n      <Link Target=\"{Unknown}\">\r\n        <ErrorRecord>\r\n          <ErrorCode>ExFEBFF0</ErrorCode>\r\n          <ErrorParameters>\r\n            <ErrorParameter>Set-SyncGroupFast</ErrorParameter>\r\n          </ErrorParameters>\r\n          <ErrorDescription>The execution of cmdlet Set-SyncGroupFast failed.</ErrorDescription>\r\n        </ErrorRecord>\r\n      </Link>\r\n    </Property>\r\n  </LinkErrors>\r\n</ServiceInstance>"
+                }
+            ]
+        },
+        {
+            "@odata.type": "#microsoft.graph.administrativeUnit",
+            "id": "23313db1-3254-4c54-8b84-c5247b41b9cf",
+            "deletedDateTime": null,
+            "displayName": null,
+            "description": null,
+            "isMemberManagementRestricted": null,
+            "membershipRule": null,
+            "membershipType": null,
+            "membershipRuleProcessingState": null,
+            "visibility": null
+        }
+    ]
+}
+
+https://graph.microsoft.com/v1.0/groups/a1b744e6-ca7b-4893-bb9a-0ca8fb376173
+{
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#groups/$entity",
+    "@microsoft.graph.tips": "Use $select to choose only the properties your app needs, as this can lead to performance improvements. For example: GET groups('<guid>')?$select=assignedLabels,assignedLicenses",
+    "id": "a1b744e6-ca7b-4893-bb9a-0ca8fb376173",
+    "deletedDateTime": null,
+    "classification": null,
+    "createdDateTime": "2019-04-05T11:07:39Z",
+    "creationOptions": [],
+    "description": "Groupe généré automatiquement, ne pas modifier",
+    "displayName": "Tous les utilisateurs",
+    "expirationDateTime": null,
+    "groupTypes": [
+        "DynamicMembership"
+    ],
+    "infoCatalogs": [],
+    "isAssignableToRole": null,
+    "mail": null,
+    "mailEnabled": false,
+    "mailNickname": "d22f9195-f7a3-4f43-8e1c-fe686856442f",
+    "membershipRule": "All Users",
+    "membershipRuleProcessingState": "On",
+    "onPremisesDomainName": null,
+    "onPremisesLastSyncDateTime": null,
+    "onPremisesNetBiosName": null,
+    "onPremisesSamAccountName": null,
+    "onPremisesSecurityIdentifier": null,
+    "onPremisesSyncEnabled": null,
+    "preferredDataLocation": null,
+    "preferredLanguage": null,
+    "proxyAddresses": [],
+    "renewedDateTime": "2019-04-05T11:07:39Z",
+    "resourceBehaviorOptions": [],
+    "resourceProvisioningOptions": [],
+    "securityEnabled": true,
+    "securityIdentifier": "S-1-12-1-2713142502-1217645179-2819398331-1935751163",
+    "theme": null,
+    "uniqueName": null,
+    "visibility": null,
+    "onPremisesProvisioningErrors": [],
+    "serviceProvisioningErrors": [
+        {
+            "@odata.type": "#microsoft.graph.serviceProvisioningXmlError",
+            "createdDateTime": "2026-08-19T13:11:10Z",
+            "isResolved": false,
+            "serviceInstance": "exchange/eurprd09-005-01",
+            "errorDetail": "<ServiceInstance Name=\"exchange/eurprd09-005-01\" xmlns=\"http://schemas.microsoft.com/online/error/2010/07\">\r\n  <ObjectErrors />\r\n  <LinkErrors>\r\n    <Property Name=\"{Unknown}\">\r\n      <Link Target=\"{Unknown}\">\r\n        <ErrorRecord>\r\n          <ErrorCode>ExFEBFF0</ErrorCode>\r\n          <ErrorParameters>\r\n            <ErrorParameter>Set-SyncGroupFast</ErrorParameter>\r\n          </ErrorParameters>\r\n          <ErrorDescription>The execution of cmdlet Set-SyncGroupFast failed.</ErrorDescription>\r\n        </ErrorRecord>\r\n      </Link>\r\n    </Property>\r\n  </LinkErrors>\r\n</ServiceInstance>"
+        }
+    ]
+}
+
+https://graph.microsoft.com/v1.0/groups/a1b744e6-ca7b-4893-bb9a-0ca8fb376173/
+{
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#groups/$entity",
+    "@microsoft.graph.tips": "Use $select to choose only the properties your app needs, as this can lead to performance improvements. For example: GET groups('<guid>')?$select=assignedLabels,assignedLicenses",
+    "id": "a1b744e6-ca7b-4893-bb9a-0ca8fb376173",
+    "deletedDateTime": null,
+    "classification": null,
+    "createdDateTime": "2019-04-05T11:07:39Z",
+    "creationOptions": [],
+    "description": "Groupe généré automatiquement, ne pas modifier",
+    "displayName": "Tous les utilisateurs",
+    "expirationDateTime": null,
+    "groupTypes": [
+        "DynamicMembership"
+    ],
+    "infoCatalogs": [],
+    "isAssignableToRole": null,
+    "mail": null,
+    "mailEnabled": false,
+    "mailNickname": "d22f9195-f7a3-4f43-8e1c-fe686856442f",
+    "membershipRule": "All Users",
+    "membershipRuleProcessingState": "On",
+    "onPremisesDomainName": null,
+    "onPremisesLastSyncDateTime": null,
+    "onPremisesNetBiosName": null,
+    "onPremisesSamAccountName": null,
+    "onPremisesSecurityIdentifier": null,
+    "onPremisesSyncEnabled": null,
+    "preferredDataLocation": null,
+    "preferredLanguage": null,
+    "proxyAddresses": [],
+    "renewedDateTime": "2019-04-05T11:07:39Z",
+    "resourceBehaviorOptions": [],
+    "resourceProvisioningOptions": [],
+    "securityEnabled": true,
+    "securityIdentifier": "S-1-12-1-2713142502-1217645179-2819398331-1935751163",
+    "theme": null,
+    "uniqueName": null,
+    "visibility": null,
+    "onPremisesProvisioningErrors": [],
+    "serviceProvisioningErrors": [
+        {
+            "@odata.type": "#microsoft.graph.serviceProvisioningXmlError",
+            "createdDateTime": "2026-08-19T13:11:10Z",
+            "isResolved": false,
+            "serviceInstance": "exchange/eurprd09-005-01",
+            "errorDetail": "<ServiceInstance Name=\"exchange/eurprd09-005-01\" xmlns=\"http://schemas.microsoft.com/online/error/2010/07\">\r\n  <ObjectErrors />\r\n  <LinkErrors>\r\n    <Property Name=\"{Unknown}\">\r\n      <Link Target=\"{Unknown}\">\r\n        <ErrorRecord>\r\n          <ErrorCode>ExFEBFF0</ErrorCode>\r\n          <ErrorParameters>\r\n            <ErrorParameter>Set-SyncGroupFast</ErrorParameter>\r\n          </ErrorParameters>\r\n          <ErrorDescription>The execution of cmdlet Set-SyncGroupFast failed.</ErrorDescription>\r\n        </ErrorRecord>\r\n      </Link>\r\n    </Property>\r\n  </LinkErrors>\r\n</ServiceInstance>"
+        }
+    ]
+}

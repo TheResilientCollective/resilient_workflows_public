@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>American Water customer advisories — live layer</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #10131a;
+    --panel: #171b24;
+    --panel-solid: #141821;
+    --rule: #2a3040;
+    --ink: #d7dce6;
+    --dim: #7d879b;
+    --emergency: #ff4d4d;
+    --general: #ffb020;
+    --lifted: #64748b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); }
+  body {
+    font: 13px/1.5 ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    color: var(--ink);
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    overflow: hidden;
+  }
+  #mapwrap { position: relative; }
+  #map { position: absolute; inset: 0; }
+
+  /* ---- floating controls over the map ---- */
+  .panel {
+    position: absolute; top: 14px; left: 14px; z-index: 2; width: 250px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--rule); border-radius: 3px; backdrop-filter: blur(6px);
+  }
+  .panel h1 {
+    margin: 0; padding: 11px 13px 9px;
+    font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+    border-bottom: 1px solid var(--rule);
+  }
+  .panel section { padding: 11px 13px; border-bottom: 1px solid var(--rule); }
+  .panel section:last-child { border-bottom: 0; }
+  .lbl { color: var(--dim); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+
+  .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+  .sw { width: 14px; height: 10px; border-radius: 1px; flex: none; }
+  .count { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  select, button, input[type=text] {
+    font: inherit; color: var(--ink); background: #1e2431;
+    border: 1px solid var(--rule); border-radius: 2px; padding: 5px 7px; width: 100%;
+  }
+  button { cursor: pointer; margin-top: 7px; }
+  button:hover { background: #262e3e; }
+  button:focus-visible, select:focus-visible, input:focus-visible, tr:focus-visible {
+    outline: 2px solid var(--general); outline-offset: -2px;
+  }
+  .status { color: var(--dim); font-size: 11px; }
+  .status.err { color: var(--emergency); }
+
+  /* ---- advisory table ---- */
+  #side {
+    background: var(--panel-solid); border-left: 1px solid var(--rule);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  #side header {
+    padding: 12px 14px 10px; border-bottom: 1px solid var(--rule);
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  #side header h2 {
+    margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+  }
+  #side header .count { font-size: 11px; }
+  #filterwrap { padding: 9px 14px; border-bottom: 1px solid var(--rule); }
+  .tablescroll { overflow: auto; flex: 1; min-height: 0; }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    position: sticky; top: 0; z-index: 1; background: var(--panel-solid);
+    text-align: left; font-size: 10px; font-weight: 600; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--dim);
+    padding: 7px 10px; border-bottom: 1px solid var(--rule); cursor: pointer; user-select: none;
+  }
+  thead th:hover { color: var(--ink); }
+  thead th .arrow { color: var(--general); }
+  tbody tr { cursor: pointer; border-bottom: 1px solid #1e232e; }
+  tbody tr:hover { background: #1c2231; }
+  tbody tr.sel { background: #232b3c; }
+  tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--general); }
+  tbody td { padding: 8px 10px; vertical-align: top; }
+  td.dot { width: 18px; padding-right: 0; }
+  td.dot span { display: block; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
+  td.when { color: var(--dim); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .place { font-weight: 600; }
+  .kind { color: var(--dim); font-size: 11px; }
+  .empty { padding: 24px 14px; color: var(--dim); font-size: 12px; }
+
+  /* ---- popup ---- */
+  .maplibregl-popup-content {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--rule);
+    border-radius: 3px; padding: 11px 13px; max-width: 340px;
+    font: 12px/1.5 ui-monospace, Menlo, monospace;
+  }
+  .maplibregl-popup-tip { border-top-color: var(--rule) !important; }
+  .maplibregl-popup-close-button { color: var(--dim); font-size: 16px; }
+  .pop-h { font-weight: 600; margin-bottom: 6px; }
+  .pop-k { color: var(--dim); }
+  .pop-msg { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--rule);
+             color: #b7c0d0; max-height: 150px; overflow: auto; }
+
+  @media (max-width: 820px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
+    #side { border-left: 0; border-top: 1px solid var(--rule); }
+    .panel { width: 210px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div id="mapwrap">
+  <div id="map"></div>
+  <div class="panel">
+    <h1>Customer advisories</h1>
+    <section>
+      <div class="lbl">State</div>
+      <select id="state">
+        <option value="CA" selected>California</option>
+        <option value="NJ">New Jersey</option>
+        <option value="PA">Pennsylvania</option>
+        <option value="MO">Missouri</option>
+        <option value="">All states</option>
+      </select>
+      <button id="reload">Reload advisories</button>
+      <button id="zoomSB">Zoom to South Bay</button>
+    </section>
+    <section>
+      <div class="lbl" style="margin-bottom:5px">Layers</div>
+      <label class="row"><input type="checkbox" data-lyr="17" checked>
+        <span class="sw" style="background:var(--emergency)"></span>Emergency<span class="count" id="c17">–</span></label>
+      <label class="row"><input type="checkbox" data-lyr="16" checked>
+        <span class="sw" style="background:var(--general)"></span>General<span class="count" id="c16">–</span></label>
+      <label class="row"><input type="checkbox" data-lyr="15">
+        <span class="sw" style="background:var(--lifted)"></span>Lifted<span class="count" id="c15">–</span></label>
+    </section>
+    <section><div class="status" id="status">Loading…</div></section>
+  </div>
+</div>
+
+<div id="side">
+  <header><h2>Advisory list</h2><span class="count" id="shown"></span></header>
+  <div id="filterwrap"><input type="text" id="q" placeholder="Filter by place, type, event ID…" /></div>
+  <div class="tablescroll">
+    <table>
+      <thead><tr>
+        <th></th>
+        <th data-sort="place">Location</th>
+        <th data-sort="type">Type</th>
+        <th data-sort="start">Start <span class="arrow">↓</span></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No advisories match.</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+// Source of truth: the ArcGIS MapServer behind awgis.amwater.com/CustomerAdvisoryMap
+const BASE = "https://utility.arcgis.com/usrsvcs/servers/482bbe2135c54d178ec406189303faf4"
+           + "/rest/services/CustomerAdvisoryMap/DisplayData_SDE/MapServer";
+
+const LAYERS = {
+  17: { label: "Emergency", color: "#ff4d4d", on: true  },
+  16: { label: "General",   color: "#ffb020", on: true  },
+  15: { label: "Lifted",    color: "#64748b", on: false }
+};
+
+const SENSORS = [
+  ["SAN YSIDRO",   -117.047286, 32.552794, "#e74c3c"],
+  ["NESTOR - BES", -117.090656, 32.567097, "#2ecc71"],
+  ["IB CIVIC CTR", -117.115361, 32.576139, "#3498db"]
+];
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+  center: [-119.4, 36.8], zoom: 5
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-right");
+
+let events = [];              // one row per unique EventID+layer, with merged bbox
+let sortKey = "start", sortDir = -1, selected = null, popup = null;
+
+const $ = id => document.getElementById(id);
+const setStatus = (t, err) => { $("status").textContent = t; $("status").classList.toggle("err", !!err); };
+
+/* ---------- fetch ---------- */
+async function fetchLayer(id, state) {
+  const p = new URLSearchParams({
+    where: state ? `EventState='${state}'` : "1=1",
+    outFields: "EventID,EventType,EventStatus,EventState,EventHeader,EventMessage,"
+             + "EventStartDate,EventExpirationDate,EventLastUpdatedDate,EventHyperlink",
+    returnGeometry: "true", outSR: "4326",
+    maxAllowableOffset: "0.0002",   // degrees, because outSR is 4326
+    f: "geojson"
+  });
+  const r = await fetch(`${BASE}/${id}/query?${p}`);
+  if (!r.ok) throw new Error(`layer ${id}: HTTP ${r.status}`);
+  const gj = await r.json();
+  if (gj.error) throw new Error(`layer ${id}: ${gj.error.message}`);
+  return gj;
+}
+
+/* ---------- geometry helpers ---------- */
+function growBbox(bb, geom) {
+  const walk = c => Array.isArray(c[0]) ? c.forEach(walk)
+    : (bb[0] = Math.min(bb[0], c[0]), bb[1] = Math.min(bb[1], c[1]),
+       bb[2] = Math.max(bb[2], c[0]), bb[3] = Math.max(bb[3], c[1]));
+  if (geom) walk(geom.coordinates);
+  return bb;
+}
+
+// "Sacramento: Planned Water System Improvements : Dear Neighbor,…" -> "Sacramento"
+function placeOf(p) {
+  const h = (p.EventHeader || "").trim();
+  const head = h.split(/\s*:\s*/)[0] || "";
+  return (head.split(",")[0] || "").slice(0, 34) || `Event ${p.EventID}`;
+}
+
+/* ---------- load ---------- */
+async function load() {
+  const state = $("state").value;
+  setStatus("Loading advisories…");
+  try {
+    const results = await Promise.all(
+      Object.keys(LAYERS).map(id => fetchLayer(id, state).then(gj => [id, gj])));
+
+    const byKey = new Map();
+    for (const [id, gj] of results) {
+      map.getSource(`adv-${id}`).setData(gj);
+      for (const f of gj.features) {
+        const p = f.properties, key = `${id}|${p.EventID}`;
+        let e = byKey.get(key);
+        if (!e) {
+          e = { key, layer: id, color: LAYERS[id].color, layerLabel: LAYERS[id].label,
+                id: p.EventID, type: p.EventType || "Advisory", props: p,
+                place: placeOf(p), start: p.EventStartDate || 0,
+                bbox: [180, 90, -180, -90] };
+          byKey.set(key, e);
+        }
+        growBbox(e.bbox, f.geometry);
+      }
+      const n = [...byKey.values()].filter(e => e.layer === id).length;
+      $(`c${id}`).textContent = n;
+    }
+    events = [...byKey.values()];
+    setStatus(`${events.length} advisories · updated ${new Date().toLocaleTimeString()}`);
+    render();
+  } catch (e) {
+    setStatus(`Could not load advisories — ${e.message}`, true);
+    $("empty").hidden = false;
+    $("empty").textContent = "Advisory service unreachable. Try Reload.";
+  }
+}
+
+/* ---------- table ---------- */
+const fmtShort = ms => ms ? new Date(ms).toLocaleDateString(undefined,
+  { month: "short", day: "numeric", year: "2-digit" }) : "—";
+const fmtLong = ms => ms ? new Date(ms).toLocaleString(undefined,
+  { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+
+function visibleRows() {
+  const q = $("q").value.trim().toLowerCase();
+  return events
+    .filter(e => LAYERS[e.layer].on)
+    .filter(e => !q || `${e.place} ${e.type} ${e.id} ${e.props.EventHeader || ""}`.toLowerCase().includes(q))
+    .sort((a, b) => {
+      const va = sortKey === "start" ? a.start : String(a[sortKey]).toLowerCase();
+      const vb = sortKey === "start" ? b.start : String(b[sortKey]).toLowerCase();
+      return va < vb ? -sortDir : va > vb ? sortDir : 0;
+    });
+}
+
+function render() {
+  const rows = visibleRows(), tb = $("tbody");
+  tb.replaceChildren();
+  for (const e of rows) {
+    const tr = document.createElement("tr");
+    tr.tabIndex = 0;
+    tr.className = e.key === selected ? "sel" : "";
+    tr.innerHTML =
+      `<td class="dot"><span style="background:${e.color}"></span></td>
+       <td><div class="place">${e.place}</div><div class="kind">${e.layerLabel} · ${e.id}</div></td>
+       <td class="kind" style="padding-top:9px">${e.type}</td>
+       <td class="when" style="padding-top:9px">${fmtShort(e.start)}</td>`;
+    tr.onclick = () => zoomTo(e);
+    tr.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); zoomTo(e); } };
+    tb.appendChild(tr);
+  }
+  $("shown").textContent = `${rows.length} shown`;
+  $("empty").hidden = rows.length > 0;
+}
+
+/* ---------- selection + zoom ---------- */
+function zoomTo(e) {
+  selected = e.key;
+  for (const id of Object.keys(LAYERS)) {
+    map.setFilter(`adv-${id}-hl`,
+      ["==", ["get", "EventID"], id === e.layer ? e.id : "\u0000"]);
+  }
+  const [w, s, en, n] = e.bbox;
+  const pad = { top: 60, bottom: 60, left: 300, right: 60 };
+  if (w > en) { render(); return; }                       // no geometry returned
+  const degenerate = (en - w) < 1e-6 && (n - s) < 1e-6;
+  if (degenerate) map.flyTo({ center: [w, s], zoom: 14, padding: pad });
+  else map.fitBounds([[w, s], [en, n]], { padding: pad, maxZoom: 15, duration: 800 });
+
+  popup?.remove();
+  const p = e.props;
+  const link = p.EventHyperlink
+    ? `<div style="margin-top:6px"><a href="${p.EventHyperlink}" target="_blank" rel="noopener"
+        style="color:${e.color}">Utility notice &rarr;</a></div>` : "";
+  popup = new maplibregl.Popup({ maxWidth: "340px" })
+    .setLngLat([(w + en) / 2, (s + n) / 2])
+    .setHTML(
+      `<div class="pop-h" style="color:${e.color}">${e.layerLabel} &middot; ${e.type}</div>
+       <div><span class="pop-k">event </span>${e.id}</div>
+       <div><span class="pop-k">start </span>${fmtLong(p.EventStartDate)}</div>
+       <div><span class="pop-k">expires </span>${fmtLong(p.EventExpirationDate)}</div>
+       <div class="pop-msg">${(p.EventMessage || p.EventHeader || "").slice(0, 700)}</div>${link}`)
+    .addTo(map);
+  render();
+}
+
+/* ---------- map layers ---------- */
+map.on("load", () => {
+  for (const [id, cfg] of Object.entries(LAYERS)) {
+    const vis = cfg.on ? "visible" : "none";
+    map.addSource(`adv-${id}`, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({ id: `adv-${id}-fill`, source: `adv-${id}`, type: "fill",
+      layout: { visibility: vis }, paint: { "fill-color": cfg.color, "fill-opacity": 0.22 } });
+    map.addLayer({ id: `adv-${id}-line`, source: `adv-${id}`, type: "line",
+      layout: { visibility: vis }, paint: { "line-color": cfg.color, "line-width": 1.4, "line-opacity": 0.85 } });
+    map.addLayer({ id: `adv-${id}-hl`, source: `adv-${id}`, type: "line",
+      layout: { visibility: vis }, filter: ["==", ["get", "EventID"], "\u0000"],
+      paint: { "line-color": "#ffffff", "line-width": 2.6, "line-opacity": 0.95 } });
+
+    map.on("click", `adv-${id}-fill`, ev => {
+      const hit = events.find(e => e.layer === id && e.id === ev.features[0].properties.EventID);
+      if (hit) { zoomTo(hit); document.querySelector("tbody tr.sel")?.scrollIntoView({ block: "nearest" }); }
+    });
+    map.on("mouseenter", `adv-${id}-fill`, () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", `adv-${id}-fill`, () => map.getCanvas().style.cursor = "");
+  }
+
+  map.addSource("sensors", { type: "geojson", data: { type: "FeatureCollection",
+    features: SENSORS.map(([name, lon, lat, color]) => ({ type: "Feature",
+      properties: { name, color }, geometry: { type: "Point", coordinates: [lon, lat] } })) } });
+  map.addLayer({ id: "sensors-pt", source: "sensors", type: "circle", minzoom: 8,
+    paint: { "circle-radius": 5, "circle-color": ["get", "color"],
+             "circle-stroke-width": 1.5, "circle-stroke-color": "#10131a" } });
+  map.addLayer({ id: "sensors-lbl", source: "sensors", type: "symbol", minzoom: 10,
+    layout: { "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 1.3],
+              "text-font": ["Open Sans Semibold"] },
+    paint: { "text-color": "#d7dce6", "text-halo-color": "#10131a", "text-halo-width": 1.4 } });
+
+  load();
+  setInterval(load, 5 * 60 * 1000);   // service sets cache-control: max-age=30
+});
+
+/* ---------- controls ---------- */
+$("reload").onclick = load;
+$("state").onchange = load;
+$("q").oninput = render;
+$("zoomSB").onclick = () =>
+  map.fitBounds([[-117.14, 32.53], [-117.02, 32.61]], { padding: 40 });
+
+document.querySelectorAll("input[data-lyr]").forEach(cb => {
+  cb.onchange = () => {
+    const id = cb.dataset.lyr, v = cb.checked ? "visible" : "none";
+    LAYERS[id].on = cb.checked;
+    ["fill", "line", "hl"].forEach(sfx => map.setLayoutProperty(`adv-${id}-${sfx}`, "visibility", v));
+    render();
+  };
+});
+
+document.querySelectorAll("thead th[data-sort]").forEach(th => {
+  th.onclick = () => {
+    const k = th.dataset.sort;
+    if (k === sortKey) sortDir *= -1; else { sortKey = k; sortDir = k === "start" ? -1 : 1; }
+    document.querySelectorAll("thead th .arrow").forEach(a => a.remove());
+    th.insertAdjacentHTML("beforeend", ` <span class="arrow">${sortDir > 0 ? "↑" : "↓"}</span>`);
+    render();
+  };
+});
+</script>
+</body>
+</html>
