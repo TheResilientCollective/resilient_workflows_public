@@ -40,42 +40,46 @@ effectively never calls a 30 ppb night.
 
 ## Data review — what we know going in
 
-### How much data is there at 30 and 100 ppb? (`01_h2s_levels.py`)
+### How much data is there at 30 and 75 ppb? (`01_h2s_levels.py`)
 
-Hourly record: 47,260 measured station-hours, 2023-11-20 to 2026-09-12.
+The review's upper reference tier is **75 ppb** (it replaced 100 ppb on
+2026-10-26; the figures in this section were recomputed that day on the
+record to 2026-10-22). Hourly record: 50,068 measured
+station-hours from 2023-11-20.
 
-| station | measured hours | > 5 | > 30 | > 50 | > 100 | > 200 | > 500 | max |
+| station | measured hours | > 5 | > 30 | > 50 | > 75 | > 200 | > 500 | max |
 |---|---|---|---|---|---|---|---|---|
-| SAN YSIDRO | 18,710 | 2,323 | 109 | 43 | 8 | 1 | 1 | 703 |
-| NESTOR - BES | 15,792 | 3,154 | 785 | 501 | 259 | 88 | 7 | 915 |
-| IB CIVIC CTR | 12,758 | 992 | 121 | 56 | 18 | 2 | 0 | 264 |
+| SAN YSIDRO | 19,645 | 2,394 | 109 | 43 | 17 | 1 | 1 | 703 |
+| NESTOR - BES | 16,757 | 3,195 | 786 | 501 | 339 | 88 | 7 | 915 |
+| IB CIVIC CTR | 13,666 | 1,005 | 121 | 56 | 27 | 2 | 0 | 264 |
 
 Nights (astronomical, at least half the hours measured):
 
-| station | nights | peak > 30 | peak > 100 | peak > 200 |
+| station | nights | peak > 30 | peak > 75 | peak > 200 |
 |---|---|---|---|---|
-| SAN YSIDRO | 773 | 53 | 5 | 0 |
-| NESTOR - BES | 651 | 229 | 109 | 51 |
-| IB CIVIC CTR | 523 | 56 | 10 | 1 |
+| SAN YSIDRO | 832 | 53 | 8 | 0 |
+| NESTOR - BES | 710 | 230 | 129 | 51 |
+| IB CIVIC CTR | 580 | 56 | 14 | 1 |
 
-Nights above 30 ppb by year: NESTOR 24 / 107 / 98 (2024 / 2025 / 2026 to date);
-above 100 ppb: 5 / 47 / 57.
+Nights above 30 ppb by year: NESTOR 24 / 107 / 99 (2024 / 2025 / 2026 to date);
+above 75 ppb: 8 / 56 / 65.
 
 What that means:
 
 - **30 ppb is a NESTOR-first problem with usable data at all three stations.**
   NESTOR has 229 positive nights, a 35% base rate. The other two have 53–56
   positive nights, enough for a classifier but not for fine calibration.
-- **100 ppb is a NESTOR-only problem.** 109 positive nights there (17% base
-  rate) is workable; the other stations have 5 and 10. A 100 ppb product for
-  SAN YSIDRO or IB CIVIC CTR cannot be evaluated, let alone trained.
+- **75 ppb is a NESTOR-only problem**, and so is the 70 ppb classifier tier.
+  129 positive nights there (18% base rate) is workable; the other stations
+  have 8 and 14. A 75 ppb product for SAN YSIDRO or IB CIVIC CTR cannot be
+  evaluated, let alone trained.
 - **Events are short.** Median run above 30 ppb is 1–2 consecutive hours, the
   longest 11. An hourly product that misses the onset misses the event; a
   nightly peak is the more forgiving target.
 - **Strongly seasonal and nocturnal.** 65% of hours above 30 ppb fall in
   March–May; almost none in July–September. 95% fall between 19:00 and 07:00.
 - **Persistence is strong.** At NESTOR, P(peak > 30 tonight | > 30 last night)
-  is 0.65 against a 0.35 base rate; at 100 ppb, 0.50 against 0.17.
+  is 0.65 against a 0.32 base rate; at 75 ppb, 0.53 against 0.18.
 
 ### At what H2S levels do complaints occur? (`02_complaints_vs_h2s.py`)
 
@@ -96,9 +100,12 @@ highest reading in the previous 3 hours: median 10 ppb, upper quartile 60 ppb.
 
 Normalised by exposure (complaints per 100 measured NESTOR hours in each bin):
 
-| H2S bin (ppb) | ≤1 | 1–5 | 5–10 | 10–30 | 30–50 | 50–100 | 100–200 | >200 |
+| H2S bin (ppb) | ≤1 | 1–5 | 5–10 | 10–30 | 30–50 | 50–75 | 75–200 | >200 |
 |---|---|---|---|---|---|---|---|---|
-| complaints / 100 h | 10 | 17 | 33 | 48 | 62 | 119 | 139 | 163 |
+| complaints / 100 h | 5 | 12 | 29 | 46 | 60 | 106 | 139 | 161 |
+
+(Recomputed 2026-10-26 on the record to 2026-10-22; the low bins fell as the
+summer's quiet hours accrued.)
 
 The rate rises monotonically with no step at 30 ppb. Nightly, Spearman between
 the night's peak and the complaint count is 0.57–0.59 at NESTOR and IB, 0.39
@@ -225,8 +232,10 @@ Decide what "predict H2S levels at 30 ppb and above" means as a target.
   80/20 split leaves the summer-autumn 2026 test block with no 30 ppb hours
   at IB CIVIC CTR and no 70 ppb hours anywhere but NESTOR. That is the
   Session 2 problem in miniature, and its AUC figures are nowcast numbers
-  with true lags, not operational skill. 100 ppb stays as a descriptive break
-  in the data, not a trained target.
+  with true lags, not operational skill. The review notebooks use **75 ppb**
+  as the upper reference tier (it replaced 100 ppb on 2026-10-26); 100 ppb
+  survives only as the density break noted under *Choosing the upper
+  threshold*.
 - Station scope for 100 ppb (see the counts above).
 - Whether the 500 ppb training filter stays. Recommendation: remove it.
 - Which lead times matter to APCD: same evening, 24 h, 48 h?
