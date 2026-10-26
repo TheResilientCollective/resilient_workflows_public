@@ -24,7 +24,7 @@ def _():
 @app.cell
 def _(mo):
     mo.md(r"""
-    # Is 100 ppb the right upper threshold?
+    # Where should the upper threshold sit?
 
     **Decision (2026-10-25): the upper classifier is set at 70 ppb**, the ATSDR
     acute-duration inhalation Minimal Risk Level for hydrogen sulfide (0.07 ppm;

@@ -194,7 +194,7 @@ def _(alt, joined, lookback, mo, pd):
         )
         .properties(width=560, height=260, title="Cumulative distribution of H2S when odour complaints are received")
     )
-    _rules = alt.Chart(pd.DataFrame({"ppb": [5, 30, 100]})).mark_rule(color="#898781", strokeDash=[4, 4]).encode(x="ppb:Q")
+    _rules = alt.Chart(pd.DataFrame({"ppb": [5, 30, 75]})).mark_rule(color="#898781", strokeDash=[4, 4]).encode(x="ppb:Q")
     mo.ui.altair_chart(_chart + _rules)
     return
 
@@ -213,8 +213,8 @@ def _(mo):
 
 @app.cell
 def _(hourly, joined, mo, pd, station_pick):
-    _bins = [-0.01, 1, 5, 10, 30, 50, 100, 200, 10_000]
-    _labels = ["≤1", "1–5", "5–10", "10–30", "30–50", "50–100", "100–200", ">200"]
+    _bins = [-0.01, 1, 5, 10, 30, 50, 75, 200, 10_000]
+    _labels = ["≤1", "1–5", "5–10", "10–30", "30–50", "50–75", "75–200", ">200"]
     _s = hourly[hourly["site_name"] == station_pick.value]
     _hours = pd.cut(_s["H2S"], _bins, labels=_labels).value_counts().sort_index()
     _cmpl = pd.cut(joined["h2s_at_hour"], _bins, labels=_labels).value_counts().sort_index()
@@ -304,7 +304,7 @@ def _(min_complaints, mo, nightly, pd):
     _rows = []
     for _site, _g in nightly.groupby("site_name", observed=True):
         _cn = _g["complaints_total"] >= min_complaints.value
-        for _t in [5, 10, 30, 50, 100]:
+        for _t in [5, 10, 30, 50, 75]:
             _hi = _g["h2s_max"] > _t
             _rows.append(
                 {
@@ -327,8 +327,9 @@ def _(mo):
     ## 7. Points for the session
 
     - **Complaints rise monotonically with H2S**, with no obvious step at 30 ppb:
-      the complaint rate roughly doubles from the 10–30 bin to the 50–100 bin
-      and keeps climbing. 30 ppb is a reasonable line but not a natural one.
+      the complaint rate more than doubles from the 10–30 bin to the 50–75 bin
+      and keeps climbing above 75. 30 ppb is a reasonable line but not a
+      natural one.
     - **Most complaints arrive the morning after.** Any complaint-based
       verification of a nightly forecast must credit the *previous* night.
     - **Complaint location is the source location**, so complaints cannot be
