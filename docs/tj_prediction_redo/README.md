@@ -40,46 +40,45 @@ effectively never calls a 30 ppb night.
 
 ## Data review — what we know going in
 
-### How much data is there at 30 and 75 ppb? (`01_h2s_levels.py`)
+### How much data is there at 30 and 70 ppb? (`01_h2s_levels.py`)
 
-The review's upper reference tier is **75 ppb** (it replaced 100 ppb on
-2026-10-26; the figures in this section were recomputed that day on the
-record to 2026-10-22). Hourly record: 50,068 measured
-station-hours from 2023-11-20.
+The review's tiers are 5, 10, 30, 50 and 70 ppb (75 and 200 ppb were dropped
+on 2026-10-26; the figures in this section are on the record to
+2026-10-22). Hourly record: 50,068 measured station-hours
+from 2023-11-20.
 
-| station | measured hours | > 5 | > 30 | > 50 | > 75 | > 200 | > 500 | max |
-|---|---|---|---|---|---|---|---|---|
-| SAN YSIDRO | 19,645 | 2,394 | 109 | 43 | 17 | 1 | 1 | 703 |
-| NESTOR - BES | 16,757 | 3,195 | 786 | 501 | 339 | 88 | 7 | 915 |
-| IB CIVIC CTR | 13,666 | 1,005 | 121 | 56 | 27 | 2 | 0 | 264 |
+| station | measured hours | > 5 | > 30 | > 50 | > 70 | > 500 | max |
+|---|---|---|---|---|---|---|---|
+| SAN YSIDRO | 19,645 | 2,394 | 109 | 43 | 21 | 1 | 703 |
+| NESTOR - BES | 16,757 | 3,195 | 786 | 501 | 361 | 7 | 915 |
+| IB CIVIC CTR | 13,666 | 1,005 | 121 | 56 | 31 | 0 | 264 |
 
 Nights (astronomical, at least half the hours measured):
 
-| station | nights | peak > 30 | peak > 75 | peak > 200 |
+| station | nights | peak > 30 | peak > 50 | peak > 70 |
 |---|---|---|---|---|
-| SAN YSIDRO | 832 | 53 | 8 | 0 |
-| NESTOR - BES | 710 | 230 | 129 | 51 |
-| IB CIVIC CTR | 580 | 56 | 14 | 1 |
+| SAN YSIDRO | 832 | 53 | 19 | 9 |
+| NESTOR - BES | 710 | 230 | 174 | 136 |
+| IB CIVIC CTR | 580 | 56 | 23 | 15 |
 
 Nights above 30 ppb by year: NESTOR 24 / 107 / 99 (2024 / 2025 / 2026 to date);
-above 75 ppb: 8 / 56 / 65.
+above 70 ppb: 8 / 61 / 67.
 
 What that means:
 
 - **30 ppb is a NESTOR-first problem with usable data at all three stations.**
   NESTOR has 229 positive nights, a 35% base rate. The other two have 53–56
   positive nights, enough for a classifier but not for fine calibration.
-- **75 ppb is a NESTOR-only problem**, and so is the 70 ppb classifier tier.
-  129 positive nights there (18% base rate) is workable; the other stations
-  have 8 and 14. A 75 ppb product for SAN YSIDRO or IB CIVIC CTR cannot be
-  evaluated, let alone trained.
+- **70 ppb is a NESTOR-only problem.** 136 positive nights there (19% base
+  rate) is workable; the other stations have 9 and 15. A 70 ppb product for
+  SAN YSIDRO or IB CIVIC CTR cannot be evaluated, let alone trained.
 - **Events are short.** Median run above 30 ppb is 1–2 consecutive hours, the
   longest 11. An hourly product that misses the onset misses the event; a
   nightly peak is the more forgiving target.
 - **Strongly seasonal and nocturnal.** 65% of hours above 30 ppb fall in
   March–May; almost none in July–September. 95% fall between 19:00 and 07:00.
 - **Persistence is strong.** At NESTOR, P(peak > 30 tonight | > 30 last night)
-  is 0.65 against a 0.32 base rate; at 75 ppb, 0.53 against 0.18.
+  is 0.65 against a 0.32 base rate; at 70 ppb, 0.54 against 0.19.
 
 ### At what H2S levels do complaints occur? (`02_complaints_vs_h2s.py`)
 
@@ -100,9 +99,9 @@ highest reading in the previous 3 hours: median 10 ppb, upper quartile 60 ppb.
 
 Normalised by exposure (complaints per 100 measured NESTOR hours in each bin):
 
-| H2S bin (ppb) | ≤1 | 1–5 | 5–10 | 10–30 | 30–50 | 50–75 | 75–200 | >200 |
-|---|---|---|---|---|---|---|---|---|
-| complaints / 100 h | 5 | 12 | 29 | 46 | 60 | 106 | 139 | 161 |
+| H2S bin (ppb) | ≤1 | 1–5 | 5–10 | 10–30 | 30–50 | 50–70 | >70 |
+|---|---|---|---|---|---|---|---|
+| complaints / 100 h | 5 | 12 | 29 | 46 | 60 | 96 | 146 |
 
 (Recomputed 2026-10-26 on the record to 2026-10-22; the low bins fell as the
 summer's quiet hours accrued.)
@@ -155,7 +154,7 @@ the only station with a usable sample above 50 ppb (figures computed
 2026-10-24; the record now runs to 2026-10-21).
 
 **Sample size.** Positive NESTOR nights fall smoothly: 230 at 30 ppb, 174 at
-50, 129 at 75, 109 at 100, 74 at 150, 51 at 200. SAN YSIDRO and IB CIVIC CTR
+50, 136 at 70, 109 at 100, 74 at 150. SAN YSIDRO and IB CIVIC CTR
 have 19–23 positive nights at 50 ppb and 5–10 at 100.
 
 **Predictability.** A walk-forward nightly RandomForest (features known the
@@ -167,13 +166,11 @@ on 425 NESTOR test nights:
 | 30 | 122 | 0.81 (0.75–0.86) | 0.91 (0.85–0.96) | 0.68 |
 | 50 | 99 | 0.75 (0.68–0.81) | 0.90 (0.81–0.95) | 0.66 |
 | **70** | 79 | 0.72 (0.65–0.80) | 0.92 (0.70–0.97) | 0.58 |
-| 75 | 76 | 0.71 (0.64–0.78) | 0.87 (0.72–0.95) | 0.57 |
 | 100 | 67 | 0.65 (0.56–0.73) | 0.69 (0.49–0.83) | 0.54 |
 | 150 | 47 | 0.56 (0.44–0.69) | 0.64 (0.40–0.79) | 0.47 |
-| 200 | 31 | 0.49 (0.36–0.63) | 0.45 (0.11–0.68) | 0.36 |
 
 AUC is flat (0.85–0.90) at every threshold; what degrades is precision,
-because positives thin out. Skill holds to about 75 ppb and steps down at
+because positives thin out. Skill holds through 70 ppb and steps down at
 100. Adjacent thresholds are within each other's intervals; the trend is
 what is reliable, not any single pairwise difference.
 
@@ -232,10 +229,10 @@ Decide what "predict H2S levels at 30 ppb and above" means as a target.
   80/20 split leaves the summer-autumn 2026 test block with no 30 ppb hours
   at IB CIVIC CTR and no 70 ppb hours anywhere but NESTOR. That is the
   Session 2 problem in miniature, and its AUC figures are nowcast numbers
-  with true lags, not operational skill. The review notebooks use **75 ppb**
-  as the upper reference tier (it replaced 100 ppb on 2026-10-26); 100 ppb
-  survives only as the density break noted under *Choosing the upper
-  threshold*.
+  with true lags, not operational skill. The review notebooks use the same
+  tiers, 5 / 10 / 30 / 50 / 70 ppb (75 and 200 ppb were dropped on
+  2026-10-26); 100 ppb survives only as the density break noted under
+  *Choosing the upper threshold*.
 - Station scope for 100 ppb (see the counts above).
 - Whether the 500 ppb training filter stays. Recommendation: remove it.
 - Which lead times matter to APCD: same evening, 24 h, 48 h?

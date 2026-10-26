@@ -62,7 +62,7 @@ def _(d, np):
     nightly["m_cos"] = np.cos(2 * np.pi * nightly["month"] / 12)
     nightly["wd_sin"] = np.sin(np.radians(nightly["wind_resultant_direction"]))
     nightly["wd_cos"] = np.cos(np.radians(nightly["wind_resultant_direction"]))
-    THRESHOLDS = [30, 40, 50, 60, 70, 75, 100, 150, 200]
+    THRESHOLDS = [30, 40, 50, 60, 70, 100, 150]
     FEATURES = [
         "prev_peak_log", "prev_h30", "prev_h5", "prev3_peak_log", "prev7_peak_log",
         "m_sin", "m_cos", "night_length_hours", "sbiwtp_flow_mgd_mean",
@@ -334,8 +334,8 @@ def _(mo):
     - **100 ppb is not random.** It sits in a density valley of the NESTOR
       nightly-peak distribution (modes near 50 and 150), and it approximates the
       WHO 24-hour guideline. But it is where skill falls: recall at 50% precision
-      drops from about 0.87 at 75 ppb to about 0.69 at 100, and persistence
-      precision from 0.57 to 0.54, because positives thin out.
+      drops from about 0.92 at 70 ppb to about 0.69 at 100, and persistence
+      precision from 0.58 to 0.54, because positives thin out.
     - **The complaint response steps at 50 ppb, not 100.** Per-hour complaint
       rate roughly doubles from the 30–40 bin to 50–75 and then plateaus; nights
       with ten or more complaints go from about one in ten below 50 ppb to about
@@ -356,8 +356,8 @@ def _(mo):
     has 9 and 15 positive nights; a 70 ppb probability there will be poorly
     calibrated until the record grows, and should be labelled as such.
 
-    Treat the 60-vs-70-vs-75 differences as noise; the bootstrap intervals
-    overlap. What is reliable is the step down between 75 and 100.
+    Treat the 60-vs-70 difference as noise; the bootstrap intervals overlap.
+    What is reliable is the step down between 70 and 100.
 
     ## References
 

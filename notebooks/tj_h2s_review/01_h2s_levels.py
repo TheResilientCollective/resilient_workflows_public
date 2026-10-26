@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.24.2"
-app = marimo.App(width="medium", app_title="H2S levels: 30 and 75 ppb")
+app = marimo.App(width="medium", app_title="H2S levels: 30 and 70 ppb")
 
 
 @app.cell
@@ -24,11 +24,11 @@ def _():
 @app.cell
 def _(mo):
     mo.md(r"""
-    # H2S levels: how much data is there at 30 and 75 ppb?
+    # H2S levels: how much data is there at 30 and 70 ppb?
 
     **Question for the planning session.** APCD asked us to focus on predicting
     H2S *levels*, and specifically to do better at 30 ppb and above. Before
-    choosing a model we need to know how many 30 ppb and 75 ppb events the
+    choosing a model we need to know how many 30 ppb and 70 ppb events the
     record actually contains, at which stations, in which seasons, and how
     long they last.
 
@@ -313,10 +313,9 @@ def _(mo):
     - **Target definition.** Hourly value, nightly peak, or nightly hours above
       threshold? The nightly peak is the quantity APCD acts on, and it turns a
       rare hourly class into a less rare nightly class.
-    - **Station scope for 75 ppb.** Only NESTOR - BES has more than a handful
-      of nights above 75 ppb (129, against 8 at SAN YSIDRO and 14 at IB CIVIC
-      CTR); a 75 ppb product is a NESTOR product. The same holds for the 70 ppb
-      classifier tier.
+    - **Station scope for 70 ppb.** Only NESTOR - BES has more than a handful
+      of nights above 70 ppb (136, against 9 at SAN YSIDRO and 15 at IB CIVIC
+      CTR); a 70 ppb product is a NESTOR product.
     - **Training filter.** `train_models_auto.py` drops rows with H2S above
       500 ppb before training. The largest events in the record are exactly the
       ones being removed.

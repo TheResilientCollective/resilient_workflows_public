@@ -6,10 +6,10 @@ answers one of the questions raised after APCD's review of the H2S forecast.
 
 | notebook | question |
 |---|---|
-| `01_h2s_levels.py` | How many 30 ppb and 75 ppb events does the record hold, where, when, and for how long? Is there enough data at 75 ppb? |
+| `01_h2s_levels.py` | How many 30 ppb and 70 ppb events does the record hold, where, when, and for how long? Is there enough data at 70 ppb? |
 | `02_complaints_vs_h2s.py` | At what H2S levels do Tijuana River Valley odour complaints occur? |
 | `03_drivers.py` | Do temperature, border streamflow and SBIWTP effluent relate to high-H2S nights, and to each other? |
-| `04_upper_threshold.py` | Where should the upper tier sit? Sample size, walk-forward skill and natural breaks for candidate thresholds from 30 to 200 ppb; records the 70 ppb decision and its references. |
+| `04_upper_threshold.py` | Where should the upper tier sit? Sample size, walk-forward skill and natural breaks for candidate thresholds from 30 to 150 ppb; records the 70 ppb decision and its references. |
 
 `tj_review_data.py` is the shared loader. All three notebooks read the same
 production datasets from S3 and cache them under `.cache/` (git-ignored).
