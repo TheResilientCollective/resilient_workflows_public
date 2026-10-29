@@ -51,6 +51,8 @@ import boto3
 
 from git import Repo
 from github import Github
+
+from .forecast_freshness import FORECAST_FRESHNESS_POLICY
 # S3 paths
 FORECAST_API_RUN_PATH = os.environ.get("FORECAST_API_RUN_PATH", "api_run/")
 
@@ -244,6 +246,7 @@ def parse_run_id(run_path: str) -> tuple[datetime, str]:
 @asset(group_name="health",
     key_prefix="sandiego",
     name="sandiego_epidemiology_forecast",
+       freshness_policy=FORECAST_FRESHNESS_POLICY,
        required_resource_keys={"resilientsims", "slack", "s3"},
        ins={
            "sandiego_epidemiology_hyper_extraction": AssetIn(key=AssetKey([f"sandiego", "sandiego_epidemiology_hyper_extraction"])),
@@ -946,19 +949,10 @@ def resilientllm_asset(context, resilientllm_sd_disease: str):
             pass
         dagster.get_dagster_logger().error(f"Error in update_resilientllm_asset: {e}")
         raise e
-@asset(
-    group_name="health",
-    key_prefix="sandiego",
-    name="resilientllm_sd_disease",
-    required_resource_keys={"resilientllm", "slack",  "s3"},
-    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_forecast_latest"])],
-automation_condition=AutomationCondition.eager()
-)
-def resilientllm_by_disease_asset(context):
-    """
-    Calls the ResilientLLM API Forecast Update.
-    """
-    diseases_config={ "COVID": [
+LLM_REQUEST_ASSET_KEY = AssetKey(["sandiego", "resilientllm_sd_disease_request"])
+LLM_DISEASE_ASSET_KEY = AssetKey(["sandiego", "resilientllm_sd_disease"])
+
+DISEASES_CONFIG = { "COVID": [
     { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_case_reports.csv", "description": "reported cases" },
      { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_hosp_reports.csv", "description": "hospitalizations" },
      { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/COVID_hosp_Rt.csv", "description": "Rt for hospitalizations" }
@@ -971,10 +965,109 @@ def resilientllm_by_disease_asset(context):
          { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_hosp_reports.csv", "description": "hospitalizations" },
           { "url": "https://oss.resilientservice.mooo.com/resilentpublic/latest/sandiego_epidemiology_ili/forecast/RSV_hosp_Rt.csv", "description": "Rt for hospitalizations" }
           ] }
-    diseases_key='diseases'
-    toplevel_keys=['super-short-summary', 'short-summary', 'summary','super-short-summary-no-forecast'
-        , 'updates', ]
-    disease_level_keys=['summary','trend','generated','timestamp','summary-public-forecast','summary-public-nowcast','summary-public health office-forecast']
+
+
+@asset(
+    group_name="health",
+    key_prefix="sandiego",
+    name="resilientllm_sd_disease_request",
+    required_resource_keys={"resilientllm", "slack", "s3"},
+    deps=[AssetKey([f"sandiego", "sandiego_epidemiology_forecast_latest"])],
+    automation_condition=AutomationCondition.eager(),
+)
+def resilientllm_by_disease_request(context) -> Output[dict]:
+    """
+    Submit the by-disease forecast summary request to ResilientLLM.
+
+    The webhook now runs asynchronously: this asset starts the run, emails that the
+    forecast simulation completed and the summary was requested, and records the run
+    id. ``resilientllm_status_sensor`` polls the run and, once it is done, launches
+    ``resilientllm_sd_disease`` to parse and store the result.
+    """
+    slack_resource = context.resources.slack
+    llm = context.resources.resilientllm
+    s3_resource = context.resources.s3
+    logger = get_dagster_logger()
+    try:
+        handle = llm.submit(DISEASES_CONFIG)
+    except Exception as e:
+        try:
+            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
+                                                         text=f"Error submitting ResilientLLM by-disease request: {e}")
+        except Exception:
+            pass
+        logger.error(f"Error submitting ResilientLLM by-disease request: {e}")
+        raise e
+
+    submitted_at = datetime.now().astimezone()
+    date_path = submitted_at.strftime('%Y%m%d')
+    request_record = {
+        "id": handle.id,
+        "status": handle.status,
+        "submitted_at": submitted_at.isoformat(),
+        "diseases": list(DISEASES_CONFIG.keys()),
+    }
+    metadata = store_assets.objectMetadata(
+        name='sandiego_epidemiology_sd_llm_request_by_disease',
+        description='ResilientLLM by_disease run handle for San Diego epidemiology',
+    )
+    store_assets.text_to_s3(json.dumps(request_record, indent=2),
+                            f"{s3_output_path}output/llm/{date_path}/llm_request.json",
+                            s3_resource, contenttype='application/json', metadata=metadata)
+
+    try:
+        email_subject = f"San Diego forecast simulation completed — LLM summary requested — {date_path}"
+        email_body = (f"The San Diego epidemiology forecast simulation completed on {date_path} and the "
+                      f"ResilientLLM summary has been requested (run id {handle.id}).\n\n"
+                      f"Diseases: {', '.join(DISEASES_CONFIG.keys())}\n\n"
+                      "The summary will be published automatically once the LLM run finishes.\n\n"
+                      "This is an automated notification from the Resilient Workflows system.")
+        email_html = f"""<!DOCTYPE html>
+<html>
+<body>
+    <p>The San Diego epidemiology forecast simulation completed on {date_path} and the ResilientLLM summary has been requested (run id <code>{handle.id}</code>).</p>
+    <p><strong>Diseases:</strong> {', '.join(DISEASES_CONFIG.keys())}</p>
+    <p>The summary will be published automatically once the LLM run finishes.</p>
+    <hr>
+    <small>This is an automated notification from the Resilient Workflows system.</small>
+</body>
+</html>"""
+        send_email(email_subject, email_body, email_html)
+    except Exception as e:
+        logger.error(f"Email notification failed: {e}")
+
+    return Output(request_record, metadata={"llm_run_id": handle.id,
+                                            "llm_status": handle.status,
+                                            "submitted_at": request_record["submitted_at"]})
+
+
+class LLMRunConfig(Config):
+    """Identifies the finished ResilientLLM run to parse; set by ``resilientllm_status_sensor``."""
+    run_id: str
+
+
+resilientllm_sd_disease_job = define_asset_job(
+    name="resilientllm_sd_disease_job",
+    selection=[LLM_DISEASE_ASSET_KEY],
+)
+
+
+@asset(
+    group_name="health",
+    key_prefix="sandiego",
+    name="resilientllm_sd_disease",
+    required_resource_keys={"resilientllm", "slack",  "s3"},
+    deps=[LLM_REQUEST_ASSET_KEY],
+)
+def resilientllm_by_disease_asset(context, config: LLMRunConfig):
+    """
+    Fetch a finished ResilientLLM by-disease run and store its ``data`` element.
+
+    Launched by ``resilientllm_status_sensor`` via ``resilientllm_sd_disease_job`` once
+    the run reports ``done``. The stored JSON is the ``data`` element, which is what
+    ``resilientllm_asset`` downstream parses.
+    """
+    diseases_config = DISEASES_CONFIG
     try:
         slack_resource = context.resources.slack
         llm = context.resources.resilientllm
@@ -985,8 +1078,13 @@ def resilientllm_by_disease_asset(context):
         metadata = store_assets.objectMetadata(name=name, description=description)
         s3_resource = context.resources.s3
 
-        # llm_response =  llm.execute(llm.webhook_uuid)
-        llm_response = llm.execute_with_data(llm.webhook_uuid, diseases_config)
+        handle = llm.get_status(config.run_id)
+        if not handle.is_done:
+            raise Exception(f"ResilientLLM run {config.run_id} is not done (status={handle.status})")
+        if not handle.data:
+            raise Exception(f"ResilientLLM run {config.run_id} is done but returned no data")
+        llm_response = handle.data
+
         llm_response_json=json.dumps(llm_response, indent=2)
         date_path = datetime.today().strftime('%Y%m%d')
         s3_json_key = f"{s3_output_path}output/llm/{date_path}/forecast_summary.json"
@@ -1011,23 +1109,6 @@ def resilientllm_by_disease_asset(context):
         # except:
         #     pass
 
-        # Send email notification after LLM call
-        try:
-            email_subject = f"Resilient LLM forecast generated — {date_path}"
-            email_body = f"The ResilientLLM forecast for San Diego epidemiology has been generated on {date_path}.\n\nDiseases: {', '.join(diseases_config.keys())}\n\nThis is an automated notification from the Resilient Workflows system."
-            email_html = f"""<!DOCTYPE html>
-<html>
-<body>
-    <p>The ResilientLLM forecast for San Diego epidemiology has been generated on {date_path}.</p>
-    <p><strong>Diseases:</strong> {', '.join(diseases_config.keys())}</p>
-    <hr>
-    <small>This is an automated notification from the Resilient Workflows system.</small>
-</body>
-</html>"""
-            send_email(email_subject, email_body, email_html)
-        except Exception as e:
-            get_dagster_logger().error(f"Email notification failed: {e}")
-
         # Create deployment configuration and trigger deploy
         deploy_config = DeployConfig(
             asset_name=f"resilientllm_sd_disease new layout {date_path}",
@@ -1048,7 +1129,7 @@ def resilientllm_by_disease_asset(context):
             except:
                 pass
 
-        asset_metadata={'date':date_path, 'diseases': list(diseases_config.keys())}
+        asset_metadata={'date':date_path, 'diseases': list(diseases_config.keys()), 'llm_run_id': config.run_id}
         return Output(llm_response_json, metadata=asset_metadata)
     except Exception as e:
         try:

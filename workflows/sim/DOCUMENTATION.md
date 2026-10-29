@@ -45,7 +45,12 @@ epidemiology code location
             └─► copy_forecast_latest  ──► S3: latest/sandiego_epidemiology_ili/forecast/
                         │
                         ▼
-            resilientllm_by_disease_asset  ─── calls LLM API with disease data
+            resilientllm_by_disease_request  ─── submits async LLM run (webhook)
+                        │  └─► email: simulation completed, summary requested
+                        │  └─► S3: output/llm/{date}/llm_request.json  (run id)
+                        │
+                        ▼  (resilientllm_status_sensor polls {webhook}/status until done)
+            resilientllm_by_disease_asset  ─── fetches `data` for the finished run
                         │  └─► S3: output/llm/{date}/forecast_summary.json
                         │  └─► Netlify deploy trigger
                         │
@@ -61,7 +66,7 @@ epidemiology code location
 
 ## Assets
 
-All assets use `AutomationCondition.eager()` and execute in dependency order without manual scheduling.
+All assets use `AutomationCondition.eager()` and execute in dependency order without manual scheduling, except `resilientllm_sd_disease`, which is launched by `resilientllm_status_sensor` once the asynchronous LLM run finishes.
 
 ### `run_epidemic_simulation`
 **Key:** `["sandiego", "sandiego_epidemiology_forecast"]`
@@ -93,11 +98,20 @@ Authenticates to GitHub using a PAT token, clones the target data products repos
 
 Copies all `ForAirTable/` outputs to an S3 `latest/` path for easy downstream access. Renames Influenza files to the FLU naming convention.
 
-### `resilientllm_by_disease_asset`
-**Key:** `["sandiego", "resilientllm_sd_disease"]`
+### `resilientllm_by_disease_request`
+**Key:** `["sandiego", "resilientllm_sd_disease_request"]`
 **Depends on:** `sandiego_epidemiology_forecast_latest`
 
-Structures forecast CSV URLs by disease (COVID, Influenza, RSV) — each including case reports, hospitalizations, and Rt estimates — and sends them to the ResilientLLM API. Stores the resulting multi-language JSON response to S3 and triggers a Netlify deployment.
+Structures forecast CSV URLs by disease (COVID, Influenza, RSV) — each including case reports, hospitalizations, and Rt estimates — and POSTs them to the ResilientLLM webhook, which now runs asynchronously and answers with `{status, data, _id, id}`. Emails that the simulation completed and the summary was requested, stores the run handle to S3, and records `llm_run_id` in the materialization metadata.
+
+### `resilientllm_status_sensor`
+Every `RESILIENTLLM_POLL_SECONDS` (default 300) POSTs `{"id": run_id}` to `{webhook}/status` for the latest request. When the status is `done` with `data`, it launches `resilientllm_sd_disease_job` with the run id as config (`run_key` = run id, so each run is parsed once). On `error`, done-without-data, or `RESILIENTLLM_TIMEOUT_HOURS` (default 6) of pending, it alerts Slack and email and stops polling that run.
+
+### `resilientllm_by_disease_asset`
+**Key:** `["sandiego", "resilientllm_sd_disease"]`
+**Config:** `LLMRunConfig` (`run_id`), set by the sensor. Not eager.
+
+Fetches the finished run's `data` element, stores it as the multi-language `forecast_summary.json` to S3 (dated and `latest/`), and triggers a Netlify deployment.
 
 ### `resilientllm_asset`
 **Key:** `["sandiego", "resilientllm_sd"]`

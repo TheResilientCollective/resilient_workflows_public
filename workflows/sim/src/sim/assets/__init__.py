@@ -5,6 +5,8 @@ from .sandiego_epidemiology_forecasts import (
     epidemiology_forecasts_sensor,
     resilientllm_asset,
     resilientllm_by_disease_asset,
+    resilientllm_by_disease_request,
+    resilientllm_sd_disease_job,
     copy_rt_to_github,
     copy_forecast_latest,
 )
@@ -18,3 +20,6 @@ from .mpox_forecasts import (
     mpox_simulation_job,
     mpox_aggregated_sensor,
 )
+
+from .forecast_freshness import forecast_freshness_alert_sensor
+from .resilientllm_status import resilientllm_status_sensor

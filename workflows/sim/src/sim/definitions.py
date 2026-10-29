@@ -33,6 +33,8 @@ all_sensors = [
     slack_on_run_failure,
     assets_pkg.epidemiology_forecasts_sensor,
     assets_pkg.mpox_aggregated_sensor,
+    assets_pkg.forecast_freshness_alert_sensor,
+    assets_pkg.resilientllm_status_sensor,
 ]
 
 minio = S3Resource(
@@ -87,4 +89,5 @@ defs = Definitions(
     assets=[*all_assets, *all_source_assets],
     resources=resources[deployment_name],
     sensors=all_sensors,
+    jobs=[assets_pkg.resilientllm_sd_disease_job],
 )
