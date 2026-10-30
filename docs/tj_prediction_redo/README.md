@@ -307,14 +307,18 @@ self-contained HTML evaluation page under
 runs weekly and takes a `source_bucket` so a development run can read
 production data while writing to the development bucket.
 
-Five lines are scored. *Deployed*: trained on true H2S history, issued with
+Six lines are scored. *Deployed*: trained on true H2S history, issued with
 that history decayed from the last observation (the production path, pinned
 to `forecast_features.engineer_station_features` by a parity test).
 *Served-time*: no H2S history at all. *Served-time + history*: the history
 that genuinely exists at issue time (last reading, 24 h and 72 h maxima,
 hours since the last exceedance, lead hour), held fixed over the horizon and
-trained in that form. *Persistence*: the 24 h before issue reached 30 ppb.
-*Climatology*: the training base rate. Weather, tide and flow inputs are
+trained in that form. *Night-target*: one row per station per astronomical
+night from `h2s_nightly_summary` (peak above 30 ppb) with the night's
+meteorology, flow, SBIWTP and tide, the previous nights' peaks and the same
+issue-time history, fit on the nights before each fold's test block and
+verified on the same events as the hourly variants. *Persistence*: the 24 h
+before issue reached 30 ppb. *Climatology*: the training base rate. Weather, tide and flow inputs are
 observed values, so every number is an upper bound on operational skill.
 
 First run, 2026-10-30, on the record to 2026-10-22: 1,062 station-nights
@@ -324,7 +328,8 @@ scored from 2025-05-04, 196 of them above 30 ppb.
 |---|---|---|---|---|---|
 | deployed | 0.79 | 0.56 | −0.09 | **3** | 0 |
 | served-time | 0.70 | 0.37 | +0.07 | 23 | 15 |
-| served-time + history | **0.82** | **0.57** | **+0.22** | 27 | 9 |
+| served-time + history | 0.82 | 0.57 | +0.22 | 27 | 9 |
+| **night-target** | **0.86** | **0.63** | **+0.32** | **97** | 50 |
 | persistence | 0.75 | 0.43 | +0.02 | 118 (POD 0.60) | FAR 0.40 |
 | climatology | 0.63 | 0.29 | −0.16 | – | – |
 
@@ -336,18 +341,26 @@ What it says:
   measured end to end: the model is trained to expect real recent H2S and is
   served a value that has decayed toward zero. APCD's experience that the
   forecast does not call 30 ppb nights is reproduced exactly.
-- **Issue-time history is the fix, and it is calibrated.** The variant that
-  uses the history available at 15:00 has the best ranking and the only
-  materially positive Brier skill. At a 0.2 cutoff it warns of 118 of 196
-  events with 90 false alarms; at 0.3, 86 with 40.
+- **Issue-time history is half the fix.** The hourly variant that uses the
+  history available at 15:00 ranks well and is calibrated, but at a 0.2
+  cutoff it still trades 118 hits for 90 false alarms.
+- **Predicting the night is the other half.** Trained on the nightly target,
+  the model reaches nightly AUC 0.86 and Brier skill +0.32, the best on every
+  measure. At cutoff 0.5 it warns of 97 of 196 event nights with 50 false
+  alarms; at 0.4, 128 with 90; at 0.3, 147 with 135. At NESTOR it warns of
+  72% of event nights with a 28% false-alarm rate, against 69% and 30% for
+  persistence; at the two smaller stations it does not yet beat persistence.
+  Its probabilities are also the ones that read as probabilities: 0.5 means
+  about half.
 - **Persistence is hard to beat on hits.** "Last 24 h reached 30 ppb" warns
   of 60% of event nights with a 40% false-alarm rate; at NESTOR, 69% and 30%.
   Any product must show it clears this line, and the cutoff table on the page
   is where the County's false-alarm tolerance gets turned into a setting.
-- **Hourly class weighting depresses nightly probabilities.** The classifier
-  is trained on hours with balanced class weights and the night is scored by
-  its maximum hour, so even the good variant needs a cutoff near 0.2–0.3 to
-  warn. Session 4 should consider training on the nightly target directly.
+- **Hourly class weighting depresses nightly probabilities.** The hourly
+  classifiers are trained with balanced class weights and the night is scored
+  by its maximum hour, which is why even the calibrated hourly variant needs a
+  cutoff near 0.2–0.3. The night-target model does not have this problem,
+  which is the practical argument for Session 4 to build the product on it.
 
 ## References
 
