@@ -10,8 +10,8 @@ Usage:
 
 Produces:
     - best_reg_{STATION}.pkl        (regression model)
-    - best_clf5_{STATION}.pkl       (P(>5 ppb) classifier)
-    - best_clf10_{STATION}.pkl      (P(>10 ppb) classifier)
+    - best_clf_{T}ppb_{STATION}.pkl (P(>T ppb) classifier, one per threshold in
+                                     CLASSIFIER_THRESHOLDS: 5, 10, 30, 70)
     - training_report.json          (full metrics, algorithm choices, feature importance)
 """
 
@@ -65,6 +65,20 @@ FEATURES = [
     'h2s_rolling_6h', 'h2s_rolling_24h',
     'flow_lag_6h', 'flow_rolling_24h',
 ]
+
+#: Exceedance thresholds (ppb, hourly value) a classifier is trained for.
+#:   5, 10  -- the original nuisance tiers, kept unchanged.
+#:   30     -- the level San Diego APCD alerts on; also the California 1-hour
+#:             ambient air quality standard for H2S (0.03 ppm).
+#:   70     -- the ATSDR acute-duration inhalation Minimal Risk Level for
+#:             hydrogen sulfide, 0.07 ppm (respiratory end point, uncertainty
+#:             factor 27, final, cover date 11/2016). ATSDR, Toxicological
+#:             Profile for Hydrogen Sulfide and Carbonyl Sulfide (2016),
+#:             https://www.atsdr.cdc.gov/toxprofiles/tp114.pdf; MRL list at
+#:             https://wwwn.cdc.gov/TSP/MRLS/mrlsListing.aspx. The MRL is a
+#:             1-to-14-day exposure screening level, applied here to hourly
+#:             values; see docs/tj_prediction_redo/README.md.
+CLASSIFIER_THRESHOLDS = [5, 10, 30, 70]
 
 # Margin within which we ensemble instead of picking a winner
 ENSEMBLE_AUC_MARGIN = 0.01   # for classifiers
@@ -172,8 +186,8 @@ def prepare_data(path):
                      'h2s_rolling_24h', 'flow_lag_6h', 'flow_rolling_24h']:
             df.loc[m, col] = s[col].values
 
-    df['exceed_5'] = (df['H2S'] > 5).astype(int)
-    df['exceed_10'] = (df['H2S'] > 10).astype(int)
+    for t in CLASSIFIER_THRESHOLDS:
+        df[f'exceed_{t}'] = (df['H2S'] > t).astype(int)
     df = df.dropna(subset=FEATURES).reset_index(drop=True)
 
     print(f"  Clean records: {len(df):,}")
@@ -344,22 +358,18 @@ def train_all(df, output_dir):
         sdf = df[df['site_name'] == site].copy().sort_values('time').reset_index(drop=True)
         X = sdf[FEATURES].values
         y_cont = sdf['H2S'].values
-        y_5 = sdf['exceed_5'].values
-        y_10 = sdf['exceed_10'].values
+        y_exceed = {t: sdf[f'exceed_{t}'].values for t in CLASSIFIER_THRESHOLDS}
 
         split = int(len(sdf) * TRAIN_FRACTION)
         Xtr, Xte = X[:split], X[split:]
         ytr_c, yte_c = y_cont[:split], y_cont[split:]
-        ytr_5, yte_5 = y_5[:split], y_5[split:]
-        ytr_10, yte_10 = y_10[:split], y_10[split:]
 
         print(f"  Records: {len(sdf):,} (train: {split:,}, test: {len(sdf)-split:,})")
-        print(f"  Exceedance: >5={y_5.mean()*100:.1f}%, >10={y_10.mean()*100:.1f}%")
+        print("  Exceedance: " + ", ".join(f">{t}={y.mean()*100:.1f}%" for t, y in y_exceed.items()))
 
         station_report = {
             'n_records': len(sdf), 'n_train': split, 'n_test': len(sdf) - split,
-            'exceedance_5pct': round(y_5.mean()*100, 1),
-            'exceedance_10pct': round(y_10.mean()*100, 1),
+            **{f'exceedance_{t}pct': round(y.mean()*100, 1) for t, y in y_exceed.items()},
             'tasks': {}
         }
 
@@ -402,9 +412,16 @@ def train_all(df, output_dir):
         summary_rows.append({'station': site, 'task': 'Regression', 'metric': 'R²',
                              'RF': m_rf['R2'], 'XGB': m_xgb['R2'] if m_xgb else None, 'selected': choice})
 
-        # ---- CLASSIFIER >5 ppb ----
-        for threshold, label, ytr, yte in [(5, 'clf_5ppb', ytr_5, yte_5), (10, 'clf_10ppb', ytr_10, yte_10)]:
+        # ---- CLASSIFIERS, one per threshold ----
+        for threshold in CLASSIFIER_THRESHOLDS:
+            label = f'clf_{threshold}ppb'
+            ytr, yte = y_exceed[threshold][:split], y_exceed[threshold][split:]
             print(f"\n  --- Classifier >{threshold} ppb ---")
+            if ytr.sum() < 10 or yte.sum() < 3:
+                print(f"    SKIPPED: too few exceedances (train {int(ytr.sum())}, test {int(yte.sum())})")
+                station_report['tasks'][label] = {'selected': None, 'reason': 'too few exceedances',
+                                                  'n_train_pos': int(ytr.sum()), 'n_test_pos': int(yte.sum())}
+                continue
             pos_rate = ytr.mean()
             scale_pos = (1 - pos_rate) / max(pos_rate, 0.01)
 

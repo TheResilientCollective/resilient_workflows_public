@@ -1,0 +1,22 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Marimo Notebooks" type="UvRunConfigurationType" factoryName="UvRunConfigurationType">
+    <option name="args">
+      <list>
+        <option value="edit" />
+        <option value="notebooks/" />
+      </list>
+    </option>
+    <option name="checkSync" value="true" />
+    <option name="debugJustMyCode" value="false" />
+    <option name="env">
+      <map />
+    </option>
+    <option name="runType" value="MODULE" />
+    <option name="scriptOrModule" value="marimo" />
+    <option name="uvArgs">
+      <list />
+    </option>
+    <option name="uvSdkKey" value="~/development/dev_resilient/resilient_workflows_public-tj_prediction_redo/.venv" />
+    <method v="2" />
+  </configuration>
+</component>

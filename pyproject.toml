@@ -95,6 +95,10 @@ workflows = [
 ]
 
 [dependency-groups]
+analysis = [
+    "altair>=6.2.2",
+    "marimo>=0.24.2",
+]
 dev = [
     "pytest>=8.4.1",
     "dagster-dg-cli>=1.11.10"
