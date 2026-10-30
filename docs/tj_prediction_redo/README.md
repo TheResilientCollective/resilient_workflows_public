@@ -303,9 +303,10 @@ forecast is served, then verifies each station-night as an event. It
 publishes per-hour predictions (csv, parquet), a metrics JSON and a
 self-contained HTML evaluation page under
 `latest/tijuana/forecast_data/backtest/` (`h2s_backtest_30ppb.html`). Logic in
-`workflows/tijuana/src/tijuana/utils/h2s_backtest.py`, unit-tested; the asset
-runs weekly and takes a `source_bucket` so a development run can read
-production data while writing to the development bucket.
+`workflows/tijuana/src/tijuana/utils/h2s_backtest.py`, unit-tested; the assets
+run weekly and take a `source_bucket` so a development run can read
+production data while writing to the development bucket. A second asset,
+`h2s_backtest_70ppb`, runs the same backtest for the 70 ppb tier (below).
 
 Six lines are scored. *Deployed*: trained on true H2S history, issued with
 that history decayed from the last observation (the production path, pinned
@@ -361,6 +362,30 @@ What it says:
   by its maximum hour, which is why even the calibrated hourly variant needs a
   cutoff near 0.2–0.3. The night-target model does not have this problem,
   which is the practical argument for Session 4 to build the product on it.
+
+### The same backtest at 70 ppb (`h2sforecast/h2s_backtest_70ppb`)
+
+The asset is built by a factory, one per classifier threshold, so the 70 ppb
+tier is scored by the same code and published as `h2s_backtest_70ppb.html`
+alongside the 30 ppb page. First run, 2026-10-30: 607 station-nights scored
+from 2025-10-22, 83 of them above 70 ppb, all at NESTOR. The scoring starts
+later than at 30 ppb because a fold is skipped until its training block holds
+20 exceedance hours, and SAN YSIDRO and IB CIVIC CTR never reach that, so
+they are scored only as non-event nights.
+
+| variant | nightly AUC | Brier skill | warned of 83 events at cutoff 0.5 | false alarms |
+|---|---|---|---|---|
+| deployed | 0.90 | −0.05 | 2 | 0 |
+| served-time + history | 0.88 | +0.14 | 4 | 8 |
+| **night-target** | **0.92** | **+0.39** | **43** | 18 |
+| persistence | 0.77 | +0.11 | 50 (POD 0.60) | 31 (FAR 0.38) |
+
+At cutoff 0.3 the night-target model warns of 70 of 83 event nights with 58
+false alarms; at 0.4, 51 with 39. The pattern is the same as at 30 ppb, only
+sharper: the deployed hourly model ranks well and never warns, the
+night-target model is the only one with calibrated probabilities, and
+persistence is a strong line on hits. The 70 ppb product is a NESTOR
+product for now, as the data review predicted.
 
 ## References
 
