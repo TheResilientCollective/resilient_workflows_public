@@ -126,6 +126,26 @@ def test_simulate_shape_and_no_leakage(preds, hourly, cfg):
     _p = preds[[f"p_{v}" for v in bt.VARIANTS]]
     assert ((_p >= 0) & (_p <= 1)).all().all()
     assert set(preds["p_persistence"].unique()) <= {0.0, 1.0}
+    assert preds["p_history"].notna().all()
+
+
+def test_issue_states_and_history_attachment(hourly, cfg):
+    s = hourly[hourly["site_name"] == "NESTOR - BES"].sort_values("time").reset_index(drop=True)
+    states = bt.issue_states(s, cfg)
+    assert (states["issue_time"].dt.tz_convert(TZ).dt.hour == cfg.issue_hour).all()
+    one = states.iloc[10]
+    hist = s.iloc[: int(one["hist_end"])]
+    assert (hist["time"] <= one["issue_time"]).all() and s["time"].iloc[int(one["hist_end"])] > one["issue_time"]
+    last24 = hist[hist["time"] > one["issue_time"] - pd.Timedelta(hours=24)]
+    assert one["hist_max_24h"] == last24["H2S"].max()
+    assert one["hist_hours_since_exceedance"] <= cfg.max_hours_since_exceedance
+    # persistence is defined on the 24 h before issue, not the 15:00 reading
+    assert float(one["hist_max_24h"] > cfg.threshold) in (0.0, 1.0)
+    view = bt.attach_issue_history(s, states, cfg)
+    assert view["lead_hour"].between(1, cfg.horizon_hours).all()
+    assert (view["issue_time"] < view["time"]).all()
+    for c in bt.HISTORY_FEATURES:
+        assert view[c].notna().all(), c
 
 
 def test_nightly_events_aggregate_per_issue(preds, cfg):

@@ -253,8 +253,10 @@ Agree how success is measured before any model is trained.
 - Served-time features only: nothing the model sees in training may be
   unavailable at issue time (the lag-collapse lesson).
 
-Output: an evaluation script in `data/discharge_tj/` that any candidate model
-is scored with, replacing the 80/20 split in `train_models_auto.py`.
+Output: an evaluation any candidate model is scored with, replacing the 80/20
+split in `train_models_auto.py`. **Delivered** as the
+`h2sforecast/h2s_backtest_30ppb` asset; see *Backtest of the 30 ppb
+classifier* below.
 
 ### Session 3 — Features and drivers (uses `03_drivers.py`)
 
@@ -291,6 +293,61 @@ protocol.
   `products_latest.model_version` names it).
 - What the portal shows: probabilities at 30 and 100 ppb, nightly framing.
 - What we report back to APCD, and what we ask them for (see below).
+
+## Backtest of the 30 ppb classifier (`h2sforecast/h2s_backtest_30ppb`)
+
+The Session 2 evaluation protocol now exists as a Dagster asset. It re-trains
+the 30 ppb classifier walk-forward over the production record and issues it
+every afternoon at 15:00 local for the following 18 hours, exactly as the
+forecast is served, then verifies each station-night as an event. It
+publishes per-hour predictions (csv, parquet), a metrics JSON and a
+self-contained HTML evaluation page under
+`latest/tijuana/forecast_data/backtest/` (`h2s_backtest_30ppb.html`). Logic in
+`workflows/tijuana/src/tijuana/utils/h2s_backtest.py`, unit-tested; the asset
+runs weekly and takes a `source_bucket` so a development run can read
+production data while writing to the development bucket.
+
+Five lines are scored. *Deployed*: trained on true H2S history, issued with
+that history decayed from the last observation (the production path, pinned
+to `forecast_features.engineer_station_features` by a parity test).
+*Served-time*: no H2S history at all. *Served-time + history*: the history
+that genuinely exists at issue time (last reading, 24 h and 72 h maxima,
+hours since the last exceedance, lead hour), held fixed over the horizon and
+trained in that form. *Persistence*: the 24 h before issue reached 30 ppb.
+*Climatology*: the training base rate. Weather, tide and flow inputs are
+observed values, so every number is an upper bound on operational skill.
+
+First run, 2026-10-30, on the record to 2026-10-22: 1,062 station-nights
+scored from 2025-05-04, 196 of them above 30 ppb.
+
+| variant | nightly AUC | nightly avg precision | Brier skill | warned of 196 events at cutoff 0.5 | false alarms |
+|---|---|---|---|---|---|
+| deployed | 0.79 | 0.56 | −0.09 | **3** | 0 |
+| served-time | 0.70 | 0.37 | +0.07 | 23 | 15 |
+| served-time + history | **0.82** | **0.57** | **+0.22** | 27 | 9 |
+| persistence | 0.75 | 0.43 | +0.02 | 118 (POD 0.60) | FAR 0.40 |
+| climatology | 0.63 | 0.29 | −0.16 | – | – |
+
+What it says:
+
+- **The deployed model ranks nights reasonably but never warns.** Its
+  probabilities sit below 0.1 on 1,026 of 1,062 nights; at any cutoff from
+  0.2 to 0.7 it flags 2 to 7 of the 196 event nights. This is the lag decay
+  measured end to end: the model is trained to expect real recent H2S and is
+  served a value that has decayed toward zero. APCD's experience that the
+  forecast does not call 30 ppb nights is reproduced exactly.
+- **Issue-time history is the fix, and it is calibrated.** The variant that
+  uses the history available at 15:00 has the best ranking and the only
+  materially positive Brier skill. At a 0.2 cutoff it warns of 118 of 196
+  events with 90 false alarms; at 0.3, 86 with 40.
+- **Persistence is hard to beat on hits.** "Last 24 h reached 30 ppb" warns
+  of 60% of event nights with a 40% false-alarm rate; at NESTOR, 69% and 30%.
+  Any product must show it clears this line, and the cutoff table on the page
+  is where the County's false-alarm tolerance gets turned into a setting.
+- **Hourly class weighting depresses nightly probabilities.** The classifier
+  is trained on hours with balanced class weights and the night is scored by
+  its maximum hour, so even the good variant needs a cutoff near 0.2–0.3 to
+  warn. Session 4 should consider training on the nightly target directly.
 
 ## References
 
