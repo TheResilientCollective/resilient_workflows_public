@@ -81,7 +81,7 @@ def _(alt, complaints, mo):
     _yr["location"] = _yr["is_caspian"].map({True: "Caspian Way and N McCoy Trail", False: "other TRV location"})
     _chart = (
         alt.Chart(_yr)
-        .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+        .mark_bar()
         .encode(
             x=alt.X("year:O", title="year"),
             y=alt.Y("complaints:Q"),
@@ -228,7 +228,7 @@ def _(hourly, joined, mo, pd, station_pick):
 def _(alt, mo, rate, station_pick):
     _chart = (
         alt.Chart(rate)
-        .mark_bar(color="#2a78d6", cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+        .mark_bar(color="#2a78d6")
         .encode(
             x=alt.X("H2S bin (ppb):N", sort=list(rate["H2S bin (ppb)"]), title="H2S in the hour the complaint was received (ppb)"),
             y=alt.Y("complaints per 100 hours:Q"),

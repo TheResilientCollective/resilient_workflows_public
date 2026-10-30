@@ -48,15 +48,13 @@ def _(d):
 
 @app.cell
 def _(hourly, mo, nightly):
-    mo.md(
-        f"""
-        ## 1. Record inventory
+    mo.md(f"""
+    ## 1. Record inventory
 
-        {len(hourly):,} measured station-hours from {hourly.time.min():%Y-%m-%d} to
-        {hourly.time.max():%Y-%m-%d}; {len(nightly):,} station-nights with at least
-        half their hours measured.
-        """
-    )
+    {len(hourly):,} measured station-hours from {hourly.time.min():%Y-%m-%d} to
+    {hourly.time.max():%Y-%m-%d}; {len(nightly):,} station-nights with at least
+    half their hours measured.
+    """)
     return
 
 
@@ -172,7 +170,7 @@ def _(alt, d, mo, nightly, threshold):
     _m["rate"] = _m["pos"] / _m["nights"]
     _chart = (
         alt.Chart(_m)
-        .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+        .mark_bar()
         .encode(
             x=alt.X("month:O", title="month"),
             y=alt.Y("rate:Q", title=f"share of nights with peak > {_t} ppb", axis=alt.Axis(format=".0%")),
@@ -241,7 +239,7 @@ def _(mo):
 def _(d, hourly, mo, threshold):
     runs = d.runs_above(hourly, threshold.value)
     _summary = runs.groupby("site_name", observed=True)["hours"].describe()[["count", "mean", "50%", "75%", "max"]].round(1).reset_index()
-    _summary.columns = ["station", "runs", "mean hours", "median hours", "p75 hours", "longest"]
+    _summary.columns = ["station", "runs", f"mean hours >{threshold.value}", f"median hours >{threshold.value}", f"p75 hours >{threshold.value}", f"longest >{threshold.value}"]
     mo.ui.table(_summary, selection=None)
     return (runs,)
 
@@ -250,7 +248,7 @@ def _(d, hourly, mo, threshold):
 def _(alt, d, mo, runs, threshold):
     _chart = (
         alt.Chart(runs)
-        .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+        .mark_bar()
         .encode(
             x=alt.X("hours:O", title="run length (consecutive hours)"),
             y=alt.Y("count():Q", title="runs"),
@@ -288,9 +286,9 @@ def _(mo, nightly, pd, threshold):
             {
                 "station": _site,
                 "base rate": _cur.mean(),
-                "P(>t | last night >t)": (_cur & _prev).sum() / max(_prev.sum(), 1),
-                "P(>t | last night ≤t)": (_cur & ~_prev).sum() / max((~_prev).sum(), 1),
-                "nights after a >t night": int(_prev.sum()),
+                f"P(>t | last night >t) >{threshold.value}": (_cur & _prev).sum() / max(_prev.sum(), 1),
+                f"P(>t | last night ≤t) >{threshold.value}": (_cur & ~_prev).sum() / max((~_prev).sum(), 1),
+                f"(nights after a >t night) >{threshold.value}": int(_prev.sum()),
             }
         )
     persistence = pd.DataFrame(_rows)
