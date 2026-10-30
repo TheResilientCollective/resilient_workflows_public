@@ -74,9 +74,33 @@ def hourly(cfg):
     return bt.prepare_hourly(_synthetic_record(), cfg)
 
 
+def _synthetic_nightly(hourly: pd.DataFrame, cfg) -> pd.DataFrame:
+    """A minimal h2s_nightly_summary built from the synthetic hourly record: the issue window stands in for the night."""
+    h = hourly.copy()
+    h["window"] = (h["time"] - pd.Timedelta(hours=cfg.issue_hour)).dt.tz_localize(None).dt.normalize()
+    g = h.groupby(["site_name", "window"])
+    n = g.agg(h2s_max=("H2S", "max"), hours_above_30=("y", "sum"), observations=("H2S", "size"),
+              temperature_2m_mean=("temperature_2m", "mean"), wind_speed_mean=("wind_speed_10m", "mean"),
+              relative_humidity_2m_mean=("relative_humidity_2m", "mean"), surface_pressure_mean=("surface_pressure", "mean"),
+              tide_height_mean=("tide_height", "mean"), tide_height_max=("tide_height", "max"),
+              flow_mean=("Flow (m^3/s)--Border", "mean"), flow_max=("Flow (m^3/s)--Border", "max"),
+              sbiwtp_flow_mgd_mean=("sbiwtp_flow_mgd", "mean"), stable_atm_hours=("stable_atm", "sum")).reset_index()
+    n = n.rename(columns={"window": "astro_day_date"})
+    n["wind_resultant_speed"] = n["wind_speed_mean"]; n["wind_resultant_direction"] = 200.0; n["wind_steadiness"] = 0.8
+    n["wind_gust_max"] = n["wind_speed_mean"] * 1.5; n["night_length_hours"] = 12.0
+    n["astro_day_complete"] = True; n["h2s_coverage"] = n["observations"] / 18
+    n["night_start"] = (n["astro_day_date"] + pd.Timedelta(hours=18)).dt.tz_localize(TZ)
+    return n
+
+
 @pytest.fixture(scope="module")
-def preds(hourly, cfg):
-    return bt.simulate(hourly, cfg)
+def nightly(hourly, cfg):
+    return bt.prepare_nightly(_synthetic_nightly(hourly, cfg), hourly, cfg)
+
+
+@pytest.fixture(scope="module")
+def preds(hourly, cfg, nightly):
+    return bt.simulate(hourly, cfg, nightly=nightly)
 
 
 def test_prepare_drops_unmeasured_and_recomputes_lags(cfg):
@@ -127,6 +151,28 @@ def test_simulate_shape_and_no_leakage(preds, hourly, cfg):
     assert ((_p >= 0) & (_p <= 1)).all().all()
     assert set(preds["p_persistence"].unique()) <= {0.0, 1.0}
     assert preds["p_history"].notna().all()
+    assert preds["p_night"].notna().all()
+    # each (station, issue, target hour) is scored exactly once
+    assert not preds.duplicated(["site_name", "issue_time", "target_time"]).any()
+    assert (preds.groupby(["site_name", "issue_time"])["fold"].nunique() == 1).all()
+    # the night model's probability is one number per issue window (where the model ran; fallbacks vary by hour)
+    used = preds[preds["night_model_used"]]
+    assert (used.groupby(["site_name", "issue_time"])["p_night"].nunique() == 1).all()
+    assert preds["night_model_used"].mean() > 0.5
+
+
+def test_prepare_nightly_has_issue_time_history_and_no_future(nightly, hourly, cfg):
+    assert {"issue_time", "y_night", *bt.NIGHT_FEATURES} <= set(nightly.columns)
+    assert nightly[list(bt.NIGHT_FEATURES)].notna().all().all()
+    assert (nightly["issue_time"].dt.tz_convert(TZ).dt.hour == cfg.issue_hour).all()
+    one = nightly[nightly["site_name"] == "NESTOR - BES"].iloc[20]
+    s = hourly[hourly["site_name"] == "NESTOR - BES"]
+    hist = s[s["time"] <= one["issue_time"]]
+    last24 = hist[hist["time"] > one["issue_time"] - pd.Timedelta(hours=24)]
+    assert one["hist_max_24h"] == last24["H2S"].max()
+    # previous-night features only look backwards
+    prev = nightly[(nightly["site_name"] == "NESTOR - BES") & (nightly["issue_time"] < one["issue_time"])].iloc[-1]
+    assert np.isclose(one["prev1_peak_log"], np.log1p(prev["h2s_max"]))
 
 
 def test_issue_states_and_history_attachment(hourly, cfg):

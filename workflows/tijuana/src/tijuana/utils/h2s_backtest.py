@@ -21,8 +21,12 @@ Design
   ``history``, replaces them with what genuinely exists at issue time: the last
   reading, the 24 h and 72 h maxima, hours since the last exceedance, and the
   lead hour, all fixed at issue and used for training in exactly that form.
-  ``persistence`` (the 24 h before issue reached the threshold) and
-  ``climatology`` (training base rate) are the baselines.
+  A fourth, ``night``, changes the target: one row per station per
+  astronomical night from ``h2s_nightly_summary`` (peak above the threshold),
+  trained on the night's own meteorology, flow, SBIWTP and tide plus the same
+  issue-time history and the previous nights' peaks. ``persistence`` (the 24 h
+  before issue reached the threshold) and ``climatology`` (training base rate)
+  are the baselines.
 - **Nightly verification.** The County acts on nights, not hours. Each issue
   window is scored as an event: observed if any hour in the window exceeded the
   threshold, forecast with the window's maximum probability.
@@ -65,12 +69,24 @@ SERVED_TIME_FEATURES = tuple(f for f in MODEL_FEATURES if f not in H2S_LAG_FEATU
 HISTORY_FEATURES = ("hist_last_h2s", "hist_max_24h", "hist_mean_24h", "hist_max_72h", "hist_hours_since_exceedance", "lead_hour")
 HISTORY_VARIANT_FEATURES = SERVED_TIME_FEATURES + HISTORY_FEATURES
 
-MODEL_VARIANTS = ("deployed", "served_time", "history")
+#: Night-target model: columns of h2s_nightly_summary used as features ...
+NIGHT_SUMMARY_FEATURES = (
+    "night_length_hours", "temperature_2m_mean", "wind_speed_mean", "wind_resultant_speed", "wind_steadiness",
+    "wind_gust_max", "relative_humidity_2m_mean", "surface_pressure_mean", "tide_height_mean", "tide_height_max",
+    "stable_atm_hours", "flow_mean", "flow_max", "sbiwtp_flow_mgd_mean",
+)
+#: ... plus what is derived at issue time: season, wind direction, previous nights, hourly history.
+NIGHT_DERIVED_FEATURES = ("m_sin", "m_cos", "wd_sin", "wd_cos", "prev1_peak_log", "prev3_peak_log", "prev7_peak_log")
+NIGHT_HISTORY_FEATURES = tuple(f for f in HISTORY_FEATURES if f != "lead_hour")
+NIGHT_FEATURES = NIGHT_SUMMARY_FEATURES + NIGHT_DERIVED_FEATURES + NIGHT_HISTORY_FEATURES
+
+MODEL_VARIANTS = ("deployed", "served_time", "history", "night")
 VARIANTS = MODEL_VARIANTS + ("persistence", "climatology")
 VARIANT_LABELS = {
     "deployed": "deployed model (decayed H2S lags)",
     "served_time": "served-time model (no H2S history)",
     "history": "served-time model + issue-time history",
+    "night": "night-target model (nightly summary + history)",
     "persistence": "persistence (24 h before issue reached threshold)",
     "climatology": "climatology (training base rate)",
 }
@@ -99,6 +115,9 @@ class BacktestConfig:
     features_deployed: tuple = tuple(MODEL_FEATURES)
     features_served: tuple = SERVED_TIME_FEATURES
     features_history: tuple = HISTORY_VARIANT_FEATURES
+    features_night: tuple = NIGHT_FEATURES
+    #: nightly rows need at least this share of their hours measured to train on
+    min_night_coverage: float = 0.5
     #: cap on hours since the last exceedance, so a long quiet spell saturates
     max_hours_since_exceedance: float = 240.0
 
@@ -107,6 +126,7 @@ class BacktestConfig:
         d["features_deployed"] = list(self.features_deployed)
         d["features_served"] = list(self.features_served)
         d["features_history"] = list(self.features_history)
+        d["features_night"] = list(self.features_night)
         d["seeds"] = list(self.seeds)
         d["stations"] = list(self.stations)
         return d
@@ -227,6 +247,51 @@ def attach_issue_history(s: pd.DataFrame, states: pd.DataFrame, cfg: BacktestCon
     return merged[(merged["lead_hour"] >= 1) & (merged["lead_hour"] <= cfg.horizon_hours)]
 
 
+def prepare_nightly(nightly: pd.DataFrame, hourly: pd.DataFrame, cfg: BacktestConfig) -> pd.DataFrame:
+    """Night-target training rows from ``h2s_nightly_summary`` plus issue-time history.
+
+    One row per station per astronomical night with ``issue_time`` (the
+    configured hour on the night's date), ``y_night`` (peak above threshold) and
+    every column in ``cfg.features_night``. Previous-night features come from the
+    nightly table itself; the ``hist_*`` features from the hourly record at the
+    issue time, so nothing after the issue leaks in. Nights that are truncated or
+    under-measured are dropped.
+    """
+    n = nightly.copy()
+    n["astro_day_date"] = pd.to_datetime(n["astro_day_date"]).dt.tz_localize(None).dt.normalize()
+    n = n[n["site_name"].isin(cfg.stations)]
+    if "astro_day_complete" in n.columns:
+        n = n[n["astro_day_complete"].astype(bool)]
+    if "h2s_coverage" in n.columns:
+        n = n[n["h2s_coverage"] >= cfg.min_night_coverage]
+    n = n[n["h2s_max"].notna()].sort_values(["site_name", "astro_day_date"]).reset_index(drop=True)
+    tz = hourly["time"].dt.tz
+    n["issue_time"] = (n["astro_day_date"] + pd.Timedelta(hours=cfg.issue_hour)).dt.tz_localize(tz)
+    n["y_night"] = (n["h2s_max"] > cfg.threshold).astype(int)
+    n["m_sin"] = np.sin(2 * np.pi * n["astro_day_date"].dt.month / 12)
+    n["m_cos"] = np.cos(2 * np.pi * n["astro_day_date"].dt.month / 12)
+    n["wd_sin"] = np.sin(np.radians(n["wind_resultant_direction"]))
+    n["wd_cos"] = np.cos(np.radians(n["wind_resultant_direction"]))
+    g = n.groupby("site_name", sort=False)["h2s_max"]
+    n["prev1_peak_log"] = np.log1p(g.shift(1))
+    n["prev3_peak_log"] = np.log1p(g.shift(1).rolling(3, min_periods=1).mean().reset_index(level=0, drop=True))
+    n["prev7_peak_log"] = np.log1p(g.shift(1).rolling(7, min_periods=1).mean().reset_index(level=0, drop=True))
+    parts = []
+    for site, ns in n.groupby("site_name", sort=False):
+        s = hourly[hourly["site_name"] == site].sort_values("time").reset_index(drop=True)
+        if s.empty:
+            continue
+        st = issue_states(s, cfg)[["issue_time"] + list(NIGHT_HISTORY_FEATURES)]
+        parts.append(ns.merge(st, on="issue_time", how="inner"))
+    if not parts:
+        return n.iloc[0:0]
+    out = pd.concat(parts, ignore_index=True)
+    missing = [c for c in cfg.features_night if c not in out.columns]
+    if missing:
+        raise ValueError(f"nightly summary is missing feature columns: {missing}")
+    return out.dropna(subset=list(cfg.features_night)).sort_values(["site_name", "issue_time"]).reset_index(drop=True)
+
+
 def operational_lag_features(state: dict, leads: np.ndarray) -> dict[str, np.ndarray]:
     """The lag features the forecast path synthesises, for 1-based lead hours.
 
@@ -294,17 +359,23 @@ def _predict(models, X, features) -> np.ndarray:
     return p / len(models)
 
 
-def simulate(hourly: pd.DataFrame, cfg: BacktestConfig) -> pd.DataFrame:
+def simulate(hourly: pd.DataFrame, cfg: BacktestConfig, nightly: pd.DataFrame | None = None) -> pd.DataFrame:
     """Issue the classifier walk-forward and return one row per forecast hour.
 
     Columns: ``site_name, fold, issue_time, target_time, lead_hour, H2S, y,
-    last_h2s, p_deployed, p_served_time, p_persistence, p_climatology``.
+    last_h2s, p_<variant>`` for every variant. ``nightly`` is the output of
+    :func:`prepare_nightly`; when given, the night-target model is trained on
+    the nights before each fold's test block (the same boundary the hourly
+    variants use) and its probability is attached to every hour of the night.
+    ``night_model_used`` records where a night had no nightly row and the
+    history variant stood in.
     """
     out = []
     for site in cfg.stations:
         s = hourly[hourly["site_name"] == site].sort_values("time").reset_index(drop=True)
         if s.empty:
             continue
+        site_nights = nightly[nightly["site_name"] == site] if nightly is not None else None
         # naive UTC datetime64 so searchsorted works against tz-aware issue times
         times = s["time"].dt.tz_convert("UTC").dt.tz_localize(None).to_numpy()
         states = issue_states(s, cfg)
@@ -317,13 +388,24 @@ def simulate(hourly: pd.DataFrame, cfg: BacktestConfig) -> pd.DataFrame:
             train_hist = attach_issue_history(train, states[states["hist_end"] <= start], cfg)
             history = _fit(train_hist, train_hist["y"].to_numpy(), list(cfg.features_history), cfg) if train_hist["y"].sum() >= cfg.min_train_positives else None
             p_clim = float(train["y"].mean())
+            night_p: dict = {}
+            if site_nights is not None and not site_nights.empty:
+                fold_start = s["time"].iloc[start]
+                train_n = site_nights[site_nights["issue_time"] < fold_start]
+                if train_n["y_night"].sum() >= min(cfg.min_train_positives, 10):
+                    night_models = _fit(train_n, train_n["y_night"].to_numpy(), list(cfg.features_night), cfg)
+                    test_n = site_nights[site_nights["issue_time"] >= fold_start]
+                    if not test_n.empty:
+                        night_p = dict(zip(test_n["issue_time"], _predict(night_models, test_n, list(cfg.features_night))))
 
             test = s.iloc[start:end]
-            test_days = set(test["time"].dt.normalize())
+            # an issue belongs to exactly one fold: the one whose test block contains the issue time
+            block_start = test["time"].iloc[0]
+            block_end = s["time"].iloc[end] if end < len(s) else None
             rows = []
             for st in states.itertuples(index=False):
                 issue = st.issue_time
-                if issue.normalize() not in test_days:
+                if issue < block_start or (block_end is not None and issue >= block_end):
                     continue
                 hist_end = int(st.hist_end)
                 state = st._asdict()
@@ -331,7 +413,7 @@ def simulate(hourly: pd.DataFrame, cfg: BacktestConfig) -> pd.DataFrame:
                 horizon_end = issue + pd.Timedelta(hours=cfg.horizon_hours)
                 tgt_hi = int(np.searchsorted(times, np.datetime64(horizon_end.tz_convert("UTC").tz_localize(None)), side="right"))
                 tgt = s.iloc[tgt_lo:tgt_hi]
-                tgt = tgt[(tgt.index >= start)]  # never score a fold on its own training rows
+                tgt = tgt[(tgt.index >= start)]  # never score a fold on its own training rows (targets may run into the next block)
                 if tgt.empty:
                     continue
                 lead = ((tgt["time"] - issue) / pd.Timedelta(hours=1)).round().astype(int).to_numpy()
@@ -358,6 +440,7 @@ def simulate(hourly: pd.DataFrame, cfg: BacktestConfig) -> pd.DataFrame:
                             "p_deployed": _predict(deployed, X, list(cfg.features_deployed)),
                             "p_served_time": _predict(served, X, list(cfg.features_served)),
                             "p_history": _predict(history, X, list(cfg.features_history)) if history is not None else np.nan,
+                            "p_night": night_p.get(issue, np.nan),
                             "p_persistence": float(state["hist_max_24h"] > cfg.threshold),
                             "p_climatology": p_clim,
                         }
@@ -372,6 +455,9 @@ def simulate(hourly: pd.DataFrame, cfg: BacktestConfig) -> pd.DataFrame:
     preds["target_time"] = pd.to_datetime(preds["target_time"])
     # a fold without a history model falls back to the served-time model so every variant is scored
     preds["p_history"] = preds["p_history"].fillna(preds["p_served_time"])
+    # nights without a usable nightly row (or without a trained night model) fall back to the history variant
+    preds["night_model_used"] = preds["p_night"].notna()
+    preds["p_night"] = preds["p_night"].fillna(preds["p_history"])
     return preds
 
 
@@ -457,6 +543,7 @@ def score(preds: pd.DataFrame, cfg: BacktestConfig) -> dict:
             "first_issue": str(preds["issue_time"].min()) if len(preds) else None,
             "last_issue": str(preds["issue_time"].max()) if len(preds) else None,
             "folds": sorted(int(f) for f in preds["fold"].unique()) if len(preds) else [],
+            "night_model_share": float(preds["night_model_used"].mean()) if "night_model_used" in preds and len(preds) else 0.0,
         },
         "hourly": {}, "nightly": {}, "by_station": {}, "by_lead": {}, "cutoffs": {},
         "reliability": {}, "monthly": {}, "events": [],
@@ -497,7 +584,7 @@ def score(preds: pd.DataFrame, cfg: BacktestConfig) -> dict:
 # Rendering
 # ---------------------------------------------------------------------------
 
-_COLORS = {"deployed": "#2a78d6", "served_time": "#eb6834", "history": "#4a3aa7", "persistence": "#1baf7a", "climatology": "#898781"}
+_COLORS = {"deployed": "#2a78d6", "served_time": "#eb6834", "history": "#4a3aa7", "night": "#e87ba4", "persistence": "#1baf7a", "climatology": "#898781"}
 
 
 def _png(fig) -> str:
@@ -615,13 +702,16 @@ def render_html(metrics: dict, preds: pd.DataFrame, cfg: BacktestConfig, generat
     for v in VARIANTS:
         n = metrics["nightly"][v]; h = metrics["hourly"][v]
         overall_rows.append(row([VARIANT_LABELS[v], _fmt(n.get("auc")), _fmt(n.get("average_precision")), _fmt(n.get("brier_skill_score")), _fmt(h.get("auc")), _fmt(h.get("average_precision"))]))
-    event_rows = [row(["night of", "station", "peak ppb", "peak time", "H2S at issue", "P deployed", "P served-time", "P + history", "persistence", "warned (deployed)?"], True)]
+    event_rows = [row(["night of", "station", "peak ppb", "peak time", "H2S at issue", "P deployed", "P served-time", "P + history", "P night model", "persistence", "warned (deployed)?"], True)]
     for e in metrics["events"]:
         warned = "yes" if e["warned_deployed"] else "no"
         event_rows.append(row([e["night_of"], e["site_name"], f"{e['peak_h2s']:.0f}", e["peak_time"][5:16], f"{e['last_h2s_at_issue']:.1f}",
-                               f"{e['p_deployed']:.2f}", f"{e['p_served_time']:.2f}", f"{e['p_history']:.2f}", "yes" if e["p_persistence"] >= 0.5 else "no", warned]))
+                               f"{e['p_deployed']:.2f}", f"{e['p_served_time']:.2f}", f"{e['p_history']:.2f}", f"{e['p_night']:.2f}", "yes" if e["p_persistence"] >= 0.5 else "no", warned]))
     n_ev = len(metrics["events"]); n_warned = sum(e["warned_deployed"] for e in metrics["events"])
     n_warned_hist = sum(e["warned_history"] for e in metrics["events"])
+    n_warned_night = sum(e["warned_night"] for e in metrics["events"])
+    night_c = next(x for x in metrics["cutoffs"]["night"] if x["cutoff"] == cfg.cutoff)
+    night_share = metrics["record"].get("night_model_share", 0.0)
     dep = metrics["nightly"]["deployed"]; srv = metrics["nightly"]["served_time"]
     dep_c = next(x for x in metrics["cutoffs"]["deployed"] if x["cutoff"] == cfg.cutoff)
     srv_c = next(x for x in metrics["cutoffs"]["served_time"] if x["cutoff"] == cfg.cutoff)
@@ -654,10 +744,11 @@ details summary{{cursor:pointer;color:#52514e}}
 <div class="tile"><b>{dep_c['false_alarms']}</b><span>false alarms (deployed, cutoff {cfg.cutoff:g})</span></div>
 <div class="tile"><b>{_fmt(dep.get('auc'))}</b><span>nightly AUC, deployed</span></div>
 <div class="tile"><b>{n_warned_hist} / {n_ev}</b><span>warned by the served-time + history model at cutoff {cfg.cutoff:g}</span></div>
-<div class="tile"><b>{_fmt(srv.get('auc'))}</b><span>nightly AUC, served-time model</span></div>
+<div class="tile"><b>{n_warned_night} / {n_ev}</b><span>warned by the night-target model at cutoff {cfg.cutoff:g} ({night_c['false_alarms']} false alarms)</span></div>
+<div class="tile"><b>{_fmt(metrics['nightly']['night'].get('auc'))}</b><span>nightly AUC, night-target model</span></div>
 <div class="tile"><b>{_fmt(per_c['pod'])} / {_fmt(per_c['far'])}</b><span>persistence POD / FAR</span></div>
 </div>
-<div class="note"><p><b>Read this first.</b> Weather, tide and flow inputs are the <em>observed</em> values at each target hour, not forecasts, so every number here is an upper bound on operational skill. The "deployed" variant is the product as it runs: trained on true H2S history, issued with history decayed from the last observation. The "served-time" variant trains without any H2S history; "served-time + history" adds the history that does exist at issue time (last reading, 24 h and 72 h maxima, hours since the last exceedance, lead hour), fixed at issue and trained in that same form. Persistence ("the 24 hours before issue reached {t:g} ppb") and climatology are the bars to clear.</p></div>
+<div class="note"><p><b>Read this first.</b> Weather, tide and flow inputs are the <em>observed</em> values at each target hour, not forecasts, so every number here is an upper bound on operational skill. The "deployed" variant is the product as it runs: trained on true H2S history, issued with history decayed from the last observation. The "served-time" variant trains without any H2S history; "served-time + history" adds the history that does exist at issue time (last reading, 24 h and 72 h maxima, hours since the last exceedance, lead hour), fixed at issue and trained in that same form. The "night-target" model is trained on one row per astronomical night from the nightly summary (peak above {t:g} ppb) with the night's meteorology, flow, SBIWTP and tide, the previous nights' peaks and the same issue-time history; it covers {night_share:.0%} of scored hours, the rest falling back to the history variant. Persistence ("the 24 hours before issue reached {t:g} ppb") and climatology are the bars to clear.</p></div>
 
 <h2>Overall skill</h2>
 <div class="tw"><table>{''.join(overall_rows)}</table></div>
@@ -679,7 +770,7 @@ details summary{{cursor:pointer;color:#52514e}}
 <details><summary>Show the {n_ev} nights</summary><div class="tw"><table>{''.join(event_rows)}</table></div></details>
 
 <h2>Method</h2>
-<p>Folds: initial training block of {cfg.initial_train_fraction:.0%} of each station's measured record, then {cfg.n_folds} contiguous test blocks; each fold's model is fit on everything before its block. Classifier: RandomForest, {cfg.n_estimators} trees, depth {cfg.max_depth}, balanced class weights, {len(cfg.seeds)} seed(s). Features: the production feature list for the deployed variant ({len(cfg.features_deployed)}), the same list without H2S history for the served-time variant ({len(cfg.features_served)}), and that list plus the issue-time history features for the third variant ({len(cfg.features_history)}). Lags at issue time are synthesised exactly as <code>forecast_features.engineer_station_features</code> does. Folds whose training block has fewer than {cfg.min_train_positives} exceedance hours are skipped.</p>
+<p>Folds: initial training block of {cfg.initial_train_fraction:.0%} of each station's measured record, then {cfg.n_folds} contiguous test blocks; each fold's model is fit on everything before its block. Classifier: RandomForest, {cfg.n_estimators} trees, depth {cfg.max_depth}, balanced class weights, {len(cfg.seeds)} seed(s). Features: the production feature list for the deployed variant ({len(cfg.features_deployed)}), the same list without H2S history for the served-time variant ({len(cfg.features_served)}), that list plus the issue-time history features for the third variant ({len(cfg.features_history)}), and {len(cfg.features_night)} nightly features for the night-target model. Lags at issue time are synthesised exactly as <code>forecast_features.engineer_station_features</code> does. Folds whose training block has fewer than {cfg.min_train_positives} exceedance hours are skipped.</p>
 <details><summary>Configuration</summary><pre>{esc(json.dumps(cfg.to_dict(), indent=2))}</pre></details>
 </main></body></html>
 """

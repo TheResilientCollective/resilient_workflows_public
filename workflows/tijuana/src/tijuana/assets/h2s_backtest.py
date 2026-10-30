@@ -30,6 +30,7 @@ from ..utils import h2s_backtest as bt
 OUTPUT_PATH = "tijuana/forecast_data/output/backtest/"
 LATEST = "tijuana/forecast_data/backtest"
 SOURCE_KEY = "latest/tijuana/forecast_data/modeldata_h2s_nofill.parquet"
+NIGHTLY_KEY = "latest/tijuana/forecast_data/astronomical_day/h2s_nightly_summary.parquet"
 
 
 class BacktestRunConfig(Config):
@@ -47,8 +48,8 @@ class BacktestRunConfig(Config):
     source_bucket: Optional[str] = None
 
 
-def _load_training_record(s3_resource, bucket: str) -> pd.DataFrame:
-    obj = s3_resource.getClient().get_object(bucket, SOURCE_KEY)
+def _load_parquet(s3_resource, bucket: str, key: str) -> pd.DataFrame:
+    obj = s3_resource.getClient().get_object(bucket, key)
     try:
         return pd.read_parquet(io.BytesIO(obj.read()))
     finally:
@@ -69,7 +70,7 @@ def _put_text(s3_resource, text: str, name: str, content_type: str):
     key_prefix="h2sforecast",
     name="h2s_backtest_30ppb",
     required_resource_keys={"s3"},
-    deps=[AssetKey(["h2sforecast", "modeldata_h2s_nofill"])],
+    deps=[AssetKey(["h2sforecast", "modeldata_h2s_nofill"]), AssetKey(["h2sforecast", "h2s_nightly_summary"])],
     metadata={
         "source": "h2sforecast/modeldata_h2s_nofill",
         "description": (
@@ -96,12 +97,14 @@ def h2s_backtest_30ppb(context, config: BacktestRunConfig) -> MaterializeResult:
     )
     name = f"h2s_backtest_{cfg.threshold:g}ppb"
 
-    raw = _load_training_record(s3_resource, bucket)
+    raw = _load_parquet(s3_resource, bucket, SOURCE_KEY)
     logger.info(f"Loaded {len(raw):,} rows of {SOURCE_KEY} from bucket {bucket}")
     hourly = bt.prepare_hourly(raw, cfg)
     logger.info(f"{len(hourly):,} measured hours with complete features; {int(hourly['y'].sum()):,} above {cfg.threshold:g} ppb")
+    nightly = bt.prepare_nightly(_load_parquet(s3_resource, bucket, NIGHTLY_KEY), hourly, cfg)
+    logger.info(f"{len(nightly):,} station-nights for the night-target model; {int(nightly['y_night'].sum()):,} above {cfg.threshold:g} ppb")
 
-    preds = bt.simulate(hourly, cfg)
+    preds = bt.simulate(hourly, cfg, nightly=nightly)
     metrics = bt.score(preds, cfg)
     generated = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")
     page = bt.render_html(metrics, preds, cfg, generated_at=generated)
