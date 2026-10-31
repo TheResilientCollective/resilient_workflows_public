@@ -1,0 +1,737 @@
+<style>
+#dash-root { --tj-orange: var(--color-bad); }
+.tj { font-family: var(--font-anthropic-sans); display: flex; flex-direction: column; gap: var(--cds-gap-lg); }
+.tj-head h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; }
+.tj-titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cds-gap-xs) var(--cds-gap-md); }
+.tj-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--color-border-line); background: var(--color-panel); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tj-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ok); }
+.tj-pill.tj-stale i { background: var(--color-warn); }
+.tj-pill.tj-stale { color: var(--color-fg); }
+.tj-pill-ago { margin-left: 4px; }
+.tj-head p { margin: var(--cds-gap-xs) 0 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-body); }
+.tj h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: var(--cds-gap-md) 0 0; }
+.tj-kpis-wrap { container-type: inline-size; }
+.tj-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--cds-gap-md); }
+@container (max-width: 52rem) { .tj-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 32rem) { .tj-kpis { grid-template-columns: 1fr; } }
+.tj-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--cds-gap-md); }
+.tj-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; position: relative; }
+.tj-card h3 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+.tj-note { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); margin: var(--cds-gap-xs) 0 var(--cds-gap-sm); }
+.tj-label { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+.tj-big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); line-height: 1.15; margin: var(--cds-gap-xs) 0; font-variant-numeric: tabular-nums; }
+.tj-unit { font-family: var(--font-anthropic-sans); font-size: var(--cds-font-size-body); color: var(--color-fg-muted); margin-left: .25em; }
+.tj-sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+.tj-sites { display: grid; grid-template-columns: 1fr auto; gap: 2px var(--cds-gap-sm); font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; margin-top: var(--cds-gap-xs); }
+.tj-sites span:nth-child(odd) { color: var(--color-fg-muted); }
+.tj-sites3 { grid-template-columns: 1fr auto auto; }
+.tj-sites3 span { text-align: right; }
+.tj-sites3 span:nth-child(odd), .tj-sites3 span:nth-child(even) { color: inherit; }
+.tj-sites3 span:nth-child(3n+1) { text-align: left; color: var(--color-fg-muted); }
+.tj-sites3 span:nth-child(-n+3) { color: var(--color-fg-muted); }
+.tj-forecast { border-color: var(--color-fg-muted); }
+.tj-wide { grid-column: 1 / -1; }
+.tj-chart { width: 100%; min-height: 240px; }
+.tj-map { width: 100%; min-height: 320px; }
+.tj-chart svg, .tj-map svg { display: block; }
+.tj-legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-xs) var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-bottom: var(--cds-gap-xs); }
+.tj-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.tj-legend i.tj-line { height: 2px; width: 14px; border-radius: 1px; vertical-align: 3px; }
+.tj-tip { position: absolute; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); pointer-events: none; white-space: nowrap; z-index: 2; font-variant-numeric: tabular-nums; }
+.tj-tip .tj-tip-h { color: var(--cds-text-secondary); margin-bottom: 2px; }
+.tj-tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.tj-fail { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: inherit; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+.tj-fail::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: var(--color-bad); }
+.tj-tablebox { max-height: 360px; overflow: auto; }
+.tj-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+.tj-table th { position: sticky; top: 0; background: var(--color-panel); text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: var(--cds-pad-xs); border-bottom: 1px solid var(--color-border-line); }
+.tj-table td { padding: var(--cds-pad-xs); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+.tj-table td.tj-num { text-align: right; white-space: nowrap; }
+.tj-table th.tj-num { text-align: right; }
+@media (max-width: 40rem) { .tj-hide-narrow { display: none; } }
+[data-dash-source-state=empty] { color: transparent; }
+[data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+</style>
+
+<div class="tj">
+  <header class="tj-head" id="top">
+    <div class="tj-titlerow">
+      <h1>Tijuana River</h1>
+      <span class="tj-pill" id="updated-pill"><i></i>Data updated <span data-source="refresh_info" data-field="refreshed_at" data-row="0" class="dash-skeleton">—</span><span class="tj-pill-ago" id="updated-ago"></span></span>
+    </div>
+    <p id="takeaway">H2S is <span data-source="h2s_current_peak" data-field="h2s_ppb" class="dash-skeleton">—</span> ppb at its highest site (<span data-source="h2s_current_peak" data-field="location" class="dash-skeleton">—</span>); the forecast chance of passing 30 ppb in the next 24 hours is at most <span data-source="forecast_peak" data-field="max_prob_30" class="dash-skeleton">—</span>%. The river is crossing the border at <span data-source="border_latest" data-field="flow_mgd" class="dash-skeleton">—</span> MGD.</p>
+  </header>
+
+  <div class="tj-kpis-wrap"><section class="tj-kpis" id="headline">
+    <div class="tj-card" id="card-h2s">
+      <div class="tj-label">H2S now · highest site</div>
+      <div class="tj-big"><span data-source="h2s_current_peak" data-field="h2s_ppb" class="dash-skeleton">—</span><span class="tj-unit">ppb</span></div>
+      <div class="tj-sub"><span data-source="h2s_current_peak" data-field="location">—</span> · <span data-source="h2s_current_peak" data-field="time">—</span></div>
+      <div class="tj-label" style="margin-top:var(--cds-gap-sm)">Last night's peak · sunset <span data-source="h2s_night_peak" data-field="night_start" data-row="0">—</span> to sunrise <span data-source="h2s_night_peak" data-field="night_end" data-row="0">—</span></div>
+      <div class="tj-sites" id="night-peaks">
+        <span>San Ysidro</span><span data-source="h2s_night_peak" data-field="peak_ppb" data-where="site=SAN YSIDRO">—</span>
+        <span>Nestor (Berry Elem.)</span><span data-source="h2s_night_peak" data-field="peak_ppb" data-where="site=NESTOR - BES">—</span>
+        <span>Imperial Beach</span><span data-source="h2s_night_peak" data-field="peak_ppb" data-where="site=IB CIVIC CTR">—</span>
+      </div>
+    </div>
+    <div class="tj-card tj-forecast" id="card-forecast">
+      <div class="tj-label">Chance H2S tops 30 ppb · next 24 h</div>
+      <div class="tj-big"><span data-source="forecast_peak" data-field="max_prob_30" class="dash-skeleton">—</span><span class="tj-unit">% max</span></div>
+      <div class="tj-sites">
+        <span>San Ysidro</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=SAN YSIDRO">—</span>
+        <span>Nestor (Berry Elem.)</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=NESTOR - BES">—</span>
+        <span>Imperial Beach</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=IB CIVIC CTR">—</span>
+      </div>
+      <div class="tj-sub" style="margin-top:6px">Issued <span data-source="h2s_forecast_24h" data-field="generated_at" data-row="0">—</span></div>
+    </div>
+    <div class="tj-card" id="card-exceed">
+      <div class="tj-label">Days since H2S topped 30 ppb · any site</div>
+      <div class="tj-big"><span data-source="h2s_exceedances" data-field="days_since" data-where="scope=All sites&amp;threshold_ppb=30" class="dash-skeleton">—</span><span class="tj-unit">days</span></div>
+      <div class="tj-sub">Last episode <span data-source="h2s_exceedances" data-field="episode_start" data-where="scope=All sites&amp;threshold_ppb=30">—</span> · peak <span data-source="h2s_exceedances" data-field="episode_peak_ppb" data-where="scope=All sites&amp;threshold_ppb=30">—</span> ppb at <span data-source="h2s_exceedances" data-field="episode_peak_site" data-where="scope=All sites&amp;threshold_ppb=30">—</span> · <span data-source="h2s_exceedances" data-field="episode_hours" data-where="scope=All sites&amp;threshold_ppb=30">—</span> h</div>
+      <div class="tj-label" style="margin-top:var(--cds-gap-sm)">Over 100 ppb · <span data-source="h2s_exceedances" data-field="days_since" data-where="scope=All sites&amp;threshold_ppb=100">—</span> days ago</div>
+      <div class="tj-sub"><span data-source="h2s_exceedances" data-field="episode_start" data-where="scope=All sites&amp;threshold_ppb=100">—</span> · peak <span data-source="h2s_exceedances" data-field="episode_peak_ppb" data-where="scope=All sites&amp;threshold_ppb=100">—</span> ppb at <span data-source="h2s_exceedances" data-field="episode_peak_site" data-where="scope=All sites&amp;threshold_ppb=100">—</span> · <span data-source="h2s_exceedances" data-field="episode_hours" data-where="scope=All sites&amp;threshold_ppb=100">—</span> h</div>
+      <div class="tj-sites tj-sites3" style="margin-top:var(--cds-gap-sm)">
+        <span>Days since</span><span>&gt;30</span><span>&gt;100</span>
+        <span>San Ysidro</span><span data-source="h2s_exceedances" data-field="days_since" data-where="scope=SAN YSIDRO&amp;threshold_ppb=30">—</span><span data-source="h2s_exceedances" data-field="days_since" data-where="scope=SAN YSIDRO&amp;threshold_ppb=100">—</span>
+        <span>Nestor (Berry Elem.)</span><span data-source="h2s_exceedances" data-field="days_since" data-where="scope=NESTOR - BES&amp;threshold_ppb=30">—</span><span data-source="h2s_exceedances" data-field="days_since" data-where="scope=NESTOR - BES&amp;threshold_ppb=100">—</span>
+        <span>Imperial Beach</span><span data-source="h2s_exceedances" data-field="days_since" data-where="scope=IB CIVIC CTR&amp;threshold_ppb=30">—</span><span data-source="h2s_exceedances" data-field="days_since" data-where="scope=IB CIVIC CTR&amp;threshold_ppb=100">—</span>
+      </div>
+    </div>
+    <div class="tj-card" id="card-border">
+      <div class="tj-label">River flow at the border · latest hour</div>
+      <div class="tj-big"><span data-source="border_latest" data-field="flow_mgd" class="dash-skeleton">—</span><span class="tj-unit">MGD</span></div>
+      <div class="tj-sub"><span data-source="border_latest" data-field="flow_cms">—</span> m³/s · <span data-source="border_latest" data-field="time">—</span></div>
+    </div>
+    <div class="tj-card" id="card-effluent">
+      <div class="tj-label">SBIWTP effluent · latest day</div>
+      <div class="tj-big"><span data-source="plant_latest" data-field="effluent_mgd" class="dash-skeleton">—</span><span class="tj-unit">MGD</span></div>
+      <div class="tj-sub">Influent <span data-source="plant_latest" data-field="influent_mgd">—</span> MGD of <span data-source="plant_latest" data-field="capacity_mgd">—</span> capacity · <span data-source="plant_latest" data-field="date">—</span></div>
+    </div>
+    <div class="tj-card" id="card-temp">
+      <div class="tj-label">Temperature now · 3-site average</div>
+      <div class="tj-big"><span data-source="temp_now" data-field="temp_f" class="dash-skeleton">—</span><span class="tj-unit">°F</span></div>
+      <div class="tj-sub">Wind <span data-source="temp_now" data-field="wind_mph">—</span> mph from <span data-source="temp_now" data-field="wind_from">—</span> · humidity <span data-source="temp_now" data-field="humidity_pct">—</span>%</div>
+    </div>
+    <div class="tj-card tj-wide" id="card-spill">
+      <div class="tj-label">Most recent reported spill</div>
+      <div class="tj-big" style="font-size:var(--cds-font-size-heading)"><span data-source="spills" data-field="location" data-row="0" class="dash-skeleton">—</span></div>
+      <div class="tj-sub"><span data-source="spills" data-field="start" data-row="0">—</span> · <span data-source="spills" data-field="volume" data-row="0">—</span> · <span data-source="spills" data-field="status" data-row="0">—</span></div>
+    </div>
+  </section></div>
+
+  <h2 id="air">Air quality and wind</h2>
+  <div class="tj-grid">
+    <div class="tj-card tj-wide" id="card-map">
+      <h3>Hydrogen sulfide at the three monitors, with wind</h3>
+      <p class="tj-note">Latest hourly H2S reading at each San Diego APCD monitor. Arrows point the way the wind is blowing; length shows speed (scale at lower left). Outlines are approximate.</p>
+      <div class="tj-legend">
+        <span><i style="background:var(--color-ok)"></i>Under 5 ppb</span>
+        <span><i style="background:var(--color-warn)"></i>5–30 ppb</span>
+        <span><i style="background:var(--color-bad)"></i>Over 30 ppb</span>
+        <span>Wind at <span data-source="wind_now" data-field="time" data-row="0">—</span></span>
+      </div>
+      <div class="tj-map dash-skeleton" id="map" data-source="h2s_current wind_now map_outlines"></div>
+    </div>
+    <div class="tj-card" id="card-h2s-recent">
+      <h3>H2S, last two days</h3>
+      <p class="tj-note">Hourly readings, ppb. Dashed lines mark 5 and 30 ppb.</p>
+      <div class="tj-legend" id="lg-h2s"></div>
+      <div class="tj-chart dash-skeleton" id="ch-h2s" data-source="h2s_recent"></div>
+    </div>
+    <div class="tj-card" id="card-h2s-forecast">
+      <h3>H2S forecast, next 24 hours</h3>
+      <p class="tj-note">Predicted ppb by hour; hover for the chance of passing 5, 10 and 30 ppb.</p>
+      <div class="tj-legend" id="lg-fc"></div>
+      <div class="tj-chart dash-skeleton" id="ch-fc" data-source="h2s_forecast_hourly"></div>
+    </div>
+  </div>
+
+  <h2 id="forecast">How the H2S forecast is doing</h2>
+  <div class="tj-grid">
+    <div class="tj-card" id="card-skill">
+      <h3>Does the forecast warn before a &gt;30 ppb night?</h3>
+      <p class="tj-note">Backtest of the 30 ppb classifier, re-trained walk-forward and issued each afternoon as it is served, <span data-source="forecast_skill" data-field="first_issue" data-where="scope=All sites">—</span> to <span data-source="forecast_skill" data-field="last_issue" data-where="scope=All sites">—</span>. A night counts as warned when the chance reaches <span data-source="forecast_skill" data-field="cutoff" data-where="scope=All sites">—</span>.</p>
+      <div class="tj-big"><span data-source="forecast_skill" data-field="warned" data-where="scope=All sites" class="dash-skeleton">—</span><span class="tj-unit">of <span data-source="forecast_skill" data-field="event_nights" data-where="scope=All sites">—</span> event nights warned</span></div>
+      <div class="tj-sub"><span data-source="forecast_skill" data-field="false_alarms" data-where="scope=All sites">—</span> false alarms · ranking skill (AUC) <span data-source="forecast_skill" data-field="auc" data-where="scope=All sites">—</span></div>
+      <div class="tj-sites tj-sites3" style="margin-top:var(--cds-gap-sm)">
+        <span>Event nights</span><span>Warned</span><span>Missed</span>
+        <span>San Ysidro</span><span data-source="forecast_skill" data-field="warned" data-where="scope=SAN YSIDRO">—</span><span data-source="forecast_skill" data-field="missed" data-where="scope=SAN YSIDRO">—</span>
+        <span>Nestor (Berry Elem.)</span><span data-source="forecast_skill" data-field="warned" data-where="scope=NESTOR - BES">—</span><span data-source="forecast_skill" data-field="missed" data-where="scope=NESTOR - BES">—</span>
+        <span>Imperial Beach</span><span data-source="forecast_skill" data-field="warned" data-where="scope=IB CIVIC CTR">—</span><span data-source="forecast_skill" data-field="missed" data-where="scope=IB CIVIC CTR">—</span>
+      </div>
+      <p class="tj-note" style="margin-top:var(--cds-gap-sm)"><a id="skill-link" target="_blank" rel="noopener">Full backtest evaluation ↗</a></p>
+    </div>
+    <div class="tj-card" id="card-live">
+      <h3>The published forecast, hour by hour</h3>
+      <p class="tj-note">Each forecast hour matched with what the monitor measured, <span data-source="forecast_live" data-field="period_start" data-row="0">—</span> to <span data-source="forecast_live" data-field="period_end" data-row="0">—</span>. A forecast within one level, or early by up to 2 hours, counts as acceptable.</p>
+      <div class="tj-big"><span data-source="forecast_live" data-field="acceptable_share" data-row="0" class="dash-skeleton">—</span><span class="tj-unit">of <span data-source="forecast_live" data-field="forecast_hours" data-row="0">—</span> hours acceptable</span></div>
+      <div class="tj-sites" style="margin-top:var(--cds-gap-sm)">
+        <span>Dangerous misses (orange forecast as green)</span><span data-source="forecast_live" data-field="dangerous_misses" data-row="0">—</span>
+        <span>Smell misses (10 ppb+ forecast as green)</span><span data-source="forecast_live" data-field="smell_misses" data-row="0">—</span>
+        <span>False alarms</span><span data-source="forecast_live" data-field="false_alarms" data-row="0">—</span>
+        <span>Early warnings (level reached within 2 h)</span><span data-source="forecast_live" data-field="early_warnings" data-row="0">—</span>
+      </div>
+    </div>
+    <div class="tj-card tj-wide" id="card-nights">
+      <h3>Recent nights: forecast chance vs what was measured</h3>
+      <p class="tj-note">Each square is one night (sunset to sunrise) at one monitor, coloured by its measured peak. The bar under it is the forecast's highest chance of passing 30 ppb that night. Nights before the dashboard began logging the published forecast use the backtest's forecast.</p>
+      <div class="tj-legend">
+        <span><i style="background:var(--color-ok)"></i>Peak under 5 ppb</span>
+        <span><i style="background:var(--color-warn)"></i>5–30 ppb</span>
+        <span><i style="background:var(--color-bad)"></i>Over 30 ppb</span>
+        <span><i class="tj-line" style="background:var(--tj-c0)"></i>Forecast chance of &gt;30 ppb</span>
+      </div>
+      <div class="tj-chart dash-skeleton" id="ch-nights" data-source="forecast_nights" style="min-height:200px"></div>
+      <div class="tj-sub" id="nights-summary"></div>
+    </div>
+  </div>
+
+  <h2 id="water">River and treatment plant</h2>
+  <div class="tj-grid">
+    <div class="tj-card" id="card-flow">
+      <h3>Tijuana River at the border</h3>
+      <p class="tj-note">Hourly flow at the IBWC boundary gauge, last 30 days, in MGD (million gallons a day, to compare with the plant); dashed is the 10-day outlook. Hover for m³/s.</p>
+      <div class="tj-chart dash-skeleton" id="ch-flow" data-source="border_flow border_flow_forecast"></div>
+    </div>
+    <div class="tj-card" id="card-plant">
+      <h3>South Bay plant (SBIWTP) flows</h3>
+      <p class="tj-note">Daily effluent and influent, MGD, last 90 days. Dashed line is the plant's rated capacity.</p>
+      <div class="tj-legend">
+        <span><i class="tj-line" style="background:var(--tj-c0)" id="sw-eff"></i>Effluent</span>
+        <span><i class="tj-line" style="background:var(--tj-c1)" id="sw-inf"></i>Influent</span>
+      </div>
+      <div class="tj-chart dash-skeleton" id="ch-plant" data-source="plant_daily"></div>
+    </div>
+  </div>
+
+  <h2 id="weather">Weather and spills</h2>
+  <div class="tj-grid">
+    <div class="tj-card" id="card-temp-chart">
+      <h3>Temperature at the monitors</h3>
+      <p class="tj-note">Every 15 minutes, °F, past day and next day. The rule marks now.</p>
+      <div class="tj-legend" id="lg-temp"></div>
+      <div class="tj-chart dash-skeleton" id="ch-temp" data-source="weather_15min wind_now"></div>
+    </div>
+    <div class="tj-card" id="card-spills">
+      <h3>Reported spills and transboundary flows</h3>
+      <p class="tj-note">From the IBWC spill reports, newest first.</p>
+      <div class="tj-tablebox">
+        <table class="tj-table" id="tbl-spills" data-source="spills" data-row-key="start,location">
+          <thead><tr>
+            <th data-field="start">Start</th>
+            <th data-field="location">Location</th>
+            <th data-field="event_type" class="tj-hide-narrow">Type</th>
+            <th data-field="volume" class="tj-num">Volume</th>
+            <th data-field="status">Status</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TZ = 'America/Los_Angeles';
+const SITES = ['SAN YSIDRO', 'NESTOR - BES', 'IB CIVIC CTR'];
+const SITE_NAME = { 'SAN YSIDRO': 'San Ysidro', 'NESTOR - BES': 'Nestor (Berry Elem.)', 'IB CIVIC CTR': 'Imperial Beach' };
+const SHORT_NAME = { 'SAN YSIDRO': 'SY', 'NESTOR - BES': 'Nestor', 'IB CIVIC CTR': 'IB' };
+const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+const fmtHour = new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const fmtDay = new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'short', day: 'numeric' });
+const fmtTick = new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'short', day: 'numeric' });
+const fmtShortTime = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
+const fmtTickHour = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric' });
+const f1 = d3.format(',.1f'), f0 = d3.format(',.0f');
+const pct = (v) => v == null ? '—' : (v < 10 ? d3.format('.1f')(v) : f0(v));
+const dayDate = (s) => new Date(s + 'T12:00:00Z');
+const dayFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+
+document.querySelector('.tj').style.setProperty('--tj-c0', dash.colors[0]);
+document.querySelector('.tj').style.setProperty('--tj-c1', dash.colors[1]);
+const siteColor = (s) => dash.colors[SITES.indexOf(s) % dash.colors.length];
+const levelColor = (ppb) => ppb == null ? 'var(--color-fg-muted)' : ppb >= 30 ? 'var(--color-bad)' : ppb >= 5 ? 'var(--color-warn)' : 'var(--color-ok)';
+
+// ---------- calculations ----------
+dash.calc('forecast_peak', {
+  title: 'Highest 30 ppb chance',
+  description: 'The largest of the three sites’ maximum chance of H2S above 30 ppb in the next 24 hours.',
+  inputs: ['h2s_forecast_24h'],
+  fn: (h2s_forecast_24h) => {
+    const top = h2s_forecast_24h.reduce((a, r) => (a == null || r.max_prob_30 > a.max_prob_30 ? r : a), null);
+    return top ? { station: top.station, max_prob_30: top.max_prob_30 } : null;
+  },
+});
+dash.calc('border_latest', {
+  title: 'Latest border flow',
+  description: 'The most recent hourly reading at the IBWC boundary gauge.',
+  inputs: ['border_flow'],
+  fn: (border_flow) => border_flow.length ? border_flow[border_flow.length - 1] : null,
+});
+dash.calc('plant_latest', {
+  title: 'Latest plant day',
+  description: 'The most recent day with a reported SBIWTP effluent flow.',
+  inputs: ['plant_daily'],
+  fn: (plant_daily) => plant_daily.filter((r) => r.effluent_mgd != null).slice(-1)[0] ?? null,
+});
+dash.calc('h2s_current_peak', {
+  title: 'Highest H2S now',
+  description: 'The monitor with the highest latest hourly H2S reading.',
+  inputs: ['h2s_current'],
+  fn: (h2s_current) => h2s_current.reduce((a, r) => (a == null || r.h2s_ppb > a.h2s_ppb ? r : a), null),
+});
+dash.calc('temp_now', {
+  title: 'Weather now',
+  description: 'Average of the three monitor sites’ 15-minute temperature (°F), wind (mph) and humidity at the wind map’s time.',
+  inputs: ['weather_15min', 'wind_now'],
+  fn: (weather_15min, wind_now) => {
+    const t = wind_now[0]?.time;
+    const rows = weather_15min.filter((r) => r.time === t);
+    if (!rows.length) return null;
+    const avg = (k) => rows.reduce((s, r) => s + r[k], 0) / rows.length;
+    const u = rows.reduce((s, r) => s + Math.sin(r.wind_dir_deg * Math.PI / 180), 0);
+    const v = rows.reduce((s, r) => s + Math.cos(r.wind_dir_deg * Math.PI / 180), 0);
+    const dir = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360;
+    const names = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    return {
+      time: t,
+      temp_f: Math.round((avg('temp_c') * 9 / 5 + 32) * 10) / 10,
+      wind_mph: Math.round(avg('wind_ms') * 2.23694 * 10) / 10,
+      wind_from: names[Math.round(dir / 22.5) % 16],
+      humidity_pct: Math.round(avg('humidity_pct')),
+    };
+  },
+});
+
+// ---------- helpers ----------
+const statusOf = (ids) => {
+  const s = ids.map((id) => dash.data(id).status);
+  if (s.some((x) => x === 'error' || x === 'missing')) return 'error';
+  if (s.every((x) => x === 'ok')) return 'ok';
+  return 'loading';
+};
+const setText = (sel, text) => document.querySelectorAll(sel).forEach((el) => { el.textContent = text; el.classList.remove('dash-skeleton'); });
+const fail = (el) => { el.replaceChildren(); const d = document.createElement('div'); d.className = 'tj-fail'; d.textContent = 'Failed to load'; el.appendChild(d); };
+const pending = (el, st) => { el.classList.toggle('dash-skeleton', st === 'loading'); if (st === 'error') fail(el); else el.replaceChildren(); };
+
+function tooltip(card) {
+  let tip = card.querySelector('.tj-tip');
+  if (!tip) { tip = document.createElement('div'); tip.className = 'tj-tip'; tip.hidden = true; card.appendChild(tip); }
+  return {
+    show(x, y, head, lines) {
+      tip.replaceChildren();
+      const h = document.createElement('div'); h.className = 'tj-tip-h'; h.textContent = head; tip.appendChild(h);
+      lines.forEach((l) => {
+        const row = document.createElement('div');
+        if (l.color) { const i = document.createElement('i'); i.style.background = l.color; row.appendChild(i); }
+        row.appendChild(document.createTextNode(l.text));
+        tip.appendChild(row);
+      });
+      tip.hidden = false;
+      const cw = card.clientWidth, tw = tip.offsetWidth, th = tip.offsetHeight;
+      let left = x + 12; if (left + tw > cw - 4) left = x - tw - 12; if (left < 4) left = 4;
+      let top = y - th - 8; if (top < 4) top = y + 14;
+      tip.style.left = left + 'px'; tip.style.top = top + 'px';
+    },
+    hide() { tip.hidden = true; },
+  };
+}
+
+function legend(el, items) {
+  el.replaceChildren(...items.map((it) => {
+    const s = document.createElement('span'); const i = document.createElement('i'); i.className = 'tj-line';
+    i.style.background = it.color; s.append(i, document.createTextNode(it.name)); return s;
+  }));
+}
+
+// Line chart over time. series: [{name, color, dashed, points:[{t:Date, v:number}]}]
+function lineChart(el, series, opt) {
+  el.classList.remove('dash-skeleton');
+  el.replaceChildren();
+  const W = Math.max(el.clientWidth, 260), H = opt.height || 240;
+  const all = series.flatMap((s) => s.points).filter((p) => p.v != null);
+  if (!all.length) { const d = document.createElement('div'); d.className = 'tj-fail'; d.textContent = 'No readings in this window'; el.appendChild(d); return; }
+  let ymax = d3.max(all, (p) => p.v);
+  (opt.refs || []).forEach((r) => { if (r.always) ymax = Math.max(ymax, r.v); });
+  ymax = Math.max(ymax * 1.08, opt.minMax || 0);
+  const ymin = opt.ymin != null ? opt.ymin : 0;
+  const xd = opt.xDomain || d3.extent(all, (p) => p.t);
+  const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+  const y0 = d3.scaleLinear([ymin, ymax], [H - 24, 8]).nice();
+  const yTicks = y0.ticks(5);
+  const yFmt = opt.yFmt || d3.format(',~g');
+  const meas = svg.append('g').attr('font-size', 'var(--cds-font-size-caption)');
+  let wmax = 0; yTicks.forEach((t) => { const n = meas.append('text').text(yFmt(t)); wmax = Math.max(wmax, n.node().getComputedTextLength()); });
+  meas.remove();
+  const m = { l: Math.ceil(wmax) + 10, r: 12, t: 8, b: 24 };
+  const x = d3.scaleUtc(xd, [m.l, W - m.r]);
+  const y = y0.range([H - m.b, m.t]);
+  const g = svg.append('g');
+  g.selectAll('line.grid').data(yTicks).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y).attr('y2', y).attr('stroke', 'var(--cds-chart-grid)');
+  g.selectAll('text.yt').data(yTicks).join('text').attr('x', m.l - 6).attr('y', y).attr('dy', '0.32em').attr('text-anchor', 'end')
+    .attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text(yFmt);
+  const nX = Math.max(2, Math.min(opt.xTicks || 6, Math.floor((W - m.l - m.r) / 80)));
+  const xt = x.ticks(nX);
+  const span = xd[1] - xd[0];
+  const tf = span < 2.5 * 864e5 ? (d) => fmtTickHour.format(d) : (d) => fmtTick.format(d);
+  g.append('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', H - m.b).attr('y2', H - m.b).attr('stroke', 'var(--cds-chart-axis)');
+  g.selectAll('text.xt').data(xt).join('text').attr('x', x).attr('y', H - 6).attr('text-anchor', 'middle')
+    .attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text(tf);
+  (opt.refs || []).filter((r) => r.v <= y.domain()[1] && r.v >= y.domain()[0]).forEach((r) => {
+    g.append('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y(r.v)).attr('y2', y(r.v)).attr('stroke', r.color || 'var(--cds-chart-reference)').attr('stroke-dasharray', '4 3');
+    g.append('text').attr('x', W - m.r).attr('y', y(r.v) - 4).attr('text-anchor', 'end').attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text(r.label);
+  });
+  if (opt.now) {
+    g.append('line').attr('x1', x(opt.now)).attr('x2', x(opt.now)).attr('y1', m.t).attr('y2', H - m.b).attr('stroke', 'var(--cds-chart-reference)');
+    g.append('text').attr('x', x(opt.now) + 4).attr('y', m.t + 10).attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text('now');
+  }
+  const line = d3.line().defined((p) => p.v != null).x((p) => x(p.t)).y((p) => y(p.v));
+  series.forEach((s) => {
+    g.append('path').attr('d', line(s.points)).attr('fill', 'none').attr('stroke', s.color).attr('stroke-width', 2)
+      .attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round').attr('stroke-dasharray', s.dashed ? '5 4' : null);
+  });
+  // hover
+  const tip = tooltip(el.closest('.tj-card'));
+  const rule = g.append('line').attr('y1', m.t).attr('y2', H - m.b).attr('stroke', 'var(--cds-chart-axis)').style('display', 'none');
+  const dots = g.selectAll('circle.hv').data(series).join('circle').attr('r', 4).attr('fill', (s) => s.color).style('display', 'none');
+  const bis = d3.bisector((p) => p.t).center;
+  svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', W - m.l - m.r).attr('height', H - m.t - m.b).attr('fill', 'transparent')
+    .on('pointermove', (ev) => {
+      const [px] = d3.pointer(ev); const t = x.invert(px);
+      const hits = series.map((s) => { const p = s.points[bis(s.points, t)]; return p && Math.abs(p.t - t) < (opt.snap || 3 * 36e5) && p.v != null ? p : null; });
+      const ref = hits.find(Boolean); if (!ref) { tip.hide(); rule.style('display', 'none'); dots.style('display', 'none'); return; }
+      rule.attr('x1', x(ref.t)).attr('x2', x(ref.t)).style('display', null);
+      dots.style('display', (s, i) => hits[i] ? null : 'none').attr('cx', (s, i) => hits[i] ? x(hits[i].t) : 0).attr('cy', (s, i) => hits[i] ? y(hits[i].v) : 0);
+      const lines = series.map((s, i) => hits[i] ? { color: series.length > 1 ? s.color : null, text: (opt.tipLine ? opt.tipLine(s, hits[i]) : `${s.name}: ${f1(hits[i].v)}`) } : null).filter(Boolean);
+      const box = el.getBoundingClientRect(), cb = el.closest('.tj-card').getBoundingClientRect();
+      tip.show(box.left - cb.left + x(ref.t) * box.width / W, box.top - cb.top + y(ref.v) * box.height / H, (opt.head || fmtHour.format)(ref.t), lines);
+    })
+    .on('pointerleave', () => { tip.hide(); rule.style('display', 'none'); dots.style('display', 'none'); });
+}
+
+// ---------- map ----------
+function drawMap(el) {
+  el.classList.remove('dash-skeleton');
+  el.replaceChildren();
+  const sites = dash.data('h2s_current').data, wind = dash.data('wind_now').data, outl = dash.data('map_outlines').data;
+  const LON = [-117.20, -116.98], LAT = [32.48, 32.64];
+  const k = Math.cos(32.56 * Math.PI / 180);
+  const W = Math.max(el.clientWidth, 280);
+  const H = Math.round(Math.min(W * ((LAT[1] - LAT[0]) / ((LON[1] - LON[0]) * k)), 560));
+  const s = Math.min(W / ((LON[1] - LON[0]) * k), H / (LAT[1] - LAT[0]));
+  const ox = (W - (LON[1] - LON[0]) * k * s) / 2, oy = (H - (LAT[1] - LAT[0]) * s) / 2;
+  const px = (lon) => ox + (lon - LON[0]) * k * s, py = (lat) => oy + (LAT[1] - lat) * s;
+  const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+  svg.append('rect').attr('width', W).attr('height', H).attr('fill', 'var(--color-bg)').attr('rx', 6);
+  const path = (str) => 'M' + str.split(';').map((p) => { const [a, b] = p.split(',').map(Number); return `${px(a).toFixed(1)},${py(b).toFixed(1)}`; }).join('L');
+  const sty = {
+    us_land: (p) => p.attr('fill', 'var(--color-panel)').attr('stroke', 'var(--color-border-line)'),
+    mexico_land: (p) => p.attr('fill', 'var(--color-panel)').attr('stroke', 'var(--color-border-line)').attr('opacity', 0.75),
+    border: (p) => p.attr('fill', 'none').attr('stroke', 'var(--color-fg-muted)').attr('stroke-dasharray', '6 4').attr('stroke-width', 1.5),
+    river: (p) => p.attr('fill', 'none').attr('stroke', dash.colors[0]).attr('stroke-width', 2).attr('stroke-linecap', 'round').attr('opacity', 0.8),
+  };
+  ['us_land', 'mexico_land', 'river', 'border'].forEach((layer) => outl.filter((r) => r.layer === layer).forEach((r) => {
+    const p = svg.append('path').attr('d', path(r.path) + (layer.endsWith('land') ? 'Z' : '')); sty[layer](p);
+  }));
+  const lab = (lon, lat, t, anchor) => svg.append('text').attr('x', px(lon)).attr('y', py(lat)).attr('text-anchor', anchor || 'middle')
+    .attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').attr('letter-spacing', '.06em').text(t);
+  lab(-117.05, 32.50, 'MEXICO'); lab(-117.05, 32.625, 'UNITED STATES'); lab(-117.172, 32.53, 'Pacific Ocean');
+  lab(-117.075, 32.538, 'Tijuana River', 'start');
+  // SBIWTP (reference location)
+  svg.append('rect').attr('x', px(-117.0617) - 4).attr('y', py(32.5446) - 4).attr('width', 8).attr('height', 8).attr('fill', 'var(--color-fg-muted)');
+  lab(-117.0617, 32.5395, 'SBIWTP');
+  // wind arrows
+  const inBox = wind.filter((w) => w.lon >= LON[0] && w.lon <= LON[1] && w.lat >= LAT[0] && w.lat <= LAT[1]);
+  const maxS = Math.max(d3.max(wind, (w) => w.speed_ms) || 1, 3);
+  const cell = Math.min(0.05 * k * s, 0.05 * s);
+  const arrowLen = (ms) => Math.max(cell * 0.9 * ms / maxS, 4);
+  const defs = svg.append('defs');
+  defs.append('marker').attr('id', 'tj-ah').attr('viewBox', '0 0 10 10').attr('refX', 8).attr('refY', 5).attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto')
+    .append('path').attr('d', 'M0,0L10,5L0,10z').attr('fill', 'var(--color-fg)');
+  const tip = tooltip(el.closest('.tj-card'));
+  const toCard = (x, y) => { const b = el.getBoundingClientRect(), cb = el.closest('.tj-card').getBoundingClientRect(); return [b.left - cb.left + x * b.width / W, b.top - cb.top + y * b.height / H]; };
+  inBox.forEach((w) => {
+    const L = arrowLen(w.speed_ms);
+    const rad = ((w.direction_deg + 180) % 360) * Math.PI / 180;
+    const cx = px(w.lon), cy = py(w.lat), dx = Math.sin(rad) * L / 2, dy = -Math.cos(rad) * L / 2;
+    svg.append('line').attr('x1', cx - dx).attr('y1', cy - dy).attr('x2', cx + dx).attr('y2', cy + dy).attr('stroke', 'var(--color-fg)')
+      .attr('stroke-width', 1.5).attr('opacity', 0.55).attr('marker-end', 'url(#tj-ah)');
+    svg.append('circle').attr('cx', cx).attr('cy', cy).attr('r', 12).attr('fill', 'transparent')
+      .on('pointerenter', () => { const [a, b] = toCard(cx, cy); tip.show(a, b, 'Wind · ' + fmtHour.format(new Date(w.time)), [{ text: `${f1(w.speed_ms * 2.23694)} mph from ${COMPASS[Math.round(w.direction_deg / 22.5) % 16]}` }, { text: `Gusts ${f1(w.gust_ms * 2.23694)} mph` }]); })
+      .on('pointerleave', () => tip.hide());
+  });
+  // wind scale (speeds in mph, same lengths as the arrows)
+  const maxMph = maxS * 2.23694;
+  const steps = d3.ticks(0, maxMph, 3).filter((v) => v > 0).slice(-2);
+  const sc = svg.append('g').attr('transform', `translate(10, ${H - 14 - steps.length * 16})`);
+  sc.append('rect').attr('x', -4).attr('y', -18).attr('width', cell * 0.9 + 64).attr('height', steps.length * 16 + 22).attr('rx', 4)
+    .attr('fill', 'var(--color-bg)').attr('stroke', 'var(--color-border-line)').attr('opacity', 0.9);
+  sc.append('text').attr('x', 0).attr('y', -6).attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text('Wind speed');
+  steps.forEach((mph, i) => {
+    const len = arrowLen(mph / 2.23694), yy = 8 + i * 16;
+    sc.append('line').attr('x1', 0).attr('y1', yy).attr('x2', len).attr('y2', yy).attr('stroke', 'var(--color-fg)').attr('stroke-width', 1.5).attr('opacity', 0.55).attr('marker-end', 'url(#tj-ah)');
+    sc.append('text').attr('x', cell * 0.9 + 8).attr('y', yy).attr('dy', '0.32em').attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text(`${mph} mph`);
+  });
+  // sites
+  sites.forEach((r) => {
+    const cx = px(r.lon), cy = py(r.lat);
+    const g = svg.append('g');
+    g.append('circle').attr('cx', cx).attr('cy', cy).attr('r', 9).attr('fill', levelColor(r.h2s_ppb)).attr('stroke', 'var(--color-bg)').attr('stroke-width', 2);
+    const left = r.site === 'IB CIVIC CTR';
+    const t = g.append('text').attr('x', cx + (left ? -14 : 14)).attr('y', cy).attr('dy', '0.32em').attr('text-anchor', left ? 'end' : 'start')
+      .attr('fill', 'var(--color-fg)').attr('font-size', 'var(--cds-font-size-caption)').attr('paint-order', 'stroke').attr('stroke', 'var(--color-bg)').attr('stroke-width', 3);
+    t.append('tspan').attr('font-weight', 600).text(r.h2s_ppb == null ? '—' : f1(r.h2s_ppb) + ' ppb');
+    t.append('tspan').text(' ' + (W < 560 ? (SHORT_NAME[r.site] || r.site) : (SITE_NAME[r.site] || r.site)));
+    g.append('circle').attr('cx', cx).attr('cy', cy).attr('r', 16).attr('fill', 'transparent')
+      .on('pointerenter', () => { const [a, b] = toCard(cx, cy); tip.show(a, b, r.location, [{ text: `H2S ${f1(r.h2s_ppb)} ppb` }, { text: fmtHour.format(new Date(r.time)) }]); })
+      .on('pointerleave', () => tip.hide());
+  });
+}
+
+
+// ---------- recent nights strip ----------
+function drawNights(el) {
+  el.classList.remove('dash-skeleton');
+  el.replaceChildren();
+  const rows = dash.data('forecast_nights').data;
+  const days = [...new Set(rows.map((r) => r.night_of))].sort();
+  if (!days.length) { const d = document.createElement('div'); d.className = 'tj-fail'; d.textContent = 'No nights to show yet'; el.appendChild(d); return; }
+  const W = Math.max(el.clientWidth, 280);
+  const svg0 = d3.select(el).append('svg');
+  let lw = 0; SITES.forEach((s) => { const t = svg0.append('text').attr('font-size', 'var(--cds-font-size-caption)').text(SITE_NAME[s]); lw = Math.max(lw, t.node().getComputedTextLength()); t.remove(); });
+  svg0.remove();
+  const left = Math.ceil(lw) + 10, cell = Math.max(4, Math.min(18, Math.floor((W - left - 4) / days.length))), gap = cell > 8 ? 2 : 1;
+  const barH = 14, rowH = cell + barH + 10, H = SITES.length * rowH + 22;
+  const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+  const x = (d) => left + days.indexOf(d) * cell;
+  const tip = tooltip(el.closest('.tj-card'));
+  const toCard = (px, py) => { const b = el.getBoundingClientRect(), cb = el.closest('.tj-card').getBoundingClientRect(); return [b.left - cb.left + px * b.width / W, b.top - cb.top + py * b.height / H]; };
+  SITES.forEach((st, i) => {
+    const y0 = i * rowH;
+    svg.append('text').attr('x', left - 8).attr('y', y0 + cell / 2).attr('dy', '0.32em').attr('text-anchor', 'end')
+      .attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text(SITE_NAME[st]);
+    svg.append('line').attr('x1', left).attr('x2', left + days.length * cell).attr('y1', y0 + cell + 4 + barH).attr('y2', y0 + cell + 4 + barH).attr('stroke', 'var(--cds-chart-grid)');
+    rows.filter((r) => r.station === st).forEach((r) => {
+      const cx = x(r.night_of);
+      svg.append('rect').attr('x', cx).attr('y', y0).attr('width', cell - gap).attr('height', cell).attr('rx', 2)
+        .attr('fill', r.peak_ppb == null ? 'var(--cds-chart-grid)' : levelColor(r.peak_ppb));
+      if (r.chance_30 != null) {
+        const bh = Math.max(r.chance_30 > 0 ? 1 : 0, r.chance_30 * barH);
+        svg.append('rect').attr('x', cx).attr('y', y0 + cell + 4 + barH - bh).attr('width', cell - gap).attr('height', bh).attr('fill', dash.colors[0]);
+      }
+      svg.append('rect').attr('x', cx).attr('y', y0).attr('width', cell).attr('height', cell + barH + 4).attr('fill', 'transparent')
+        .on('pointerenter', () => {
+          const [a, b] = toCard(cx + cell / 2, y0);
+          tip.show(a, b, `${SITE_NAME[st]} · night of ${dayFmt.format(dayDate(r.night_of))}`, [
+            { text: `Measured peak ${r.peak_ppb == null ? '—' : f1(r.peak_ppb) + ' ppb'}` },
+            { text: `Forecast chance of >30 ppb ${r.chance_30 == null ? 'not available' : pct(r.chance_30 * 100) + '%'}${r.source ? ' (' + r.source + ')' : ''}` },
+            ...(r.outcome ? [{ text: `Outcome: ${r.outcome}` }] : []),
+          ]);
+        })
+        .on('pointerleave', () => tip.hide());
+    });
+  });
+  const ticks = days.filter((d, i) => i % Math.max(1, Math.ceil(days.length / Math.max(2, Math.floor((W - left) / 70)))) === 0);
+  svg.selectAll('text.nt').data(ticks).join('text').attr('x', (d) => x(d)).attr('y', H - 6)
+    .attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text((d) => fmtTick.format(dayDate(d)));
+}
+// ---------- draw ----------
+const lgH2s = document.getElementById('lg-h2s'), lgFc = document.getElementById('lg-fc'), lgTemp = document.getElementById('lg-temp');
+const siteLegend = SITES.map((s) => ({ name: SITE_NAME[s], color: siteColor(s) }));
+
+dash.onData(() => {
+  // headline figures
+  const fp = dash.data('forecast_peak');
+  setText('[data-source="forecast_peak"][data-field="max_prob_30"]', fp.status === 'ok' && fp.data ? pct(fp.data.max_prob_30) : '—');
+  const fs = dash.data('h2s_forecast_24h');
+  SITES.forEach((st) => {
+    const r = fs.status === 'ok' ? fs.data.find((x) => x.station === st) : null;
+    setText(`[data-source="h2s_forecast_24h"][data-where="station=${st}"]`, r ? pct(r.max_prob_30) + '%' : '—');
+  });
+  setText('[data-source="h2s_forecast_24h"][data-field="generated_at"]', fs.status === 'ok' && fs.data[0] ? fmtHour.format(new Date(fs.data[0].generated_at)) : '—');
+
+  const bl = dash.data('border_latest');
+  const b = bl.status === 'ok' ? bl.data : null;
+  setText('[data-source="border_latest"][data-field="flow_cms"]', b ? f1(b.flow_cms) : '—');
+  setText('[data-source="border_latest"][data-field="flow_mgd"]', b ? f1(b.flow_mgd) : '—');
+  setText('[data-source="border_latest"][data-field="time"]', b ? fmtHour.format(new Date(b.time)) : '—');
+
+  const pl = dash.data('plant_latest');
+  const p = pl.status === 'ok' ? pl.data : null;
+  setText('[data-source="plant_latest"][data-field="effluent_mgd"]', p ? f1(p.effluent_mgd) : '—');
+  setText('[data-source="plant_latest"][data-field="influent_mgd"]', p ? f1(p.influent_mgd) : '—');
+  setText('[data-source="plant_latest"][data-field="capacity_mgd"]', p ? f0(p.capacity_mgd) : '—');
+  setText('[data-source="plant_latest"][data-field="date"]', p ? dayFmt.format(dayDate(p.date)) : '—');
+
+  const hc = dash.data('h2s_current_peak');
+  const h = hc.status === 'ok' ? hc.data : null;
+  setText('[data-source="h2s_current_peak"][data-field="h2s_ppb"]', h ? f1(h.h2s_ppb) : '—');
+  setText('[data-source="h2s_current_peak"][data-field="location"]', h ? h.location : '—');
+  setText('[data-source="h2s_current_peak"][data-field="time"]', h ? fmtHour.format(new Date(h.time)) : '—');
+
+  const np = dash.data('h2s_night_peak');
+  const nrows = np.status === 'ok' && Array.isArray(np.data) ? np.data : [];
+  setText('[data-source="h2s_night_peak"][data-field="night_start"]', nrows[0] ? fmtHour.format(new Date(nrows[0].night_start)) : '—');
+  setText('[data-source="h2s_night_peak"][data-field="night_end"]', nrows[0] ? fmtShortTime.format(new Date(nrows[0].night_end)) : '—');
+  SITES.forEach((st) => {
+    const r = nrows.find((x) => x.site === st);
+    setText(`[data-source="h2s_night_peak"][data-where="site=${st}"]`, r ? `${f1(r.peak_ppb)} ppb · ${fmtTickHour.format(new Date(r.peak_time))}` : '—');
+    const el = document.querySelector(`[data-source="h2s_night_peak"][data-where="site=${st}"]`);
+    if (el) el.style.color = r && r.peak_ppb >= 5 ? levelColor(r.peak_ppb) : '';
+  });
+
+  const ri = dash.data('refresh_info');
+  const rRow = ri.status === 'ok' ? ri.data[0] : null;
+  setText('[data-source="refresh_info"][data-field="refreshed_at"]', rRow ? fmtHour.format(new Date(rRow.refreshed_at)) : '—');
+  const pill = document.getElementById('updated-pill'), ago = document.getElementById('updated-ago');
+  if (rRow) {
+    const hrs = (Date.now() - new Date(rRow.refreshed_at)) / 36e5;
+    ago.textContent = hrs < 1 ? '· under an hour ago' : hrs < 48 ? `· ${Math.round(hrs)} h ago` : `· ${Math.round(hrs / 24)} days ago`;
+    pill.classList.toggle('tj-stale', hrs > 30);
+    pill.title = 'The dashboard refreshes at 10:45 am and 7:45 pm Pacific.';
+  } else { ago.textContent = ''; pill.classList.remove('tj-stale'); }
+
+  const ex = dash.data('h2s_exceedances');
+  const exRows = ex.status === 'ok' ? ex.data : [];
+  document.querySelectorAll('[data-source="h2s_exceedances"]').forEach((el) => {
+    const q = new URLSearchParams(el.dataset.where);
+    const r = exRows.find((x) => x.scope === q.get('scope') && String(x.threshold_ppb) === q.get('threshold_ppb'));
+    const v = r ? r[el.dataset.field] : null;
+    const f = el.dataset.field;
+    el.textContent = v == null ? (r && f === 'days_since' ? 'none' : '—')
+      : f === 'episode_start' ? fmtHour.format(new Date(v))
+      : f === 'episode_peak_site' ? (SITE_NAME[v] || v)
+      : f === 'episode_peak_ppb' ? f1(v)
+      : String(v);
+    el.classList.remove('dash-skeleton');
+  });
+
+  // forecast performance
+  const fsk = dash.data('forecast_skill');
+  const skRows = fsk.status === 'ok' ? fsk.data : [];
+  document.querySelectorAll('[data-source="forecast_skill"]').forEach((el) => {
+    const q = new URLSearchParams(el.dataset.where);
+    const r = skRows.find((x) => x.scope === q.get('scope'));
+    const v = r ? r[el.dataset.field] : null, f = el.dataset.field;
+    el.textContent = v == null ? '—'
+      : f === 'first_issue' || f === 'last_issue' ? dayFmt.format(new Date(v.replace(' ', 'T')))
+      : f === 'cutoff' ? d3.format('.0%')(v)
+      : f === 'auc' ? d3.format('.2f')(v)
+      : d3.format(',')(v);
+    el.classList.remove('dash-skeleton');
+  });
+  const link = document.getElementById('skill-link');
+  if (skRows[0] && /^https:\/\//.test(skRows[0].page)) { link.href = skRows[0].page; link.hidden = false; } else link.hidden = true;
+  const fl = dash.data('forecast_live');
+  const lv = fl.status === 'ok' ? fl.data[0] : null;
+  document.querySelectorAll('[data-source="forecast_live"]').forEach((el) => {
+    const f = el.dataset.field, v = lv ? lv[f] : null;
+    el.textContent = v == null ? '—'
+      : f === 'period_start' || f === 'period_end' ? dayFmt.format(new Date(v.replace(' ', 'T')))
+      : f === 'acceptable_share' ? d3.format('.0%')(v)
+      : d3.format(',')(v);
+    el.classList.remove('dash-skeleton');
+  });
+  const nEl = document.getElementById('ch-nights'), nSum = document.getElementById('nights-summary');
+  const ns = statusOf(['forecast_nights']);
+  if (ns === 'ok') {
+    drawNights(nEl);
+    const rows = dash.data('forecast_nights').data;
+    const ev = rows.filter((r) => r.peak_ppb != null && r.peak_ppb > 30);
+    const warned = ev.filter((r) => r.outcome === 'warned').length;
+    const nightsN = new Set(rows.map((r) => r.night_of)).size;
+    nSum.textContent = `Last ${nightsN} nights: ${ev.length} station-night${ev.length === 1 ? '' : 's'} over 30 ppb, ${warned} warned in advance.`;
+  } else { pending(nEl, ns); nSum.textContent = ''; }
+
+  const tn = dash.data('temp_now');
+  const w = tn.status === 'ok' ? tn.data : null;
+  setText('[data-source="temp_now"][data-field="temp_f"]', w ? f1(w.temp_f) : '—');
+  setText('[data-source="temp_now"][data-field="wind_mph"]', w ? f1(w.wind_mph) : '—');
+  setText('[data-source="temp_now"][data-field="wind_from"]', w ? w.wind_from : '—');
+  setText('[data-source="temp_now"][data-field="humidity_pct"]', w ? f0(w.humidity_pct) : '—');
+
+  const sp = dash.data('spills');
+  const s0 = sp.status === 'ok' ? sp.data[0] : null;
+  setText('[data-source="spills"][data-field="location"][data-row="0"]', s0 ? s0.location : '—');
+  setText('[data-source="spills"][data-field="start"][data-row="0"]', s0 ? dayFmt.format(dayDate(s0.start)) : '—');
+  setText('[data-source="spills"][data-field="volume"][data-row="0"]', s0 ? s0.volume.replace(/\s+/g, ' ') : '—');
+  setText('[data-source="spills"][data-field="status"][data-row="0"]', s0 ? s0.status : '—');
+
+  const wn = dash.data('wind_now');
+  setText('[data-source="wind_now"][data-field="time"]', wn.status === 'ok' && wn.data[0] ? fmtHour.format(new Date(wn.data[0].time)) : '—');
+
+  // map
+  const mapEl = document.getElementById('map');
+  const ms = statusOf(['h2s_current', 'wind_now', 'map_outlines']);
+  if (ms === 'ok') drawMap(mapEl); else pending(mapEl, ms);
+
+  // H2S recent
+  const hEl = document.getElementById('ch-h2s');
+  legend(lgH2s, siteLegend);
+  const hs = statusOf(['h2s_recent']);
+  if (hs === 'ok') {
+    const rows = dash.data('h2s_recent').data;
+    lineChart(hEl, SITES.map((st) => ({ name: SITE_NAME[st], color: siteColor(st), points: rows.filter((r) => r.site === st).map((r) => ({ t: new Date(r.time), v: r.h2s_ppb })).sort((a, b) => a.t - b.t) })),
+      { refs: [{ v: 5, label: '5 ppb' }, { v: 30, label: '30 ppb', color: 'var(--cds-chart-status-critical)' }], minMax: 8, tipLine: (s, q) => `${s.name}: ${f1(q.v)} ppb` });
+  } else pending(hEl, hs);
+
+  // H2S forecast hourly
+  const fEl = document.getElementById('ch-fc');
+  legend(lgFc, siteLegend);
+  const fcs = statusOf(['h2s_forecast_hourly']);
+  if (fcs === 'ok') {
+    const rows = dash.data('h2s_forecast_hourly').data;
+    lineChart(fEl, SITES.map((st) => ({ name: SITE_NAME[st], color: siteColor(st), points: rows.filter((r) => r.station === st).map((r) => ({ t: new Date(r.time), v: r.h2s_pred_ppb, r })).sort((a, b) => a.t - b.t) })),
+      { refs: [{ v: 5, label: '5 ppb' }, { v: 30, label: '30 ppb', color: 'var(--cds-chart-status-critical)' }], minMax: 8, snap: 40 * 6e4,
+        tipLine: (s, q) => `${s.name}: ${f1(q.v)} ppb · >5: ${pct(q.r.prob_5)}% · >10: ${pct(q.r.prob_10)}% · >30: ${q.r.prob_30 == null ? '—' : pct(q.r.prob_30) + '%'}` });
+  } else pending(fEl, fcs);
+
+  // border flow
+  const flEl = document.getElementById('ch-flow');
+  const fls = statusOf(['border_flow', 'border_flow_forecast']);
+  if (fls === 'ok') {
+    const obs = dash.data('border_flow').data.map((r) => ({ t: new Date(r.time), v: r.flow_mgd }));
+    const last = obs[obs.length - 1];
+    const fc = dash.data('border_flow_forecast').data.map((r) => ({ t: new Date(r.time), v: r.flow_cms == null ? null : r.flow_cms * 22.824465 })).filter((r) => !last || r.t > last.t);
+    lineChart(flEl, [{ name: 'Observed', color: dash.colors[0], points: obs }, { name: 'Outlook', color: 'var(--cds-chart-muted)', dashed: true, points: fc }],
+      { now: last ? last.t : null, snap: 90 * 6e4, tipLine: (s, q) => `${s.name}: ${f1(q.v)} MGD (${d3.format(',.2f')(q.v / 22.824465)} m³/s)` });
+  } else pending(flEl, fls);
+
+  // plant
+  const plEl = document.getElementById('ch-plant');
+  const pls = statusOf(['plant_daily']);
+  if (pls === 'ok') {
+    const rows = dash.data('plant_daily').data;
+    const cap = d3.max(rows, (r) => r.capacity_mgd);
+    lineChart(plEl, [
+      { name: 'Effluent', color: dash.colors[0], points: rows.map((r) => ({ t: dayDate(r.date), v: r.effluent_mgd })) },
+      { name: 'Influent', color: dash.colors[1], points: rows.map((r) => ({ t: dayDate(r.date), v: r.influent_mgd })) },
+    ], { refs: cap ? [{ v: cap, label: `Capacity ${f0(cap)} MGD`, always: true }] : [], snap: 864e5, head: (t) => dayFmt.format(t), tipLine: (s, q) => `${s.name}: ${f1(q.v)} MGD` });
+  } else pending(plEl, pls);
+
+  // temperature
+  const tEl = document.getElementById('ch-temp');
+  legend(lgTemp, siteLegend);
+  const ts = statusOf(['weather_15min', 'wind_now']);
+  if (ts === 'ok') {
+    const rows = dash.data('weather_15min').data;
+    const nowT = dash.data('wind_now').data[0]?.time;
+    const temps = rows.map((r) => r.temp_c * 9 / 5 + 32);
+    lineChart(tEl, SITES.map((st) => ({ name: SITE_NAME[st], color: siteColor(st), points: rows.filter((r) => r.site === st).map((r) => ({ t: new Date(r.time), v: r.temp_c * 9 / 5 + 32 })) })),
+      { ymin: Math.floor((d3.min(temps) - 3) / 5) * 5, now: nowT ? new Date(nowT) : null, snap: 10 * 6e4, tipLine: (s, q) => `${s.name}: ${f1(q.v)} °F` });
+  } else pending(tEl, ts);
+
+  // spills table
+  const tb = document.querySelector('#tbl-spills tbody');
+  if (sp.status === 'ok') {
+    tb.replaceChildren(...sp.data.map((r) => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = encodeURIComponent(r.start) + ',' + encodeURIComponent(r.location);
+      const cells = [dayFmt.format(dayDate(r.start)), r.location, r.event_type, r.volume.replace(/\s+/g, ' '), r.status];
+      cells.forEach((c, i) => { const td = document.createElement('td'); td.textContent = c || '—'; if (i === 2) td.className = 'tj-hide-narrow'; if (i === 3) td.className = 'tj-num'; tr.appendChild(td); });
+      tr.title = r.notes || '';
+      return tr;
+    }));
+  } else tb.replaceChildren();
+});
+</script>
