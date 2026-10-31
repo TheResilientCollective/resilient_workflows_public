@@ -194,9 +194,9 @@ def main(D, O):
     obs = sorted(((dt.datetime.fromisoformat(t), st, v) for (st, t), v in hist.items()), key=lambda x: x[0])
     as_of = obs[-1][0]
 
-    # Exceedance episodes (>30, >100 ppb)
+    # Exceedance episodes (>30 ppb, and >70 ppb, the ATSDR acute MRL used as the review's upper tier)
     ex = []
-    for th in (30, 100):
+    for th in (30, 70):
         for scope in ('All sites',) + SITES:
             hits = [o for o in obs if o[2] > th and (scope == 'All sites' or o[1] == scope)]
             row = {'scope': scope, 'threshold_ppb': th, 'as_of': as_of.isoformat(), 'last_time': None,
