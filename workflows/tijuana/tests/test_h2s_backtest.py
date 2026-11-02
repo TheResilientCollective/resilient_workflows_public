@@ -230,3 +230,21 @@ def test_perfect_and_empty_edge_cases(cfg):
     strict = bt.BacktestConfig(threshold=30, n_folds=2, n_estimators=5, min_train_positives=10_000)
     empty = bt.simulate(bt.prepare_hourly(_synthetic_record(days=10), strict), strict)
     assert empty.empty  # every fold skipped for too few training positives
+
+
+def test_episode_positions_and_false_alarm_timing():
+    days = pd.date_range("2025-03-01", periods=10, freq="D").date
+    events = [0, 1, 1, 1, 0, 0, 1, 0, 0, 0]
+    p = [0.6, 0.1, 0.6, 0.6, 0.6, 0.0, 0.6, 0.0, 0.6, 0.0]
+    nights = pd.DataFrame({"site_name": "NESTOR - BES", "night_of": days, "event": events, "p_night": p})
+    pos = bt.episode_positions(nights)
+    assert list(pos.dropna()) == ["start", "middle", "end", "single"]
+    fa = bt.false_alarm_timing(nights, "night", 0.5)
+    # day 0 is one day before the first episode; day 4 one day after it; day 8 two days after the single night
+    assert fa["1 day before"] == 1 and fa["1 day after"] == 1 and fa["2 days after"] == 1 and sum(fa.values()) == 3
+    tm = bt.timing_summary(nights.assign(p_deployed=0.0, p_served_time=0.0, p_history=0.0, p_persistence=0.0), bt.BacktestConfig())
+    assert tm["episodes"] == 2 and tm["positions"] == {"single": 1, "start": 1, "middle": 1, "end": 1}
+    k = tm["by_variant"]["night@0.5"]
+    assert k["hits_by_position"] == {"single": 1, "start": 0, "middle": 1, "end": 1}
+    assert k["night_before_episode"]["n"] == 2 and k["night_before_episode"]["share_warned"] == 0.5
+

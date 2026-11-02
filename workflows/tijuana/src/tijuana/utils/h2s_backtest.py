@@ -91,7 +91,11 @@ VARIANT_LABELS = {
     "climatology": "climatology (training base rate)",
 }
 LEAD_BUCKETS = ((1, 6), (7, 12), (13, 24))
-CUTOFFS = (0.2, 0.3, 0.4, 0.5, 0.6, 0.7)
+CUTOFFS = (0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7)
+#: cutoffs the timing tables are reported at, besides the operating cutoff
+TIMING_CUTOFFS = (0.3,)
+POSITIONS = ("single", "start", "middle", "end")
+FA_BINS = ("1 day before", "2 days before", "3–7 days before", "1 day after", "2 days after", "3–7 days after", "no event within 7 days")
 
 
 @dataclass(frozen=True)
@@ -532,6 +536,84 @@ def _reliability(y, p, bins: int = 10) -> list[dict]:
     return rows
 
 
+def episode_positions(nights: pd.DataFrame) -> pd.Series:
+    """Where each event night sits in its episode of consecutive event nights.
+
+    ``single`` (a one-night episode), ``start``, ``middle`` or ``end``; NaN for
+    non-event nights. Episodes are per station and break on any night that was
+    not an event, including nights missing from the record.
+    """
+    pos = pd.Series(np.nan, index=nights.index, dtype=object)
+    for _, g in nights.groupby("site_name", sort=False):
+        g = g.sort_values("night_of")
+        ev = g[g["event"] == 1]
+        if ev.empty:
+            continue
+        d = pd.to_datetime(ev["night_of"])
+        new_run = d.diff().dt.days.fillna(99).to_numpy() != 1
+        run_id = np.cumsum(new_run)
+        for _, run in ev.groupby(run_id):
+            idx = list(run.index)
+            if len(idx) == 1:
+                pos[idx[0]] = "single"
+            else:
+                pos[idx[0]] = "start"
+                pos[idx[-1]] = "end"
+                for i in idx[1:-1]:
+                    pos[i] = "middle"
+    return pos
+
+
+def false_alarm_timing(nights: pd.DataFrame, variant: str, cutoff: float) -> dict:
+    """Bin each false alarm by its distance to the nearest event night at the same station."""
+    counts = {b: 0 for b in FA_BINS}
+    for _, g in nights.groupby("site_name", sort=False):
+        ev_days = pd.to_datetime(g.loc[g["event"] == 1, "night_of"]).to_numpy()
+        fa = g[(g["event"] == 0) & (g[f"p_{variant}"] >= cutoff)]
+        for day in pd.to_datetime(fa["night_of"]).to_numpy():
+            if len(ev_days) == 0:
+                counts["no event within 7 days"] += 1
+                continue
+            delta = (ev_days - day) / np.timedelta64(1, "D")  # positive: event comes later
+            after = delta[delta > 0]; before = delta[delta < 0]
+            to_next = after.min() if len(after) else np.inf
+            since_prev = -before.max() if len(before) else np.inf
+            if min(to_next, since_prev) > 7:
+                counts["no event within 7 days"] += 1
+            elif to_next <= since_prev:
+                counts["1 day before" if to_next == 1 else "2 days before" if to_next == 2 else "3–7 days before"] += 1
+            else:
+                counts["1 day after" if since_prev == 1 else "2 days after" if since_prev == 2 else "3–7 days after"] += 1
+    return counts
+
+
+def timing_summary(nights: pd.DataFrame, cfg: BacktestConfig) -> dict:
+    """Hit rate by position in an episode, and false alarms by distance to the nearest event,
+    for every model variant and persistence, at the operating cutoff and TIMING_CUTOFFS."""
+    pos = episode_positions(nights)
+    out = {"positions": {p: int((pos == p).sum()) for p in POSITIONS}, "episodes": 0, "by_variant": {}}
+    out["episodes"] = int((pos == "single").sum() + (pos == "start").sum())
+    for v in MODEL_VARIANTS + ("persistence",):
+        for cutoff in dict.fromkeys((cfg.cutoff,) + TIMING_CUTOFFS):
+            warned = nights[f"p_{v}"] >= cutoff
+            hits = {p: int(((pos == p) & warned).sum()) for p in POSITIONS}
+            # does the model already see it coming the night before an episode starts?
+            eve = []
+            for _, g in nights.groupby("site_name", sort=False):
+                g = g.sort_values("night_of").reset_index()
+                starts = g.index[pos.reindex(g["index"]).isin(["start", "single"]).to_numpy()]
+                for i in starts:
+                    if i > 0 and (pd.to_datetime(g.loc[i, "night_of"]) - pd.to_datetime(g.loc[i - 1, "night_of"])).days == 1 and g.loc[i - 1, "event"] == 0:
+                        eve.append(float(g.loc[i - 1, f"p_{v}"]))
+            out["by_variant"][f"{v}@{cutoff:g}"] = {
+                "variant": v, "cutoff": cutoff, "hits_by_position": hits,
+                "false_alarms_by_timing": false_alarm_timing(nights, v, cutoff),
+                "night_before_episode": {"n": len(eve), "mean_p": float(np.mean(eve)) if eve else None,
+                                         "share_warned": float(np.mean(np.asarray(eve) >= cutoff)) if eve else None},
+            }
+    return out
+
+
 def score(preds: pd.DataFrame, cfg: BacktestConfig) -> dict:
     """Everything the evaluation page reports, as plain JSON-serialisable data."""
     nights = nightly_events(preds, cfg)
@@ -546,7 +628,7 @@ def score(preds: pd.DataFrame, cfg: BacktestConfig) -> dict:
             "night_model_share": float(preds["night_model_used"].mean()) if "night_model_used" in preds and len(preds) else 0.0,
         },
         "hourly": {}, "nightly": {}, "by_station": {}, "by_lead": {}, "cutoffs": {},
-        "reliability": {}, "monthly": {}, "events": [],
+        "reliability": {}, "monthly": {}, "events": [], "timing": {},
     }
     for v in VARIANTS:
         result["hourly"][v] = _prob_metrics(preds["y"], preds[f"p_{v}"])
@@ -568,7 +650,9 @@ def score(preds: pd.DataFrame, cfg: BacktestConfig) -> dict:
         result["monthly"][month] = {
             "nights": int(len(g)), "events": int(g["event"].sum()),
             **{v: _contingency(g["event"], g[f"p_{v}"], cfg.cutoff) for v in MODEL_VARIANTS + ("persistence",)},
+            **{f"{v}@{c:g}": _contingency(g["event"], g[f"p_{v}"], c) for v in MODEL_VARIANTS for c in TIMING_CUTOFFS},
         }
+    result["timing"] = timing_summary(nights, cfg) if len(nights) else {}
     ev = nights[nights["event"] == 1].sort_values(["issue_time", "site_name"])
     for _, r in ev.iterrows():
         result["events"].append({
@@ -650,18 +734,21 @@ def _figures(metrics: dict, preds: pd.DataFrame, cfg: BacktestConfig) -> dict[st
     ax.set_title("Hourly skill by lead time"); ax.legend(fontsize=8); ax.grid(alpha=0.25)
     figs["lead"] = _png(fig)
 
-    # 4. monthly hits / misses / false alarms for the deployed model
+    # 4. monthly hits / misses / false alarms: deployed at the operating cutoff, night-target at the timing cutoff
     months = list(metrics["monthly"].keys())
-    fig, ax = plt.subplots(figsize=(max(6, 0.32 * len(months)), 3.6))
-    hits = [metrics["monthly"][m]["deployed"]["hits"] for m in months]
-    misses = [metrics["monthly"][m]["deployed"]["misses"] for m in months]
-    fa = [metrics["monthly"][m]["deployed"]["false_alarms"] for m in months]
     x = np.arange(len(months))
-    ax.bar(x, hits, color="#2a78d6", label="hits")
-    ax.bar(x, misses, bottom=hits, color="#d03b3b", label="misses")
-    ax.bar(x, fa, bottom=np.add(hits, misses), color="#fab219", label="false alarms")
-    ax.set_xticks(x); ax.set_xticklabels(months, rotation=60, fontsize=7)
-    ax.set_ylabel("nights"); ax.set_title(f"Deployed model at cutoff {cfg.cutoff:g}, by month"); ax.legend(fontsize=8)
+    panels = [("deployed", f"Deployed model at cutoff {cfg.cutoff:g}, by month"),
+              (f"night@{TIMING_CUTOFFS[0]:g}", f"Night-target model at cutoff {TIMING_CUTOFFS[0]:g}, by month")]
+    fig, axes = plt.subplots(2, 1, figsize=(max(6, 0.32 * len(months)), 6.4), sharex=True)
+    for ax, (key, title) in zip(axes, panels):
+        hits = [metrics["monthly"][m][key]["hits"] for m in months]
+        misses = [metrics["monthly"][m][key]["misses"] for m in months]
+        fa = [metrics["monthly"][m][key]["false_alarms"] for m in months]
+        ax.bar(x, hits, color="#2a78d6", label="hits")
+        ax.bar(x, misses, bottom=hits, color="#d03b3b", label="misses")
+        ax.bar(x, fa, bottom=np.add(hits, misses), color="#fab219", label="false alarms")
+        ax.set_ylabel("nights"); ax.set_title(title, fontsize=10); ax.legend(fontsize=8)
+    axes[-1].set_xticks(x); axes[-1].set_xticklabels(months, rotation=60, fontsize=7)
     figs["monthly"] = _png(fig)
     return figs
 
@@ -707,6 +794,25 @@ def render_html(metrics: dict, preds: pd.DataFrame, cfg: BacktestConfig, generat
         warned = "yes" if e["warned_deployed"] else "no"
         event_rows.append(row([e["night_of"], e["site_name"], f"{e['peak_h2s']:.0f}", e["peak_time"][5:16], f"{e['last_h2s_at_issue']:.1f}",
                                f"{e['p_deployed']:.2f}", f"{e['p_served_time']:.2f}", f"{e['p_history']:.2f}", f"{e['p_night']:.2f}", "yes" if e["p_persistence"] >= 0.5 else "no", warned]))
+    tm = metrics.get("timing", {})
+    timing_rows = [row(["variant", "cutoff", "episode starts", "single nights", "middles", "ends", "night before an episode: mean P / share warned"], True)]
+    fa_rows = [row(["variant", "cutoff", "false alarms"] + list(FA_BINS), True)]
+    for key, d in tm.get("by_variant", {}).items():
+        hb = d["hits_by_position"]; pc = tm["positions"]
+        def _share(p):
+            return f"{hb[p]} / {pc[p]}" + (f" ({hb[p] / pc[p]:.0%})" if pc[p] else "")
+        nb = d["night_before_episode"]
+        timing_rows.append(row([VARIANT_LABELS[d["variant"]], f"{d['cutoff']:g}", _share("start"), _share("single"), _share("middle"), _share("end"),
+                                f"{_fmt(nb['mean_p'])} / {_fmt(nb['share_warned'])}" if nb["n"] else "–"]))
+        fat = d["false_alarms_by_timing"]
+        fa_rows.append(row([VARIANT_LABELS[d["variant"]], f"{d['cutoff']:g}", sum(fat.values())] + [fat[b] for b in FA_BINS]))
+    tc = TIMING_CUTOFFS[0]
+    month_rows = [row(["month", "nights", "events", f"night-target @{tc:g}: hits", "false alarms", "POD", "FAR", f"night-target @{cfg.cutoff:g}: hits", "false alarms", "POD", "FAR", f"deployed @{cfg.cutoff:g}: hits", "false alarms", "persistence: hits", "false alarms", "FAR"], True)]
+    for month, d in metrics["monthly"].items():
+        a = d.get(f"night@{tc:g}", d["night"]); b = d["night"]; c = d["deployed"]; q = d["persistence"]
+        month_rows.append(row([month, d["nights"], d["events"], a["hits"], a["false_alarms"], _fmt(a["pod"]), _fmt(a["far"]),
+                               b["hits"], b["false_alarms"], _fmt(b["pod"]), _fmt(b["far"]), c["hits"], c["false_alarms"],
+                               q["hits"], q["false_alarms"], _fmt(q["far"])]))
     n_ev = len(metrics["events"]); n_warned = sum(e["warned_deployed"] for e in metrics["events"])
     n_warned_hist = sum(e["warned_history"] for e in metrics["events"])
     n_warned_night = sum(e["warned_night"] for e in metrics["events"])
@@ -764,6 +870,13 @@ details summary{{cursor:pointer;color:#52514e}}
 
 <h2>By lead time and by month</h2>
 <div class="figs">{img('lead', 'skill by lead time')}{img('monthly', 'monthly hits, misses, false alarms')}</div>
+<p>Month by month. A false-alarm rate that is high in the quiet months and low in the exceedance season means the model is warning on the season rather than the night; the exceedance season here is March to May.</p>
+<div class="tw"><table>{''.join(month_rows)}</table></div>
+
+<h2>Where the hits and false alarms come from</h2>
+<p>Event nights come in episodes of consecutive nights ({tm.get('episodes', 0)} episodes: {tm.get('positions', {}).get('single', 0)} single nights, the rest runs with a start, {tm.get('positions', {}).get('middle', 0)} middle nights and an end). The first table is the share of event nights warned at each position; a model that only catches middles and ends is riding persistence. The second places each false alarm relative to the nearest event night at the same station; one-day-before alarms are early warnings rather than errors.</p>
+<div class="tw"><table>{''.join(timing_rows)}</table></div>
+<div class="tw"><table>{''.join(fa_rows)}</table></div>
 
 <h2>Every event night</h2>
 <p>All {n_ev} station-nights that went above {t:g} ppb, with what the models said that afternoon.</p>
