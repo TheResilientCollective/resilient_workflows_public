@@ -237,7 +237,8 @@ class ResilientLLMResource(ConfigurableResource):
         Returns:
             The ``data`` payload of the completed run.
         """
-        run_id = self.submit(report_id)
+        #run_id = self.submit(report_id)
+        run_id = self.submit()
         return self.wait_for_completion(report_id, run_id)
 
     # def _headers(self) -> dict:
@@ -287,5 +288,5 @@ class ResilientLLMResource(ConfigurableResource):
             requests.exceptions.RequestException: for HTTP errors
             ResilientLLMError: if the run fails or times out
         """
-        run_id = self.submit(report_id, data)
+        run_id = self.submit(data)
         return self.wait_for_completion(report_id, run_id)
