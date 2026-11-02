@@ -135,61 +135,61 @@ class ResilientLLMResource(ConfigurableResource):
             raise ResilientLLMError(f"Expected a JSON object in response, got: {obj!r}")
         return obj
 
-    @staticmethod
-    def _run_id(obj: dict) -> str:
-        run_id = obj.get("id") or obj.get("_id")
-        if not run_id:
-            raise ResilientLLMError(f"Response did not contain a run id: {obj}")
-        return str(run_id)
-
-    # --------------------------------------------------------------- API calls
-
-    def submit(self, report_id: str, data: dict | None = None) -> str:
-        """
-        Start a run. POSTs ``data`` (if given) to the run endpoint, otherwise GETs it.
-
-        Returns:
-            The run id to poll with.
-        """
-        logger = get_dagster_logger()
-        self._check_config()
-        endpoint = self.run_endpoint(report_id)
-        try:
-            if data is None:
-                response = requests.get(endpoint, headers=self._headers(), timeout=self.request_timeout_seconds)
-            else:
-                response = requests.post(endpoint, headers=self._headers(), json=data, timeout=self.request_timeout_seconds)
-            response.raise_for_status()
-            obj = self._unwrap(response.json())
-        except requests.exceptions.InvalidJSONError as e:
-            logger.error(f"Failed to start ResilientLLM run for {report_id}: Invalid JSON {e}")
-            raise
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to start ResilientLLM run for {report_id}: {e}")
-            raise
-        run_id = self._run_id(obj)
-        logger.info(f"Started ResilientLLM run {run_id} for {report_id} (status: {obj.get('status')})")
-        return run_id
-
-    def get_status(self, report_id: str, run_id: str) -> dict:
-        """
-        Fetch the current state of a run.
-
-        Returns:
-            Dict with at least ``status`` and ``data`` keys.
-        """
-        logger = get_dagster_logger()
-        endpoint = self.status_endpoint(report_id)
-        try:
-            response = requests.post(endpoint, headers=self._headers(), json={"id": run_id}, timeout=self.request_timeout_seconds)
-            response.raise_for_status()
-            return self._unwrap(response.json())
-        except requests.exceptions.InvalidJSONError as e:
-            logger.error(f"Failed to get status of ResilientLLM run {run_id}: Invalid JSON {e}")
-            raise
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get status of ResilientLLM run {run_id}: {e}")
-            raise
+    # @staticmethod
+    # def _run_id(obj: dict) -> str:
+    #     run_id = obj.get("id") or obj.get("_id")
+    #     if not run_id:
+    #         raise ResilientLLMError(f"Response did not contain a run id: {obj}")
+    #     return str(run_id)
+    #
+    # # --------------------------------------------------------------- API calls
+    #
+    # def submit(self, report_id: str, data: dict | None = None) -> str:
+    #     """
+    #     Start a run. POSTs ``data`` (if given) to the run endpoint, otherwise GETs it.
+    #
+    #     Returns:
+    #         The run id to poll with.
+    #     """
+    #     logger = get_dagster_logger()
+    #     self._check_config()
+    #     endpoint = self.run_endpoint(report_id)
+    #     try:
+    #         if data is None:
+    #             response = requests.get(endpoint, headers=self._headers(), timeout=self.request_timeout_seconds)
+    #         else:
+    #             response = requests.post(endpoint, headers=self._headers(), json=data, timeout=self.request_timeout_seconds)
+    #         response.raise_for_status()
+    #         obj = self._unwrap(response.json())
+    #     except requests.exceptions.InvalidJSONError as e:
+    #         logger.error(f"Failed to start ResilientLLM run for {report_id}: Invalid JSON {e}")
+    #         raise
+    #     except requests.exceptions.RequestException as e:
+    #         logger.error(f"Failed to start ResilientLLM run for {report_id}: {e}")
+    #         raise
+    #     run_id = self._run_id(obj)
+    #     logger.info(f"Started ResilientLLM run {run_id} for {report_id} (status: {obj.get('status')})")
+    #     return run_id
+    #
+    # def get_status(self, report_id: str, run_id: str) -> dict:
+    #     """
+    #     Fetch the current state of a run.
+    #
+    #     Returns:
+    #         Dict with at least ``status`` and ``data`` keys.
+    #     """
+    #     logger = get_dagster_logger()
+    #     endpoint = self.status_endpoint(report_id)
+    #     try:
+    #         response = requests.post(endpoint, headers=self._headers(), json={"id": run_id}, timeout=self.request_timeout_seconds)
+    #         response.raise_for_status()
+    #         return self._unwrap(response.json())
+    #     except requests.exceptions.InvalidJSONError as e:
+    #         logger.error(f"Failed to get status of ResilientLLM run {run_id}: Invalid JSON {e}")
+    #         raise
+    #     except requests.exceptions.RequestException as e:
+    #         logger.error(f"Failed to get status of ResilientLLM run {run_id}: {e}")
+    #         raise
 
     def wait_for_completion(self, report_id: str, run_id: str) -> dict:
         """
@@ -240,11 +240,11 @@ class ResilientLLMResource(ConfigurableResource):
         run_id = self.submit(report_id)
         return self.wait_for_completion(report_id, run_id)
 
-    def _headers(self) -> dict:
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
+    # def _headers(self) -> dict:
+    #     return {
+    #         "Authorization": f"Bearer {self.token}",
+    #         "Content-Type": "application/json",
+    #     }
 
     def submit(self, data: dict) -> LLMRunHandle:
         """Start an asynchronous run on the configured webhook and return its handle."""

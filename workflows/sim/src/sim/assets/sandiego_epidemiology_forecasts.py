@@ -994,7 +994,7 @@ def resilientllm_by_disease_request(context) -> Output[dict]:
     s3_resource = context.resources.s3
     logger = get_dagster_logger()
     try:
-        handle = llm.submit(llm.webhook_uuid, DISEASES_CONFIG)
+        handle = llm.submit(DISEASES_CONFIG)
     except Exception as e:
         try:
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
