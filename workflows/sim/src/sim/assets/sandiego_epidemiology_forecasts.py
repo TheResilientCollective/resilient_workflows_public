@@ -986,10 +986,15 @@ def resilientllm_by_disease_request(context) -> Output[dict]:
     """
     slack_resource = context.resources.slack
     llm = context.resources.resilientllm
+    name = 'sandiego_epidemiology_sd_llm_generate_content_by_disease'
+    description = '''
+                      San Diego Epidemiology Content Generated from ResilientLLM by_disease
+                      '''
+    metadata = store_assets.objectMetadata(name=name, description=description)
     s3_resource = context.resources.s3
     logger = get_dagster_logger()
     try:
-        handle = llm.submit(DISEASES_CONFIG)
+        handle = llm.submit(llm.webhook_uuid, DISEASES_CONFIG)
     except Exception as e:
         try:
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
