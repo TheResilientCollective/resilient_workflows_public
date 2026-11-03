@@ -993,8 +993,9 @@ def resilientllm_by_disease_request(context) -> Output[dict]:
     metadata = store_assets.objectMetadata(name=name, description=description)
     s3_resource = context.resources.s3
     logger = get_dagster_logger()
+    report_id = llm.webhook_uuid
     try:
-        handle = llm.submit_async(llm.webhook_uuid,DISEASES_CONFIG)
+        handle = llm.submit(report_id, DISEASES_CONFIG)
     except Exception as e:
         try:
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
@@ -1008,6 +1009,7 @@ def resilientllm_by_disease_request(context) -> Output[dict]:
     date_path = submitted_at.strftime('%Y%m%d')
     request_record = {
         "id": handle.id,
+        "report_id": report_id,
         "status": handle.status,
         "submitted_at": submitted_at.isoformat(),
         "diseases": list(DISEASES_CONFIG.keys()),
@@ -1042,13 +1044,19 @@ def resilientllm_by_disease_request(context) -> Output[dict]:
         logger.error(f"Email notification failed: {e}")
 
     return Output(request_record, metadata={"llm_run_id": handle.id,
+                                            "llm_report_id": report_id,
                                             "llm_status": handle.status,
                                             "submitted_at": request_record["submitted_at"]})
 
 
 class LLMRunConfig(Config):
-    """Identifies the finished ResilientLLM run to parse; set by ``resilientllm_status_sensor``."""
+    """Identifies the finished ResilientLLM run to parse; set by ``resilientllm_status_sensor``.
+
+    ``report_id`` is the webhook UUID the run was submitted to. Empty means the
+    resource's configured ``webhook_uuid``.
+    """
     run_id: str
+    report_id: str = ""
 
 
 resilientllm_sd_disease_job = define_asset_job(
@@ -1083,7 +1091,8 @@ def resilientllm_by_disease_asset(context, config: LLMRunConfig):
         metadata = store_assets.objectMetadata(name=name, description=description)
         s3_resource = context.resources.s3
 
-        handle = llm.get_status(config.run_id)
+        report_id = config.report_id or llm.webhook_uuid
+        handle = llm.get_status(report_id, config.run_id)
         if not handle.is_done:
             raise Exception(f"ResilientLLM run {config.run_id} is not done (status={handle.status})")
         if not handle.data:

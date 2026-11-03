@@ -108,3 +108,39 @@ def test_missing_run_id_raises():
     with patch("sim.resources.resilientllm.requests.post", return_value=FakeResponse([{"status": "started"}])), \
          pytest.raises(ResilientLLMError, match="run id"):
         r.submit("abc", {})
+
+
+def test_submit_returns_handle_without_polling():
+    r = make_resource()
+    posted = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        posted.append(url)
+        return FakeResponse({"_id": "run9", "status": "started", "data": None})
+
+    with patch("sim.resources.resilientllm.requests.post", side_effect=fake_post):
+        handle = r.submit("abc", {"covid": []})
+
+    assert handle.id == "run9" and handle.is_pending and handle.data is None
+    assert posted == ["https://agents.example.org/webhook/abc/v3"]
+
+
+def test_submit_requires_report_id():
+    r = make_resource()
+    with pytest.raises(ResilientLLMError, match="report id"):
+        r.submit("", {})
+
+
+def test_get_status_posts_run_id():
+    r = make_resource()
+    posted = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        posted.append((url, json))
+        return FakeResponse([{"id": "run9", "status": "done", "data": {"en": {"summary": "ok"}}}])
+
+    with patch("sim.resources.resilientllm.requests.post", side_effect=fake_post):
+        handle = r.get_status("abc", "run9")
+
+    assert handle.is_done and handle.data == {"en": {"summary": "ok"}}
+    assert posted == [("https://agents.example.org/webhook/abc/v3/status", {"id": "run9"})]

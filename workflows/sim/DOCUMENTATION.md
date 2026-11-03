@@ -105,7 +105,7 @@ Copies all `ForAirTable/` outputs to an S3 `latest/` path for easy downstream ac
 Structures forecast CSV URLs by disease (COVID, Influenza, RSV) — each including case reports, hospitalizations, and Rt estimates — and POSTs them to the ResilientLLM webhook, which now runs asynchronously and answers with `{status, data, _id, id}`. Emails that the simulation completed and the summary was requested, stores the run handle to S3, and records `llm_run_id` in the materialization metadata.
 
 ### `resilientllm_status_sensor`
-Every `RESILIENTLLM_POLL_SECONDS` (default 300) POSTs `{"id": run_id}` to `{webhook}/status` for the latest request. When the status is `done` with `data`, it launches `resilientllm_sd_disease_job` with the run id as config (`run_key` = run id, so each run is parsed once). On `error`, done-without-data, or `RESILIENTLLM_TIMEOUT_HOURS` (default 6) of pending, it alerts Slack and email and stops polling that run.
+Every `RESILIENTLLM_POLL_SECONDS` (default 300) reads the recent `resilientllm_sd_disease_request` materializations (up to `RESILIENTLLM_MAX_TRACKED_RUNS`, default 20) and adds any run id it has not seen to its tracked list, so several runs can be in flight at once (e.g. a second weekly request submitted before the first was approved). For every pending run it POSTs `{"id": run_id}` to `{webhook}/{report_id}/v3/status`. When a run is `done` with `data`, it launches `resilientllm_sd_disease_job` with the run id and report id as config (`run_key` = run id, so each run is parsed once). On `error`, done-without-data, or `RESILIENTLLM_TIMEOUT_HOURS` (default 6) of pending, it alerts Slack and email and stops polling that run. The cursor is `{"runs": [{run_id, report_id, state, first_seen}, ...]}`; finished runs are kept 14 days then dropped.
 
 ### `resilientllm_by_disease_asset`
 **Key:** `["sandiego", "resilientllm_sd_disease"]`
@@ -172,7 +172,7 @@ Webhook-based client that sends forecast data to an LLM agent workflow. The API 
 
 - **Auth:** Bearer token
 - **Endpoints:** run at `{RESILIENTLLM_WEBHOOK}{uuid}/v3`, status at `{RESILIENTLLM_WEBHOOK}{uuid}/v3/status` (POST `{"id": "<run id>"}`)
-- **Methods:** `submit(report_id, data=None)` → run id; `get_status(report_id, run_id)`; `wait_for_completion(report_id, run_id)` → `data`; `execute(report_id)` / `execute_with_data(report_id, data)` wrap submit + wait and return the completed run's `data` payload
+- **Methods:** `submit(report_id, data=None)` → `LLMRunHandle` (`id`, `status`, `data`, `is_done`/`is_error`/`is_pending`), returns immediately; `get_status(report_id, run_id)` → `LLMRunHandle`; `wait_for_completion(report_id, run_id)` → `data` (blocking); `execute(report_id)` / `execute_with_data(report_id, data)` wrap submit + wait and return the completed run's `data` payload (used by mpox)
 - **Polling:** 30s interval, 3600s timeout by default (`RESILIENTLLM_POLL_INTERVAL`, `RESILIENTLLM_TIMEOUT`); only `status == "done"` completes the run, since `data` may be partially populated beforehand
 - **Errors:** `ResilientLLMError` on a failed/cancelled status, timeout, or a response without a run id
 

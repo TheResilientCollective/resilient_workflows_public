@@ -6,14 +6,15 @@ from dagster import ConfigurableResource, get_dagster_logger
 from pydantic import BaseModel, Field
 
 LLM_STATUS_DONE = "done"
-LLM_STATUS_ERROR = "error"
+LLM_FAILED_STATUSES = ("error", "failed", "cancelled", "canceled")
 
 
 class LLMRunHandle(BaseModel):
     """Identity and state of an asynchronous ResilientLLM run.
 
-    The webhook returns ``{"status", "data", "_id", "id"}``; ``id`` is preferred and
-    ``_id`` is the fallback so either spelling works.
+    The webhook answers ``{"status", "data", "_id", "id"}``; ``id`` is preferred and
+    ``_id`` is the fallback so either spelling works. The same shape comes back from
+    the status endpoint, with ``data`` filled in once the run is ``done``.
     """
 
     id: str
@@ -21,12 +22,23 @@ class LLMRunHandle(BaseModel):
     data: dict | None = None
 
     @classmethod
-    def from_response(cls, obj: dict) -> "LLMRunHandle":
+    def from_response(cls, obj) -> "LLMRunHandle":
+        # The API sometimes wraps a single object in a one-element list.
+        if isinstance(obj, list):
+            if len(obj) != 1:
+                raise ResilientLLMError(f"Expected a single object in response, got {len(obj)} items: {obj}")
+            obj = obj[0]
+        if not isinstance(obj, dict):
+            raise ResilientLLMError(f"Expected a JSON object in response, got: {obj!r}")
         run_id = obj.get("id") or obj.get("_id")
         if not run_id:
-            raise ValueError(f"ResilientLLM response has no id: {obj}")
+            raise ResilientLLMError(f"Response did not contain a run id: {obj}")
         data = obj.get("data")
-        return cls(id=str(run_id), status=str(obj.get("status", "")), data=data if isinstance(data, dict) else None)
+        return cls(
+            id=str(run_id),
+            status=str(obj.get("status", "")),
+            data=data if isinstance(data, dict) else None,
+        )
 
     @property
     def is_done(self) -> bool:
@@ -34,7 +46,7 @@ class LLMRunHandle(BaseModel):
 
     @property
     def is_error(self) -> bool:
-        return self.status == LLM_STATUS_ERROR
+        return self.status.lower() in LLM_FAILED_STATUSES
 
     @property
     def is_pending(self) -> bool:
@@ -49,9 +61,17 @@ class ResilientLLMResource(ConfigurableResource):
     """
     A Dagster resource for interacting with the ResilientLLM API.
 
-    The API is asynchronous: a request to the webhook starts a run and returns
-    a run id immediately. The run is then polled at ``<webhook>/status`` until
-    its ``status`` is ``"done"``, at which point ``data`` holds the report.
+    The API is asynchronous: a request to ``<webhook>/<report_id>/<version>`` starts
+    a run and returns a run id immediately. The run is then polled at
+    ``<webhook>/<report_id>/<version>/status`` (POST ``{"id": run_id}``) until its
+    ``status`` is ``"done"``, at which point ``data`` holds the report.
+
+    Two ways to use it:
+
+    * asynchronous (San Diego by-disease flow): ``submit()`` returns an
+      :class:`LLMRunHandle`; a sensor later calls ``get_status()`` until the handle
+      ``is_done``;
+    * blocking (mpox): ``execute_with_data()`` submits and polls in-process.
     """
 
     token: str = Field(
@@ -77,24 +97,16 @@ class ResilientLLMResource(ConfigurableResource):
         default="status",
     )
     poll_interval_seconds: int = Field(
-        description="Seconds to wait between status polls.",
+        description="Seconds to wait between status polls (blocking calls only).",
         default_factory=lambda: int(os.environ.get("RESILIENTLLM_POLL_INTERVAL", "30")),
     )
     timeout_seconds: int = Field(
-        description="Maximum seconds to wait for a run to reach 'done'.",
+        description="Maximum seconds to wait for a run to reach 'done' (blocking calls only).",
         default_factory=lambda: int(os.environ.get("RESILIENTLLM_TIMEOUT", "3600")),
     )
     request_timeout_seconds: int = Field(
         description="Per-HTTP-request timeout in seconds.",
         default=120,
-    )
-    done_status: str = Field(
-        description="Status value that marks a completed run.",
-        default="done",
-    )
-    failed_statuses: list[str] = Field(
-        description="Status values that mark a failed run (case-insensitive).",
-        default=["error", "failed", "cancelled", "canceled"],
     )
 
     # ------------------------------------------------------------------ helpers
@@ -105,7 +117,7 @@ class ResilientLLMResource(ConfigurableResource):
             "Content-Type": "application/json",
         }
 
-    def _check_config(self) -> None:
+    def _check_config(self, report_id: str) -> None:
         logger = get_dagster_logger()
         if not self.token:
             logger.error("RESILIENTLLM_API_TOKEN is not set.")
@@ -113,6 +125,9 @@ class ResilientLLMResource(ConfigurableResource):
         if not self.llm_endpoint:
             logger.error("RESILIENTLLM_WEBHOOK is not set.")
             raise ResilientLLMError("RESILIENTLLM_WEBHOOK is not set.")
+        if not report_id:
+            logger.error("ResilientLLM report id (webhook UUID) is empty.")
+            raise ResilientLLMError("ResilientLLM report id (webhook UUID) is empty.")
 
     def run_endpoint(self, report_id: str) -> str:
         base = self.llm_endpoint.strip().rstrip("/")
@@ -124,35 +139,19 @@ class ResilientLLMResource(ConfigurableResource):
     def status_endpoint(self, report_id: str) -> str:
         return f"{self.run_endpoint(report_id)}/{self.status_path.strip('/')}"
 
-    @staticmethod
-    def _unwrap(obj):
-        """The API sometimes wraps a single object in a one-element list."""
-        if isinstance(obj, list):
-            if len(obj) != 1:
-                raise ResilientLLMError(f"Expected a single object in response, got {len(obj)} items: {obj}")
-            obj = obj[0]
-        if not isinstance(obj, dict):
-            raise ResilientLLMError(f"Expected a JSON object in response, got: {obj!r}")
-        return obj
-
-    @staticmethod
-    def _run_id(obj: dict) -> str:
-        run_id = obj.get("id") or obj.get("_id")
-        if not run_id:
-            raise ResilientLLMError(f"Response did not contain a run id: {obj}")
-        return str(run_id)
-
     # --------------------------------------------------------------- API calls
 
-    def submit(self, report_id: str, data: dict | None = None) -> str:
+    def submit(self, report_id: str, data: dict | None = None) -> LLMRunHandle:
         """
-        Start a run. POSTs ``data`` (if given) to the run endpoint, otherwise GETs it.
+        Start a run and return immediately.
+
+        POSTs ``data`` (if given) to the run endpoint, otherwise GETs it.
 
         Returns:
-            The run id to poll with.
+            The run handle; ``handle.id`` is what the status endpoint is polled with.
         """
         logger = get_dagster_logger()
-        self._check_config()
+        self._check_config(report_id)
         endpoint = self.run_endpoint(report_id)
         try:
             if data is None:
@@ -160,40 +159,44 @@ class ResilientLLMResource(ConfigurableResource):
             else:
                 response = requests.post(endpoint, headers=self._headers(), json=data, timeout=self.request_timeout_seconds)
             response.raise_for_status()
-            obj = self._unwrap(response.json())
+            obj = response.json()
         except requests.exceptions.InvalidJSONError as e:
             logger.error(f"Failed to start ResilientLLM run for {report_id}: Invalid JSON {e}")
             raise
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to start ResilientLLM run for {report_id}: {e}")
             raise
-        run_id = self._run_id(obj)
-        logger.info(f"Started ResilientLLM run {run_id} for {report_id} (status: {obj.get('status')})")
-        return run_id
+        handle = LLMRunHandle.from_response(obj)
+        logger.info(f"Started ResilientLLM run {handle.id} for {report_id} (status: {handle.status!r})")
+        return handle
 
-    def get_status(self, report_id: str, run_id: str) -> dict:
+    def get_status(self, report_id: str, run_id: str) -> LLMRunHandle:
         """
-        Fetch the current state of a run.
+        Fetch the current state of a run started by :meth:`submit`.
 
-        Returns:
-            Dict with at least ``status`` and ``data`` keys.
+        POSTs ``{"id": run_id}`` to the status endpoint. The handle carries ``status``
+        and, once the run is ``done``, the ``data`` element with the LLM output.
         """
         logger = get_dagster_logger()
+        self._check_config(report_id)
         endpoint = self.status_endpoint(report_id)
         try:
             response = requests.post(endpoint, headers=self._headers(), json={"id": run_id}, timeout=self.request_timeout_seconds)
             response.raise_for_status()
-            return self._unwrap(response.json())
+            obj = response.json()
         except requests.exceptions.InvalidJSONError as e:
             logger.error(f"Failed to get status of ResilientLLM run {run_id}: Invalid JSON {e}")
             raise
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get status of ResilientLLM run {run_id}: {e}")
             raise
+        handle = LLMRunHandle.from_response(obj)
+        logger.debug(f"ResilientLLM run {run_id} status: {handle.status!r}")
+        return handle
 
     def wait_for_completion(self, report_id: str, run_id: str) -> dict:
         """
-        Poll the status endpoint until the run's status equals ``done_status``.
+        Block, polling the status endpoint until the run is ``done``.
 
         Returns:
             The ``data`` payload of the completed run.
@@ -207,75 +210,34 @@ class ResilientLLMResource(ConfigurableResource):
         poll = 0
         while True:
             poll += 1
-            state = self.get_status(report_id, run_id)
-            status = state.status
-            if status != last_status:
-                logger.info(f"ResilientLLM run {run_id} status: {status!r}")
-                last_status = status
-            else:
-                logger.debug(f"ResilientLLM run {run_id} status (poll {poll}): {status!r}")
+            handle = self.get_status(report_id, run_id)
+            if handle.status != last_status:
+                logger.info(f"ResilientLLM run {run_id} status: {handle.status!r}")
+                last_status = handle.status
 
-            if status == self.done_status:
+            if handle.is_done:
                 logger.info(f"ResilientLLM run {run_id} completed after {poll} poll(s).")
-                return state.data
-            if isinstance(status, str) and status.lower() in [s.lower() for s in self.failed_statuses]:
-                raise ResilientLLMError(f"ResilientLLM run {run_id} failed with status {status!r}: {state}")
+                return handle.data
+            if handle.is_error:
+                raise ResilientLLMError(f"ResilientLLM run {run_id} failed with status {handle.status!r}")
 
             if time.monotonic() >= deadline:
                 raise ResilientLLMError(
-                    f"ResilientLLM run {run_id} did not reach {self.done_status!r} within "
-                    f"{self.timeout_seconds}s (last status: {status!r})"
+                    f"ResilientLLM run {run_id} did not reach {LLM_STATUS_DONE!r} within "
+                    f"{self.timeout_seconds}s (last status: {handle.status!r})"
                 )
             time.sleep(self.poll_interval_seconds)
 
-    # ------------------------------------------------------------ public API
+    # ------------------------------------------------------------ blocking API
 
     def execute(self, report_id: str):
-        """
-        Start a run with no request body and wait for it to finish.
-
-        Returns:
-            The ``data`` payload of the completed run.
-        """
-        run_id = self.submit(report_id, {})
-
-        return self.wait_for_completion(report_id, run_id)
-
-    # def _headers(self) -> dict:
-    #     return {
-    #         "Authorization": f"Bearer {self.token}",
-    #         "Content-Type": "application/json",
-    #     }
-
-    def submit_async(self, report_id: str, data: dict) -> LLMRunHandle:
-        """Start an asynchronous run on the configured webhook and return its handle."""
-        return LLMRunHandle.from_response(self.execute_with_data(report_id, data))
-
-    def get_status(self,report_id: str, run_id: str) -> LLMRunHandle:
-        """Poll ``{webhook}/status`` for a run started by :meth:`submit`.
-
-        POSTs ``{"id": run_id}`` as JSON. The response carries ``status`` and, once
-        the run is ``done``, the ``data`` element with the LLM output.
-        """
-        logger = get_dagster_logger()
-        endpoint = self.status_endpoint(report_id)
-        try:
-            response = requests.post(endpoint, headers=self._headers(), json={"id": run_id})
-            response.raise_for_status()
-            obj = response.json()
-        except requests.exceptions.InvalidJSONError as e:
-            logger.error(f"ResilientLLM status for {run_id}: invalid JSON {e}")
-            raise e
-        except requests.exceptions.RequestException as e:
-            logger.error(f"ResilientLLM status for {run_id}: {e}")
-            raise e
-        handle = LLMRunHandle.from_response(obj)
-        logger.info(f"ResilientLLM run {run_id} status: {handle.status}")
-        return handle
+        """Start a run with no request body and block until it finishes; returns ``data``."""
+        handle = self.submit(report_id)
+        return self.wait_for_completion(report_id, handle.id)
 
     def execute_with_data(self, report_id: str, data: dict) -> dict:
         """
-        Start a run with a JSON body containing disease data and wait for it to finish.
+        Start a run with a JSON body containing disease data and block until it finishes.
 
         Args:
             report_id: The webhook UUID/report identifier
@@ -288,5 +250,5 @@ class ResilientLLMResource(ConfigurableResource):
             requests.exceptions.RequestException: for HTTP errors
             ResilientLLMError: if the run fails or times out
         """
-        run_id = self.submit(report_id, data)
-        return self.wait_for_completion(report_id, run_id)
+        handle = self.submit(report_id, data)
+        return self.wait_for_completion(report_id, handle.id)
