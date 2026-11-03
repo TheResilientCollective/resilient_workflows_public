@@ -731,8 +731,6 @@ def copy_forecast_latest(context, config: forecastsS3AssetConfig ):
 epidemiology_forecasts_job = define_asset_job(
     name="epidemiology_forecasts_job",
     selection=[
-        AssetKey(["sandiego", "sandiego_epidemiology_airtable"]),
-
         AssetKey(["sandiego", "sandiego_epidemiology_github_rt"]),
         AssetKey(["sandiego", "sandiego_epidemiology_forecast_latest"])
     ]
@@ -787,21 +785,6 @@ def epidemiology_forecasts_sensor(context: SensorEvaluationContext):
         if run_path == last_processed:
             logger.info(f"Run {run_path} already processed")
             return
-        if FORECAST_AIRTABLE_ENABLED == "true":
-            # Check if ForAirTable directory exists in this run
-            for_airtable_path = f"{run_path}ForAirTable/"
-            try:
-                files_in_for_airtable = s3_resource.listPath(for_airtable_path,bucket=FORECAST_BUCKET)
-                csv_files = [f for f in files_in_for_airtable if f.object_name.endswith('.csv')]
-
-                if not csv_files:
-                    logger.info(f"No CSV files found in {for_airtable_path}")
-                    return
-
-            except Exception as e:
-                logger.info(f"ForAirTable directory not found or error accessing it: {e}")
-                return
-
         # Parse run info for notification
         run_datetime, run_id = parse_run_id(latest_run.object_name)
 
@@ -811,7 +794,6 @@ def epidemiology_forecasts_sensor(context: SensorEvaluationContext):
 🆕 New Epidemiology Forecast Run Detected
 Run: {run_id}
 Path: {run_path}
-CSV Files: {len(csv_files)}
 Starting processing...
             """
             slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
@@ -827,12 +809,6 @@ Starting processing...
             tags={"forecast_run_path": run_path},
             run_config=RunConfig(
                 ops={
-                    "sandiego__sandiego_epidemiology_airtable": {
-                        "config": {
-                            "forecast_run_path": run_path,
-                        "github_rt_url": FORECAST_GITHUB_RT
-                        }
-                    },
                     "sandiego__sandiego_epidemiology_github_rt": {
                         "config": {
                             "forecast_run_path": run_path,

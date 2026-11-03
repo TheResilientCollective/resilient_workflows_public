@@ -35,14 +35,12 @@ epidemiology code location
     run_epidemic_simulation  ─── calls ResilientSIMS API ──► outputs CSVs to S3 api_run/
             │
             ▼
-    process_epidemiology_forecasts  ─── validates & transforms CSVs
-            │  └─► Airtable (3 tables: New Cases, Rt Estimates, Hospital Admissions)
-            │  └─► S3: validated_epi_schema/forecasts/
-            │  └─► Slack notification
-            │
             ├─► copy_rt_to_github  ──► GitHub: ResilientDataProducts/sandiego_rt/
             │
-            └─► copy_forecast_latest  ──► S3: latest/sandiego_epidemiology_ili/forecast/
+            ├─► copy_forecast_latest  ──► S3: latest/sandiego_epidemiology_ili/forecast/
+            │
+            └─► process_epidemiology_forecasts  (manual only; not in epidemiology_forecasts_job)
+                   └─► Airtable (3 tables: New Cases, Rt Estimates, Hospital Admissions)
                         │
                         ▼
             resilientllm_by_disease_request  ─── submits async LLM run (webhook)
@@ -77,6 +75,8 @@ Renders Jinja2 YAML templates (`forecast_config.yaml`, `forecast_run.yaml`) with
 ### `process_epidemiology_forecasts`
 **Key:** `["sandiego", "sandiego_epidemiology_airtable"]`
 **Config:** `forecastsS3AssetConfig` (`forecast_run_path`, `github_rt_url`)
+
+Not part of `epidemiology_forecasts_job`; the forecasts sensor no longer launches it. Materialize it manually with `forecast_run_path` config if an Airtable sync is wanted.
 
 Lists CSV outputs from the simulator's `ForAirTable/` S3 subdirectory and dispatches each to the appropriate Airtable table based on filename suffix:
 
@@ -128,11 +128,11 @@ Parses the LLM JSON output and distributes it:
 
 ## Sensor: `epidemiology_forecasts_sensor`
 
-Polls S3 `api_run/` every 10 minutes for new run directories matching the pattern `YYYY-mm-ddTHH-MM-SS_runXX`. When a new run is detected with CSV outputs in its `ForAirTable/` subdirectory, it:
+Polls S3 `api_run/` every 10 minutes for new run directories matching the pattern `YYYY-mm-ddTHH-MM-SS_runXX`. When a new run is detected, it:
 
 1. Updates the cursor to the new run path
 2. Yields a `RunRequest` for `epidemiology_forecasts_job`
-3. Passes `forecast_run_path` and `github_rt_url` via `RunConfig` to downstream assets
+3. Passes `forecast_run_path` and `github_rt_url` via `RunConfig` to `sandiego_epidemiology_github_rt` and `sandiego_epidemiology_forecast_latest`
 4. Sends a Slack notification
 
 ---
