@@ -143,3 +143,25 @@ def test_prune_drops_old_finished_runs_but_keeps_pending():
     ])
     cursor.prune(NOW)
     assert sorted(r.run_id for r in cursor.runs) == ["new-done", "old-pending"]
+
+
+def test_prune_keeps_old_finished_runs_still_in_discovery_window():
+    old = NOW - timedelta(days=30)
+    cursor = PollCursor([
+        tracked("old-launched", STATE_LAUNCHED, old),
+        tracked("old-failed", STATE_FAILED, old),
+        tracked("old-gone", STATE_LAUNCHED, old),
+    ])
+    cursor.prune(NOW, discoverable={"old-launched", "old-failed"})
+    assert sorted(r.run_id for r in cursor.runs) == ["old-failed", "old-launched"]
+
+
+def test_pruned_run_is_not_rediscovered_while_materialization_is_visible():
+    """Weekly requests stay inside the 20-record window far longer than 14 days."""
+    old = NOW - timedelta(days=30)
+    materialized = [MaterializedRun("run1", "report", old)]
+    cursor = PollCursor([tracked("run1", STATE_LAUNCHED, old)])
+
+    cursor.prune(NOW, {m.run_id for m in materialized})
+    assert discover(cursor, materialized) == []
+    assert cursor.get("run1").state == STATE_LAUNCHED

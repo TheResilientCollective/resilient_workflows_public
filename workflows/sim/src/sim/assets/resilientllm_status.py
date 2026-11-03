@@ -15,8 +15,10 @@ report id it was submitted to) in the materialization metadata. This sensor:
 
 The cursor is JSON ``{"runs": [{"run_id", "report_id", "state", "first_seen"}, ...]}``
 so the sensor survives restarts without re-launching or re-alerting. Finished
-runs are kept for ``RETENTION_DAYS`` so a re-materialized request is not polled
-twice, then dropped.
+runs are kept while their request materialization is still inside the discovery
+window (the last ``RESILIENTLLM_MAX_TRACKED_RUNS`` materializations) and for at
+least ``RETENTION_DAYS``, so a run that is already launched or failed is never
+rediscovered and polled again. Only once both conditions lapse is it dropped.
 """
 
 from __future__ import annotations
@@ -97,11 +99,21 @@ class PollCursor:
     def pending(self) -> list[TrackedRun]:
         return [r for r in self.runs if not r.finished]
 
-    def prune(self, now: datetime, retention: timedelta = timedelta(days=RETENTION_DAYS)) -> None:
-        """Drop finished runs older than ``retention``; pending runs are always kept."""
+    def prune(self, now: datetime, discoverable: set[str] | None = None,
+              retention: timedelta = timedelta(days=RETENTION_DAYS)) -> None:
+        """Drop finished runs that are older than ``retention`` and no longer discoverable.
+
+        ``discoverable`` is the set of run ids currently visible in the request
+        asset's recent materializations. A finished run still in that set must
+        stay in the cursor, however old, or ``discover`` would re-add it as
+        pending on the next tick and poll it again. Pending runs are always kept.
+        """
+        discoverable = discoverable or set()
         self.runs = [
             r for r in self.runs
-            if not r.finished or now - datetime.fromisoformat(r.first_seen) <= retention
+            if not r.finished
+            or r.run_id in discoverable
+            or now - datetime.fromisoformat(r.first_seen) <= retention
         ]
 
 
@@ -203,12 +215,15 @@ def resilientllm_status_sensor(context: SensorEvaluationContext):
     timeout = timedelta(hours=RESILIENTLLM_TIMEOUT_HOURS)
 
     cursor = PollCursor.load(context.cursor)
-    new_runs = discover(cursor, _materialized_runs(context, llm.webhook_uuid))
+    materialized = _materialized_runs(context, llm.webhook_uuid)
+    discoverable = {m.run_id for m in materialized}
+    new_runs = discover(cursor, materialized)
     for run in new_runs:
         logger.info(f"Tracking new ResilientLLM run {run.run_id} (report {run.report_id})")
 
     pending = cursor.pending
     if not pending:
+        cursor.prune(now, discoverable)
         context.update_cursor(cursor.dump())
         return SkipReason("no ResilientLLM runs in flight")
 
@@ -236,7 +251,7 @@ def resilientllm_status_sensor(context: SensorEvaluationContext):
             logger.error(decision.reason)
             _notify_failure(context, decision.reason)
 
-    cursor.prune(now)
+    cursor.prune(now, discoverable)
     context.update_cursor(cursor.dump())
 
     if run_requests:
