@@ -47,6 +47,9 @@
 .tj-table th { position: sticky; top: 0; background: var(--color-panel); text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: var(--cds-pad-xs); border-bottom: 1px solid var(--color-border-line); }
 .tj-table td { padding: var(--cds-pad-xs); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
 .tj-table td.tj-num { text-align: right; white-space: nowrap; }
+.tj-cutoffs th[colspan] { text-align: center; }
+.tj-cutoffs td:nth-child(4), .tj-cutoffs th.tj-gap { border-left: 1px solid var(--color-border-line); }
+.tj-cutoffs td { font-size: var(--cds-font-size-body); }
 .tj-table th.tj-num { text-align: right; }
 @media (max-width: 40rem) { .tj-hide-narrow { display: none; } }
 [data-dash-source-state=empty] { color: transparent; }
@@ -83,6 +86,12 @@
         <span>Imperial Beach</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=IB CIVIC CTR">—</span>
       </div>
       <div class="tj-sub" style="margin-top:6px">Issued <span data-source="h2s_forecast_24h" data-field="generated_at" data-row="0">—</span></div>
+      <div class="tj-label" style="margin-top:var(--cds-gap-sm)">Persistence · did the last 24 h reach 30 ppb?</div>
+      <div class="tj-sites">
+        <span>San Ysidro</span><span data-source="persistence_tonight" data-field="peak_24h_ppb" data-where="station=SAN YSIDRO">—</span>
+        <span>Nestor (Berry Elem.)</span><span data-source="persistence_tonight" data-field="peak_24h_ppb" data-where="station=NESTOR - BES">—</span>
+        <span>Imperial Beach</span><span data-source="persistence_tonight" data-field="peak_24h_ppb" data-where="station=IB CIVIC CTR">—</span>
+      </div>
     </div>
     <div class="tj-card" id="card-exceed">
       <div class="tj-label">Days since H2S topped 30 ppb · any site</div>
@@ -150,15 +159,19 @@
   <div class="tj-grid">
     <div class="tj-card" id="card-skill">
       <h3>Does the forecast warn before a &gt;30 ppb night?</h3>
-      <p class="tj-note">Backtest of the 30 ppb classifier, re-trained walk-forward and issued each afternoon as it is served, <span data-source="forecast_skill" data-field="first_issue" data-where="scope=All sites">—</span> to <span data-source="forecast_skill" data-field="last_issue" data-where="scope=All sites">—</span>. A night counts as warned when the chance reaches <span data-source="forecast_skill" data-field="cutoff" data-where="scope=All sites">—</span>.</p>
-      <div class="tj-big"><span data-source="forecast_skill" data-field="warned" data-where="scope=All sites" class="dash-skeleton">—</span><span class="tj-unit">of <span data-source="forecast_skill" data-field="event_nights" data-where="scope=All sites">—</span> event nights warned</span></div>
-      <div class="tj-sub"><span data-source="forecast_skill" data-field="false_alarms" data-where="scope=All sites">—</span> false alarms · ranking skill (AUC) <span data-source="forecast_skill" data-field="auc" data-where="scope=All sites">—</span></div>
-      <div class="tj-sites tj-sites3" style="margin-top:var(--cds-gap-sm)">
-        <span>Event nights</span><span>Warned</span><span>Missed</span>
-        <span>San Ysidro</span><span data-source="forecast_skill" data-field="warned" data-where="scope=SAN YSIDRO">—</span><span data-source="forecast_skill" data-field="missed" data-where="scope=SAN YSIDRO">—</span>
-        <span>Nestor (Berry Elem.)</span><span data-source="forecast_skill" data-field="warned" data-where="scope=NESTOR - BES">—</span><span data-source="forecast_skill" data-field="missed" data-where="scope=NESTOR - BES">—</span>
-        <span>Imperial Beach</span><span data-source="forecast_skill" data-field="warned" data-where="scope=IB CIVIC CTR">—</span><span data-source="forecast_skill" data-field="missed" data-where="scope=IB CIVIC CTR">—</span>
-      </div>
+      <p class="tj-note">Backtest of the 30 ppb classifier, re-trained walk-forward and issued each afternoon as it is served, <span data-source="forecast_skill" data-field="first_issue" data-where="scope=All sites">—</span> to <span data-source="forecast_skill" data-field="last_issue" data-where="scope=All sites">—</span>, over <span data-source="forecast_skill" data-field="event_nights" data-where="scope=All sites">—</span> station-nights above 30 ppb. A night counts as warned when the forecast's chance reaches the cutoff.</p>
+      <table class="tj-table tj-cutoffs" id="tbl-cutoffs">
+        <thead>
+          <tr><th rowspan="2">Warn at</th><th colspan="2" class="tj-num">Current forecast</th><th colspan="2" class="tj-num">Night model (proposed)</th></tr>
+          <tr><th class="tj-num">Warned</th><th class="tj-num">False alarms</th><th class="tj-num">Warned</th><th class="tj-num">False alarms</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>30%</td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="warned" data-where="variant=deployed&amp;cutoff=0.3">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="false_alarms" data-where="variant=deployed&amp;cutoff=0.3">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="warned" data-where="variant=night&amp;cutoff=0.3">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="false_alarms" data-where="variant=night&amp;cutoff=0.3">—</span></td></tr>
+          <tr><td>40%</td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="warned" data-where="variant=deployed&amp;cutoff=0.4">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="false_alarms" data-where="variant=deployed&amp;cutoff=0.4">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="warned" data-where="variant=night&amp;cutoff=0.4">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="false_alarms" data-where="variant=night&amp;cutoff=0.4">—</span></td></tr>
+          <tr><td>50%</td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="warned" data-where="variant=deployed&amp;cutoff=0.5">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="false_alarms" data-where="variant=deployed&amp;cutoff=0.5">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="warned" data-where="variant=night&amp;cutoff=0.5">—</span></td><td class="tj-num"><span data-source="forecast_cutoffs" data-field="false_alarms" data-where="variant=night&amp;cutoff=0.5">—</span></td></tr>
+        </tbody>
+      </table>
+      <p class="tj-sub" style="margin-top:var(--cds-gap-sm)">For comparison, "the last 24 h reached 30 ppb" warns of <span data-source="forecast_cutoffs" data-field="warned" data-where="variant=persistence&amp;cutoff=0.5">—</span> with <span data-source="forecast_cutoffs" data-field="false_alarms" data-where="variant=persistence&amp;cutoff=0.5">—</span> false alarms. Ranking skill (AUC): current <span data-source="forecast_cutoffs" data-field="auc" data-where="variant=deployed&amp;cutoff=0.5">—</span>, night model <span data-source="forecast_cutoffs" data-field="auc" data-where="variant=night&amp;cutoff=0.5">—</span>. Weather and flow inputs are observed values, so these are upper bounds.</p>
       <p class="tj-note" style="margin-top:var(--cds-gap-sm)"><a id="skill-link" target="_blank" rel="noopener">Full backtest evaluation ↗</a></p>
     </div>
     <div class="tj-card" id="card-live">
@@ -173,13 +186,14 @@
       </div>
     </div>
     <div class="tj-card tj-wide" id="card-nights">
-      <h3>Recent nights: forecast chance vs what was measured</h3>
-      <p class="tj-note">Each square is one night (sunset to sunrise) at one monitor, coloured by its measured peak. The bar under it is the forecast's highest chance of passing 30 ppb that night. Nights before the dashboard began logging the published forecast use the backtest's forecast.</p>
+      <h3>Recent nights: night-target model and persistence vs what was measured</h3>
+      <p class="tj-note">Each square is one night (sunset to sunrise) at one monitor, coloured by its measured peak. The bar under it is the night-target model's chance of passing 30 ppb that night, from the backtest (it is not yet issued live, so the newest nights have no bar). A dot above the square means persistence warned: the 24 hours before the 3 pm issue reached 30 ppb. Hover for the current forecast's chance too.</p>
       <div class="tj-legend">
         <span><i style="background:var(--color-ok)"></i>Peak under 5 ppb</span>
         <span><i style="background:var(--color-warn)"></i>5–30 ppb</span>
         <span><i style="background:var(--color-bad)"></i>Over 30 ppb</span>
-        <span><i class="tj-line" style="background:var(--tj-c0)"></i>Forecast chance of &gt;30 ppb</span>
+        <span><i class="tj-line" style="background:var(--tj-c0)"></i>Night-target model's chance of &gt;30 ppb</span>
+        <span><i style="background:var(--color-fg)"></i>Persistence warned</span>
       </div>
       <div class="tj-chart dash-skeleton" id="ch-nights" data-source="forecast_nights" style="min-height:200px"></div>
       <div class="tj-sub" id="nights-summary"></div>
@@ -501,13 +515,13 @@ function drawNights(el) {
   let lw = 0; SITES.forEach((s) => { const t = svg0.append('text').attr('font-size', 'var(--cds-font-size-caption)').text(SITE_NAME[s]); lw = Math.max(lw, t.node().getComputedTextLength()); t.remove(); });
   svg0.remove();
   const left = Math.ceil(lw) + 10, cell = Math.max(4, Math.min(18, Math.floor((W - left - 4) / days.length))), gap = cell > 8 ? 2 : 1;
-  const barH = 14, rowH = cell + barH + 10, H = SITES.length * rowH + 22;
+  const barH = 14, top = 6, rowH = cell + barH + 14, H = SITES.length * rowH + 22 + top;
   const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
   const x = (d) => left + days.indexOf(d) * cell;
   const tip = tooltip(el.closest('.tj-card'));
   const toCard = (px, py) => { const b = el.getBoundingClientRect(), cb = el.closest('.tj-card').getBoundingClientRect(); return [b.left - cb.left + px * b.width / W, b.top - cb.top + py * b.height / H]; };
   SITES.forEach((st, i) => {
-    const y0 = i * rowH;
+    const y0 = top + i * rowH;
     svg.append('text').attr('x', left - 8).attr('y', y0 + cell / 2).attr('dy', '0.32em').attr('text-anchor', 'end')
       .attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text(SITE_NAME[st]);
     svg.append('line').attr('x1', left).attr('x2', left + days.length * cell).attr('y1', y0 + cell + 4 + barH).attr('y2', y0 + cell + 4 + barH).attr('stroke', 'var(--cds-chart-grid)');
@@ -515,8 +529,11 @@ function drawNights(el) {
       const cx = x(r.night_of);
       svg.append('rect').attr('x', cx).attr('y', y0).attr('width', cell - gap).attr('height', cell).attr('rx', 2)
         .attr('fill', r.peak_ppb == null ? 'var(--cds-chart-grid)' : levelColor(r.peak_ppb));
-      if (r.chance_30 != null) {
-        const bh = Math.max(r.chance_30 > 0 ? 1 : 0, r.chance_30 * barH);
+      if (r.persistence_warned) {
+        svg.append('circle').attr('cx', cx + (cell - gap) / 2).attr('cy', y0 - 3).attr('r', Math.min(2.5, cell / 4)).attr('fill', 'var(--color-fg)');
+      }
+      if (r.chance_night != null) {
+        const bh = Math.max(r.chance_night > 0 ? 1 : 0, r.chance_night * barH);
         svg.append('rect').attr('x', cx).attr('y', y0 + cell + 4 + barH - bh).attr('width', cell - gap).attr('height', bh).attr('fill', dash.colors[0]);
       }
       svg.append('rect').attr('x', cx).attr('y', y0).attr('width', cell).attr('height', cell + barH + 4).attr('fill', 'transparent')
@@ -524,8 +541,9 @@ function drawNights(el) {
           const [a, b] = toCard(cx + cell / 2, y0);
           tip.show(a, b, `${SITE_NAME[st]} · night of ${dayFmt.format(dayDate(r.night_of))}`, [
             { text: `Measured peak ${r.peak_ppb == null ? '—' : f1(r.peak_ppb) + ' ppb'}` },
-            { text: `Forecast chance of >30 ppb ${r.chance_30 == null ? 'not available' : pct(r.chance_30 * 100) + '%'}${r.source ? ' (' + r.source + ')' : ''}` },
-            ...(r.outcome ? [{ text: `Outcome: ${r.outcome}` }] : []),
+            { text: `Night-target model ${r.chance_night == null ? 'not available' : pct(r.chance_night * 100) + '%'}${r.outcome_night ? ' · ' + r.outcome_night : ''}` },
+            { text: `Current forecast ${r.chance_current == null ? 'not available' : pct(r.chance_current * 100) + '%'}${r.current_source ? ' (' + r.current_source + ')' : ''}` },
+            { text: `Persistence: 24 h peak ${r.persistence_peak_24h == null ? '—' : f1(r.persistence_peak_24h) + ' ppb'}${r.outcome_persistence ? ' · ' + r.outcome_persistence : ''}` },
           ]);
         })
         .on('pointerleave', () => tip.hide());
@@ -620,6 +638,25 @@ dash.onData(() => {
       : d3.format(',')(v);
     el.classList.remove('dash-skeleton');
   });
+  const pt = dash.data('persistence_tonight');
+  const ptRows = pt.status === 'ok' ? pt.data : [];
+  SITES.forEach((st) => {
+    const el = document.querySelector(`[data-source="persistence_tonight"][data-where="station=${st}"]`);
+    const r = ptRows.find((x) => x.station === st);
+    el.textContent = !r || r.peak_24h_ppb == null ? '—' : `${r.warn ? 'Warn' : 'No'} · ${f1(r.peak_24h_ppb)} ppb`;
+    el.style.color = r && r.warn ? 'var(--color-bad)' : '';
+    el.classList.remove('dash-skeleton');
+  });
+  const fc = dash.data('forecast_cutoffs');
+  const fcRows = fc.status === 'ok' ? fc.data : [];
+  document.querySelectorAll('[data-source="forecast_cutoffs"]').forEach((el) => {
+    const q = new URLSearchParams(el.dataset.where);
+    const r = fcRows.find((x) => x.variant === q.get('variant') && Math.abs(x.cutoff - Number(q.get('cutoff'))) < 1e-9);
+    const v = r ? r[el.dataset.field] : null, f = el.dataset.field;
+    el.textContent = v == null ? '—' : f === 'auc' ? d3.format('.2f')(v)
+      : f === 'warned' ? `${d3.format(',')(v)} (${d3.format('.0%')(r.pod)})` : d3.format(',')(v);
+    el.classList.remove('dash-skeleton');
+  });
   const link = document.getElementById('skill-link');
   if (skRows[0] && /^https:\/\//.test(skRows[0].page)) { link.href = skRows[0].page; link.hidden = false; } else link.hidden = true;
   const fl = dash.data('forecast_live');
@@ -638,9 +675,10 @@ dash.onData(() => {
     drawNights(nEl);
     const rows = dash.data('forecast_nights').data;
     const ev = rows.filter((r) => r.peak_ppb != null && r.peak_ppb > 30);
-    const warned = ev.filter((r) => r.outcome === 'warned').length;
+    const byNight = ev.filter((r) => r.outcome_night === 'warned').length, byPers = ev.filter((r) => r.outcome_persistence === 'warned').length;
+    const faNight = rows.filter((r) => r.outcome_night === 'false alarm').length, faPers = rows.filter((r) => r.outcome_persistence === 'false alarm').length;
     const nightsN = new Set(rows.map((r) => r.night_of)).size;
-    nSum.textContent = `Last ${nightsN} nights: ${ev.length} station-night${ev.length === 1 ? '' : 's'} over 30 ppb, ${warned} warned in advance.`;
+    nSum.textContent = `Last ${nightsN} nights: ${ev.length} station-night${ev.length === 1 ? '' : 's'} over 30 ppb. Night-target model at 50% warned ${byNight} (${faNight} false alarm${faNight === 1 ? '' : 's'}); persistence warned ${byPers} (${faPers} false alarm${faPers === 1 ? '' : 's'}).`;
   } else { pending(nEl, ns); nSum.textContent = ''; }
 
   const tn = dash.data('temp_now');

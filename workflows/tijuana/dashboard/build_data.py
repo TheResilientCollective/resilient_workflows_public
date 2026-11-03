@@ -15,14 +15,17 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from zoneinfo import ZoneInfo
 
 PUBLIC = 'https://oss.resilientservice.mooo.com/resilentpublic/'
 DASHBOARD_PREFIX = 'latest/tijuana/dashboard/'
 SITES = ('SAN YSIDRO', 'NESTOR - BES', 'IB CIVIC CTR')
 PST = dt.timezone(dt.timedelta(hours=-8))
+LA = ZoneInfo('America/Los_Angeles')
 MGD_PER_CMS = 22.824465
 NIGHTS_SHOWN = 45
 WARN_CUTOFF = 0.5  # chance of >30 ppb at which a night counts as warned, as in the backtest
+REVIEW_CUTOFFS = (0.3, 0.4, 0.5)  # warning cutoffs compared in the prediction review
 
 FILES = {
     'boundary_cms.csv': 'latest/tijuana/streamflow/boundary_cms/boundary_cms.csv',
@@ -256,6 +259,19 @@ def build_forecast_checks(D, O, dump, have, rd, summary, obs, as_of, now):
                 skill.append(row(st, d, d))
     dump('forecast_skill', skill)
 
+    # The same backtest at the cutoffs the review compares (0.3, 0.4, 0.5), for the current
+    # forecast, the proposed night-target model and persistence, the line any product must clear
+    cutoffs = []
+    if have('backtest_30ppb_metrics.json'):
+        for variant in ('deployed', 'night', 'persistence'):
+            for c in m['cutoffs'].get(variant, []):
+                if any(abs(c['cutoff'] - k) < 1e-9 for k in REVIEW_CUTOFFS):
+                    cutoffs.append({'variant': variant, 'cutoff': round(c['cutoff'], 2), 'warned': c['hits'],
+                                    'missed': c['misses'], 'false_alarms': c['false_alarms'],
+                                    'event_nights': c['hits'] + c['misses'], 'pod': c['pod'], 'far': c['far'],
+                                    'auc': m['nightly'].get(variant, {}).get('auc')})
+    dump('forecast_cutoffs', cutoffs)
+
     # Live performance of the published forecast, matched hour by hour with what was measured
     live = []
     if have('forecast_performance.json'):
@@ -295,16 +311,20 @@ def build_forecast_checks(D, O, dump, have, rd, summary, obs, as_of, now):
     log.sort(key=lambda e: (e['night_of'], e['station']))
     json.dump(log, open(f'{O}/forecast_log.json', 'w'))
 
-    # Night-by-night check: forecast chance vs the night's measured peak, backtest first, then published
+    # Night-by-night check. For each station-night: the night-target model's chance (backtest), the
+    # current forecast's chance (backtest, then the published forecast once logged), persistence
+    # ("the 24 h before the 15:00 issue reached 30 ppb") and the measured sunset-to-sunrise peak.
     peaks = {}
+    by_site = {st: [] for st in SITES}
     for t, st, v in obs:
+        by_site[st].append((t, v))
         local = t.astimezone(PST)
         day = local.date() if local.hour >= 12 else local.date() - dt.timedelta(days=1)
         n_start, n_end = night_window(day)
         if n_start <= t < n_end:
             key = (day.isoformat(), st)
             peaks[key] = max(peaks.get(key, 0), v)
-    nights = {}
+    night_p, current = {}, {}
     if have('backtest_30ppb_predictions.csv'):
         for r in rd('backtest_30ppb_predictions.csv'):
             t = dt.datetime.fromisoformat(r['target_time'].replace('Z', '+00:00'))
@@ -314,30 +334,52 @@ def build_forecast_checks(D, O, dump, have, rd, summary, obs, as_of, now):
             if not (n_start <= t < n_end):
                 continue
             key = (day.isoformat(), r['site_name'])
-            p = num(r['p_deployed']) or 0.0
-            nights[key] = {'source': 'backtest', 'chance': max(p, nights.get(key, {}).get('chance', 0.0))}
+            night_p[key] = max(num(r['p_night']) or 0.0, night_p.get(key, 0.0))
+            current[key] = {'source': 'backtest', 'chance': max(num(r['p_deployed']) or 0.0,
+                                                                current.get(key, {}).get('chance', 0.0))}
     for e in log:
-        nights[(e['night_of'], e['station'])] = {'source': 'published', 'chance': e['max_prob_30']}
+        current[(e['night_of'], e['station'])] = {'source': 'published', 'chance': e['max_prob_30']}
+
+    def persistence(st, issue):
+        """Highest reading in the 24 h before `issue`, and whether it reached 30 ppb."""
+        vals = [v for t, v in by_site[st] if issue - dt.timedelta(hours=24) <= t < issue]
+        return (max(vals) if vals else None), bool(vals) and max(vals) >= 30
+
+    def outcome(warned, peak):
+        if warned is None or peak is None:
+            return None
+        return ('warned' if warned else 'missed') if peak > 30 else ('false alarm' if warned else 'quiet')
+
     last_day = as_of.astimezone(PST).date()
     if as_of < night_window(last_day)[1]:
         last_day -= dt.timedelta(days=1)  # tonight's night has not finished
     days = [(last_day - dt.timedelta(days=i)).isoformat() for i in range(NIGHTS_SHOWN)][::-1]
     rows = []
     for d in days:
+        issue = dt.datetime.combine(dt.date.fromisoformat(d), dt.time(15), tzinfo=LA)  # the backtest's issue time
         for st in SITES:
-            f = nights.get((d, st))
             peak = peaks.get((d, st))
-            if f is None and peak is None:
+            pn = night_p.get((d, st))
+            cur = current.get((d, st))
+            p24, pw = persistence(st, issue)
+            if peak is None and pn is None and cur is None:
                 continue
-            warned = f is not None and f['chance'] >= WARN_CUTOFF
-            event = peak is not None and peak > 30
-            outcome = None
-            if f is not None and peak is not None:
-                outcome = ('warned' if warned else 'missed') if event else ('false alarm' if warned else 'quiet')
-            rows.append({'night_of': d, 'station': st, 'chance_30': None if f is None else round(f['chance'], 4),
-                         'source': None if f is None else f['source'], 'peak_ppb': peak, 'outcome': outcome})
+            rows.append({'night_of': d, 'station': st, 'peak_ppb': peak,
+                         'chance_night': None if pn is None else round(pn, 4),
+                         'chance_current': None if cur is None else round(cur['chance'], 4),
+                         'current_source': None if cur is None else cur['source'],
+                         'persistence_peak_24h': p24, 'persistence_warned': pw if p24 is not None else None,
+                         'outcome_night': outcome(None if pn is None else pn >= WARN_CUTOFF, peak),
+                         'outcome_persistence': outcome(pw if p24 is not None else None, peak)})
     dump('forecast_nights', rows)
 
+    # Persistence for tonight, live: did the last 24 h of readings at each monitor reach 30 ppb?
+    tonight = []
+    for st in SITES:
+        p24, pw = persistence(st, as_of + dt.timedelta(seconds=1))
+        tonight.append({'station': st, 'peak_24h_ppb': p24, 'warn': pw if p24 is not None else None,
+                        'as_of': as_of.isoformat()})
+    dump('persistence_tonight', tonight)
 
 if __name__ == '__main__':
     main(sys.argv[1], sys.argv[2])
