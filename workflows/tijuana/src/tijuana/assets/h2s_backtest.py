@@ -118,7 +118,7 @@ def _run_backtest(context, config: BacktestRunConfig, default_threshold: float) 
     logger.info(f"{len(nightly):,} station-nights for the night-target model; {int(nightly['y_night'].sum()):,} above {cfg.threshold:g} ppb")
 
     preds = bt.simulate(hourly, cfg, nightly=nightly)
-    metrics = bt.score(preds, cfg)
+    metrics = bt.score(preds, cfg, nightly=nightly)
     generated = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")
     page = bt.render_html(metrics, preds, cfg, generated_at=generated)
 

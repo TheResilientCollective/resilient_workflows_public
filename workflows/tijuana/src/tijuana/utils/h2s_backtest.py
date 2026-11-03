@@ -614,7 +614,76 @@ def timing_summary(nights: pd.DataFrame, cfg: BacktestConfig) -> dict:
     return out
 
 
-def score(preds: pd.DataFrame, cfg: BacktestConfig) -> dict:
+#: Night-summary variables reported by outcome, with display labels.
+MET_VARIABLES = {
+    "stable_atm_hours": "stable-atmosphere hours (wind < 5 m/s at night)",
+    "wind_speed_mean": "wind speed, night mean (m/s)",
+    "wind_resultant_speed": "resultant wind speed (m/s)",
+    "wind_steadiness": "wind steadiness (0–1)",
+    "wind_gust_max": "max gust (km/h)",
+    "temperature_2m_mean": "temperature (°C)",
+    "relative_humidity_2m_mean": "relative humidity (%)",
+    "surface_pressure_mean": "surface pressure (hPa)",
+    "tide_height_mean": "tide height, mean (m)",
+    "flow_mean": "border flow (m³/s)",
+    "sbiwtp_flow_mgd_mean": "SBIWTP effluent (MGD)",
+    "night_length_hours": "night length (h)",
+    "peak_h2s": "night peak H2S (ppb)",
+}
+OUTCOMES = ("hit", "miss", "false alarm", "quiet (correct)")
+SEASONS = {"Mar–May": (3, 4, 5)}
+
+
+def _met_profile(g: pd.DataFrame) -> dict:
+    out = {"n": int(len(g))}
+    for c in MET_VARIABLES:
+        if c in g.columns and g[c].notna().any():
+            out[c] = float(g[c].median())
+    if "wind_resultant_direction" in g.columns and g["wind_resultant_direction"].notna().any():
+        rad = np.radians(g["wind_resultant_direction"].dropna())
+        out["wind_direction_resultant"] = float((np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) + 360) % 360)
+    if "stable_atm_hours" in g.columns:
+        out["share_stable_6h_or_more"] = float((g["stable_atm_hours"] >= 6).mean())
+    return out
+
+
+def meteorology_by_outcome(nights: pd.DataFrame, nightly: pd.DataFrame, cfg: BacktestConfig, variant: str = "night", cutoff: float | None = None) -> dict:
+    """Median night conditions for hits, misses, false alarms and quiet nights.
+
+    ``nightly`` is the :func:`prepare_nightly` frame (or any frame with
+    ``site_name``, ``issue_time`` and the nightly-summary columns); nights the
+    backtest scored but the summary lacks are left out and counted.
+    """
+    cutoff = TIMING_CUTOFFS[0] if cutoff is None else cutoff
+    cols = ["site_name", "issue_time"] + [c for c in list(MET_VARIABLES) + ["wind_resultant_direction"] if c in nightly.columns and c != "peak_h2s"]
+    j = nights.merge(nightly[cols].drop_duplicates(["site_name", "issue_time"]), on=["site_name", "issue_time"], how="inner")
+    warned = j[f"p_{variant}"] >= cutoff
+    j["outcome"] = np.select([warned & (j["event"] == 1), ~warned & (j["event"] == 1), warned], ["hit", "miss", "false alarm"], "quiet (correct)")
+    month = pd.to_datetime(j["night_of"]).dt.month
+    j["season"] = "other months"
+    for name, months in SEASONS.items():
+        j.loc[month.isin(months), "season"] = name
+    out = {
+        "variant": variant, "cutoff": cutoff, "nights_matched": int(len(j)), "nights_unmatched": int(len(nights) - len(j)),
+        "by_outcome": {o: _met_profile(j[j["outcome"] == o]) for o in OUTCOMES},
+        "by_season": {sea: {o: _met_profile(g[g["outcome"] == o]) for o in OUTCOMES} for sea, g in j.groupby("season", sort=False)},
+        "false_alarms_by_timing": {},
+    }
+    fa = j[j["outcome"] == "false alarm"]
+    if len(fa):
+        labels = []
+        for _, r in fa.iterrows():
+            ev = pd.to_datetime(nights.loc[(nights["site_name"] == r["site_name"]) & (nights["event"] == 1), "night_of"])
+            dd = (ev - pd.Timestamp(r["night_of"])).dt.days
+            nxt = dd[dd > 0].min() if (dd > 0).any() else np.inf
+            prv = -dd[dd < 0].max() if (dd < 0).any() else np.inf
+            labels.append("no event within 7 days" if min(nxt, prv) > 7 else "before an event" if nxt <= prv else "after an event")
+        fa = fa.assign(timing=labels)
+        out["false_alarms_by_timing"] = {t: _met_profile(fa[fa["timing"] == t]) for t in ("before an event", "after an event", "no event within 7 days") if (fa["timing"] == t).any()}
+    return out
+
+
+def score(preds: pd.DataFrame, cfg: BacktestConfig, nightly: pd.DataFrame | None = None) -> dict:
     """Everything the evaluation page reports, as plain JSON-serialisable data."""
     nights = nightly_events(preds, cfg)
     result = {
@@ -653,6 +722,7 @@ def score(preds: pd.DataFrame, cfg: BacktestConfig) -> dict:
             **{f"{v}@{c:g}": _contingency(g["event"], g[f"p_{v}"], c) for v in MODEL_VARIANTS for c in TIMING_CUTOFFS},
         }
     result["timing"] = timing_summary(nights, cfg) if len(nights) else {}
+    result["meteorology"] = meteorology_by_outcome(nights, nightly, cfg) if (nightly is not None and len(nights) and len(nightly)) else {}
     ev = nights[nights["event"] == 1].sort_values(["issue_time", "site_name"])
     for _, r in ev.iterrows():
         result["events"].append({
@@ -807,6 +877,33 @@ def render_html(metrics: dict, preds: pd.DataFrame, cfg: BacktestConfig, generat
         fat = d["false_alarms_by_timing"]
         fa_rows.append(row([VARIANT_LABELS[d["variant"]], f"{d['cutoff']:g}", sum(fat.values())] + [fat[b] for b in FA_BINS]))
     tc = TIMING_CUTOFFS[0]
+    met = metrics.get("meteorology", {})
+
+    def met_table(groups: dict, first_header: str) -> str:
+        cols_ = [k for k in groups if groups[k].get("n")]
+        if not cols_:
+            return ""
+        rows_ = [row([first_header] + [f"{k} ({groups[k]['n']})" for k in cols_], True)]
+        for var, label in MET_VARIABLES.items():
+            if any(var in groups[k] for k in cols_):
+                rows_.append(row([label] + [_fmt(groups[k].get(var), 1) for k in cols_]))
+        rows_.append(row(["resultant wind direction (°)"] + [_fmt(groups[k].get("wind_direction_resultant"), 0) for k in cols_]))
+        rows_.append(row(["share of nights with ≥6 stable hours"] + [f"{groups[k]['share_stable_6h_or_more']:.0%}" if "share_stable_6h_or_more" in groups[k] else "–" for k in cols_]))
+        return f'<div class="tw"><table>{"".join(rows_)}</table></div>'
+
+    met_html = ""
+    if met:
+        season_blocks = []
+        for sea, groups in met.get("by_season", {}).items():
+            season_blocks.append(f"<h3>{esc(sea)}</h3>" + met_table(groups, "median over nights"))
+        met_html = f"""
+<h2>Meteorology by outcome</h2>
+<p>Median night conditions from the nightly summary for the {esc(VARIANT_LABELS[met['variant']])} at cutoff {met['cutoff']:g}: {met['nights_matched']:,} scored nights matched to a nightly row{(', ' + str(met['nights_unmatched']) + ' not matched') if met['nights_unmatched'] else ''}. Wind direction is the vector mean over the nights in the group. A false alarm that looks like a hit on wind and stability is a night the atmosphere set up for and the river did not deliver; a miss that looks like a quiet night is one the meteorology could not have called.</p>
+{met_table(met['by_outcome'], 'median over nights')}
+{''.join(season_blocks)}
+<h3>False alarms by when they fall</h3>
+{met_table(met['false_alarms_by_timing'], 'median over false-alarm nights')}
+"""
     month_rows = [row(["month", "nights", "events", f"night-target @{tc:g}: hits", "false alarms", "POD", "FAR", f"night-target @{cfg.cutoff:g}: hits", "false alarms", "POD", "FAR", f"deployed @{cfg.cutoff:g}: hits", "false alarms", "persistence: hits", "false alarms", "FAR"], True)]
     for month, d in metrics["monthly"].items():
         a = d.get(f"night@{tc:g}", d["night"]); b = d["night"]; c = d["deployed"]; q = d["persistence"]
@@ -873,6 +970,7 @@ details summary{{cursor:pointer;color:#52514e}}
 <p>Month by month. A false-alarm rate that is high in the quiet months and low in the exceedance season means the model is warning on the season rather than the night; the exceedance season here is March to May.</p>
 <div class="tw"><table>{''.join(month_rows)}</table></div>
 
+{met_html}
 <h2>Where the hits and false alarms come from</h2>
 <p>Event nights come in episodes of consecutive nights ({tm.get('episodes', 0)} episodes: {tm.get('positions', {}).get('single', 0)} single nights, the rest runs with a start, {tm.get('positions', {}).get('middle', 0)} middle nights and an end). The first table is the share of event nights warned at each position; a model that only catches middles and ends is riding persistence. The second places each false alarm relative to the nearest event night at the same station; one-day-before alarms are early warnings rather than errors.</p>
 <div class="tw"><table>{''.join(timing_rows)}</table></div>

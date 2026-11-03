@@ -204,8 +204,13 @@ def test_nightly_events_aggregate_per_issue(preds, cfg):
     assert one["peak_h2s"] == rows["H2S"].max()
 
 
-def test_score_and_render(preds, cfg):
-    metrics = bt.score(preds, cfg)
+def test_score_and_render(preds, cfg, nightly):
+    metrics = bt.score(preds, cfg, nightly=nightly)
+    met = metrics["meteorology"]
+    assert met["nights_matched"] > 0 and set(met["by_outcome"]) == set(bt.OUTCOMES)
+    assert sum(g["n"] for g in met["by_outcome"].values()) == met["nights_matched"]
+    assert "stable_atm_hours" in met["by_outcome"]["hit"] and "peak_h2s" in met["by_outcome"]["hit"]
+    assert met["by_outcome"]["hit"]["peak_h2s"] > cfg.threshold >= met["by_outcome"]["false alarm"]["peak_h2s"]
     for v in bt.VARIANTS:
         assert metrics["nightly"][v]["n"] == metrics["record"]["nights_scored"]
     c = next(x for x in metrics["cutoffs"]["deployed"] if x["cutoff"] == cfg.cutoff)
@@ -216,7 +221,7 @@ def test_score_and_render(preds, cfg):
     assert metrics["nightly"]["deployed"]["average_precision"] > metrics["nightly"]["deployed"]["base_rate"]
     page = bt.render_html(metrics, preds, cfg, generated_at="test")
     assert page.startswith("<!doctype html>")
-    for marker in ("Overall skill", "By station", "Choosing a cutoff", "Every event night", "data:image/png;base64,"):
+    for marker in ("Overall skill", "By station", "Choosing a cutoff", "Meteorology by outcome", "Where the hits and false alarms come from", "Every event night", "data:image/png;base64,"):
         assert marker in page
     import json
     json.dumps(metrics, default=str)  # serialisable for the S3 sidecar
