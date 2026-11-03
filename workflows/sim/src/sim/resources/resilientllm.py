@@ -15,6 +15,10 @@ class LLMRunHandle(BaseModel):
     The webhook answers ``{"status", "data", "_id", "id"}``; ``id`` is preferred and
     ``_id`` is the fallback so either spelling works. The same shape comes back from
     the status endpoint, with ``data`` filled in once the run is ``done``.
+
+    Status values seen from the API: "pending", "running",
+    "generating human-readable summaries for each disease", "generating translations",
+    "done", "cancelled", "error", "failed". Only ``done`` completes a run.
     """
 
     id: str
