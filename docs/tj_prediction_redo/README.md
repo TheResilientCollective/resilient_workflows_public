@@ -387,6 +387,31 @@ night-target model is the only one with calibrated probabilities, and
 persistence is a strong line on hits. The 70 ppb product is a NESTOR
 product for now, as the data review predicted.
 
+### Serving the night-target model (`h2sforecast/h2s_night_forecast_30ppb`)
+
+The night-target model now has a serving asset, one per threshold
+(`h2s_night_forecast_30ppb`, `h2s_night_forecast_70ppb`). Each run trains the
+model on every prepared station-night (`h2s_backtest.prepare_nightly`) and
+issues tonight's chance per monitor. Tonight's features are built by the same
+code as the training rows: the night's meteorology, flow, SBIWTP and tide from
+`modeldata_forecast_15min_astronomical_day` reduced with `summarize_nights` on
+its on-the-hour rows; the previous nights' peaks from the nightly table, topped
+up from the latest monitor readings when the table trails them; and the
+`hist_*` features from `last_known_state` at the issue time, also topped up from
+the latest readings (the training record can lag the monitors by a day or
+more). Logic in `workflows/tijuana/src/tijuana/utils/h2s_night_forecast.py`,
+unit-tested in `tests/test_h2s_night_forecast.py`.
+
+It publishes `latest/tijuana/forecast_data/night_forecast/h2s_night_forecast_30ppb.json`
+(and `.csv`), with warning flags at cutoffs 0.3, 0.4 and 0.5, and keeps
+`h2s_night_forecast_30ppb_history.csv`, each night's forecast as last issued
+before the night began, for verification. It re-issues whenever the forecast
+inference data are rebuilt. Tonight's weather inputs are forecasts, so the
+operational skill will sit below the backtest's, which used observed weather;
+the history file is what will measure by how much. Probabilities depend on the
+scikit-learn version (one seeded forest, as in the backtest), so the asset and
+any other runner should use the locked version.
+
 ## References
 
 - Agency for Toxic Substances and Disease Registry (2016). *Toxicological
