@@ -47,6 +47,7 @@ FILES = {
 OPTIONAL = {'forecast_performance.json', 'forecast_skill_report.json',
             'backtest_30ppb_metrics.json', 'backtest_30ppb_predictions.csv'}
 BACKTEST_PAGE = PUBLIC + 'latest/tijuana/forecast_data/backtest/h2s_backtest_30ppb.html'
+NIGHT_FORECAST_KEY = 'latest/tijuana/forecast_data/night_forecast/h2s_night_forecast_30ppb.json'
 
 
 def fetch(key, path):
@@ -73,6 +74,13 @@ def sun_times(date, lat=32.7157, lon=-117.1611):
                                / (math.cos(math.radians(lat)) * math.cos(dec))))
     base = dt.datetime(2000, 1, 1, 12, tzinfo=dt.timezone.utc)
     return base + dt.timedelta(days=transit - w / 360), base + dt.timedelta(days=transit + w / 360)
+
+
+def night_window_day(t):
+    """The night a forecast made at `t` covers, by its sunset date: before 05:00 local the night
+    in progress, otherwise the coming one (the rule the night-target asset uses)."""
+    local = t.astimezone(LA)
+    return local.date() - dt.timedelta(days=1) if local.hour < 5 else local.date()
 
 
 def night_window(day):
@@ -311,6 +319,48 @@ def build_forecast_checks(D, O, dump, have, rd, summary, obs, as_of, now):
     log.sort(key=lambda e: (e['night_of'], e['station']))
     json.dump(log, open(f'{O}/forecast_log.json', 'w'))
 
+    # Tonight's night-target forecast: the pipeline asset's output when it has issued one for
+    # tonight, otherwise the dashboard job's own run of the same code (serve_night_model.py)
+    tonight = night_window_day(now)
+    nfc, source = None, None
+    try:
+        with urllib.request.urlopen(PUBLIC + NIGHT_FORECAST_KEY) as f:
+            p = json.load(f)
+        if p.get('night_of') == tonight.isoformat():
+            nfc, source = p, 'pipeline'
+    except (urllib.error.HTTPError, ValueError):
+        pass
+    if nfc is None and have('night_forecast_source.json'):
+        p = json.load(open(f'{D}/night_forecast_source.json'))
+        if p.get('night_of') == tonight.isoformat():
+            nfc, source = p, 'dashboard job'
+    night_rows = []
+    if nfc:
+        for r in nfc['stations']:
+            night_rows.append({'station': r['site_name'], 'night_of': nfc['night_of'], 'probability': r.get('probability'),
+                               'warn_30': r.get('warn_30'), 'warn_40': r.get('warn_40'), 'warn_50': r.get('warn_50'),
+                               'issued_at': r.get('issue_time'), 'night_start': r.get('night_start'),
+                               'trained_on_nights': nfc['model']['trained_on_nights'], 'source': source})
+    dump('night_forecast', night_rows)
+
+    # Running log of the night-target forecast as it stood before each night began
+    nlog = []
+    try:
+        with urllib.request.urlopen(PUBLIC + DASHBOARD_PREFIX + 'data/night_log.json') as f:
+            nlog = json.load(f)
+    except (urllib.error.HTTPError, ValueError):
+        pass
+    for r in night_rows:
+        if r['probability'] is None or not r['issued_at'] or not r['night_start']:
+            continue
+        if dt.datetime.fromisoformat(r['issued_at']) >= dt.datetime.fromisoformat(r['night_start']):
+            continue  # issued after the night began; keep the forecast made before it
+        nlog = [e for e in nlog if not (e['night_of'] == r['night_of'] and e['station'] == r['station'])]
+        nlog.append({'night_of': r['night_of'], 'station': r['station'], 'probability': r['probability'],
+                     'issued_at': r['issued_at'], 'source': r['source']})
+    nlog.sort(key=lambda e: (e['night_of'], e['station']))
+    json.dump(nlog, open(f'{O}/night_log.json', 'w'))
+
     # Night-by-night check. For each station-night: the night-target model's chance (backtest), the
     # current forecast's chance (backtest, then the published forecast once logged), persistence
     # ("the 24 h before the 15:00 issue reached 30 ppb") and the measured sunset-to-sunrise peak.
@@ -339,6 +389,10 @@ def build_forecast_checks(D, O, dump, have, rd, summary, obs, as_of, now):
                                                                 current.get(key, {}).get('chance', 0.0))}
     for e in log:
         current[(e['night_of'], e['station'])] = {'source': 'published', 'chance': e['max_prob_30']}
+    night_src = {k: 'backtest' for k in night_p}
+    for e in nlog:
+        night_p[(e['night_of'], e['station'])] = e['probability']
+        night_src[(e['night_of'], e['station'])] = 'live'
 
     def persistence(st, issue):
         """Highest reading in the 24 h before `issue`, and whether it reached 30 ppb."""
@@ -366,6 +420,7 @@ def build_forecast_checks(D, O, dump, have, rd, summary, obs, as_of, now):
                 continue
             rows.append({'night_of': d, 'station': st, 'peak_ppb': peak,
                          'chance_night': None if pn is None else round(pn, 4),
+                         'night_source': night_src.get((d, st)),
                          'chance_current': None if cur is None else round(cur['chance'], 4),
                          'current_source': None if cur is None else cur['source'],
                          'persistence_peak_24h': p24, 'persistence_warned': pw if p24 is not None else None,

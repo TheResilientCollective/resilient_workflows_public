@@ -43,6 +43,10 @@
 .tj-fail { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: inherit; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
 .tj-fail::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: var(--color-bad); }
 .tj-tablebox { max-height: 360px; overflow: auto; }
+.tj-seg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 var(--cds-gap-sm); }
+.tj-seg .tj-label { margin-right: 4px; }
+.tj-seg button { font: inherit; font-size: var(--cds-font-size-caption); padding: 2px 10px; border-radius: 999px; border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); cursor: pointer; }
+.tj-seg button[aria-pressed="true"] { background: var(--color-fg); color: var(--color-bg); border-color: var(--color-fg); }
 .tj-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
 .tj-table th { position: sticky; top: 0; background: var(--color-panel); text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: var(--cds-pad-xs); border-bottom: 1px solid var(--color-border-line); }
 .tj-table td { padding: var(--cds-pad-xs); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
@@ -62,7 +66,7 @@
       <h1>Tijuana River</h1>
       <span class="tj-pill" id="updated-pill"><i></i>Data updated <span data-source="refresh_info" data-field="refreshed_at" data-row="0" class="dash-skeleton">—</span><span class="tj-pill-ago" id="updated-ago"></span></span>
     </div>
-    <p id="takeaway">H2S is <span data-source="h2s_current_peak" data-field="h2s_ppb" class="dash-skeleton">—</span> ppb at its highest site (<span data-source="h2s_current_peak" data-field="location" class="dash-skeleton">—</span>); the forecast chance of passing 30 ppb in the next 24 hours is at most <span data-source="forecast_peak" data-field="max_prob_30" class="dash-skeleton">—</span>%. The river is crossing the border at <span data-source="border_latest" data-field="flow_mgd" class="dash-skeleton">—</span> MGD.</p>
+    <p id="takeaway">H2S is <span data-source="h2s_current_peak" data-field="h2s_ppb" class="dash-skeleton">—</span> ppb at its highest site (<span data-source="h2s_current_peak" data-field="location" class="dash-skeleton">—</span>); the night model gives at most a <span data-source="night_peak" data-field="probability" class="dash-skeleton">—</span>% chance of passing 30 ppb tonight. The river is crossing the border at <span data-source="border_latest" data-field="flow_mgd" class="dash-skeleton">—</span> MGD.</p>
   </header>
 
   <div class="tj-kpis-wrap"><section class="tj-kpis" id="headline">
@@ -78,14 +82,15 @@
       </div>
     </div>
     <div class="tj-card tj-forecast" id="card-forecast">
-      <div class="tj-label">Chance H2S tops 30 ppb · next 24 h</div>
-      <div class="tj-big"><span data-source="forecast_peak" data-field="max_prob_30" class="dash-skeleton">—</span><span class="tj-unit">% max</span></div>
-      <div class="tj-sites">
-        <span>San Ysidro</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=SAN YSIDRO">—</span>
-        <span>Nestor (Berry Elem.)</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=NESTOR - BES">—</span>
-        <span>Imperial Beach</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=IB CIVIC CTR">—</span>
+      <div class="tj-label">Chance H2S tops 30 ppb tonight · night model</div>
+      <div class="tj-big"><span data-source="night_peak" data-field="probability" class="dash-skeleton">—</span><span class="tj-unit">% max</span></div>
+      <div class="tj-sites tj-sites3">
+        <span></span><span>Night model</span><span>Current</span>
+        <span>San Ysidro</span><span data-source="night_forecast" data-field="probability" data-where="station=SAN YSIDRO">—</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=SAN YSIDRO">—</span>
+        <span>Nestor (Berry Elem.)</span><span data-source="night_forecast" data-field="probability" data-where="station=NESTOR - BES">—</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=NESTOR - BES">—</span>
+        <span>Imperial Beach</span><span data-source="night_forecast" data-field="probability" data-where="station=IB CIVIC CTR">—</span><span data-source="h2s_forecast_24h" data-field="max_prob_30" data-where="station=IB CIVIC CTR">—</span>
       </div>
-      <div class="tj-sub" style="margin-top:6px">Issued <span data-source="h2s_forecast_24h" data-field="generated_at" data-row="0">—</span></div>
+      <div class="tj-sub" style="margin-top:6px" id="night-issued">Night model issued <span data-source="night_forecast" data-field="issued_at" data-row="0">—</span> for the night of <span data-source="night_forecast" data-field="night_of" data-row="0">—</span>; it warns at 30%, 40% or 50% (see the backtest table). Current forecast issued <span data-source="h2s_forecast_24h" data-field="generated_at" data-row="0">—</span>.</div>
       <div class="tj-label" style="margin-top:var(--cds-gap-sm)">Persistence · did the last 24 h reach 30 ppb?</div>
       <div class="tj-sites">
         <span>San Ysidro</span><span data-source="persistence_tonight" data-field="peak_24h_ppb" data-where="station=SAN YSIDRO">—</span>
@@ -187,14 +192,18 @@
     </div>
     <div class="tj-card tj-wide" id="card-nights">
       <h3>Recent nights: night-target model and persistence vs what was measured</h3>
-      <p class="tj-note">Each square is one night (sunset to sunrise) at one monitor, coloured by its measured peak. The bar under it is the night-target model's chance of passing 30 ppb that night, from the backtest (it is not yet issued live, so the newest nights have no bar). A dot above the square means persistence warned: the 24 hours before the 3 pm issue reached 30 ppb. Hover for the current forecast's chance too.</p>
+      <p class="tj-note">Each square is one night (sunset to sunrise) at one monitor, coloured by its measured peak. The bar under it is the night-target model's chance of passing 30 ppb: from the backtest for past nights, and the live forecast as issued before the night began from Nov 3 on. An outline marks a night the model warned at the chosen cutoff, dashed red when nothing over 30 ppb followed (a false alarm). A dot above means persistence warned (the 24 hours before the 3 pm issue reached 30 ppb); hollow when it was a false alarm.</p>
       <div class="tj-legend">
         <span><i style="background:var(--color-ok)"></i>Peak under 5 ppb</span>
         <span><i style="background:var(--color-warn)"></i>5–30 ppb</span>
         <span><i style="background:var(--color-bad)"></i>Over 30 ppb</span>
         <span><i class="tj-line" style="background:var(--tj-c0)"></i>Night-target model's chance of &gt;30 ppb</span>
-        <span><i style="background:var(--color-fg)"></i>Persistence warned</span>
+        <span><i style="background:transparent;border:2px solid var(--color-fg);border-radius:2px"></i>Night model warned, event</span>
+        <span><i style="background:transparent;border:2px dashed var(--color-bad);border-radius:2px"></i>Night model false alarm</span>
+        <span><i style="background:var(--color-fg)"></i>Persistence warned, event</span>
+        <span><i style="background:transparent;border:1.5px solid var(--color-fg)"></i>Persistence false alarm</span>
       </div>
+      <div class="tj-seg" id="nights-cutoff" role="group" aria-label="Night model warning cutoff"><span class="tj-label">Night model warns at</span><button type="button" data-cut="0.3">30%</button><button type="button" data-cut="0.4">40%</button><button type="button" data-cut="0.5" aria-pressed="true">50%</button></div>
       <div class="tj-chart dash-skeleton" id="ch-nights" data-source="forecast_nights" style="min-height:200px"></div>
       <div class="tj-sub" id="nights-summary"></div>
     </div>
@@ -267,6 +276,12 @@ const siteColor = (s) => dash.colors[SITES.indexOf(s) % dash.colors.length];
 const levelColor = (ppb) => ppb == null ? 'var(--color-fg-muted)' : ppb >= 30 ? 'var(--color-bad)' : ppb >= 5 ? 'var(--color-warn)' : 'var(--color-ok)';
 
 // ---------- calculations ----------
+dash.calc('night_peak', {
+  title: 'Highest night-model chance tonight',
+  description: 'The largest of the three monitors’ night-target model chances of a night peak above 30 ppb.',
+  inputs: ['night_forecast'],
+  fn: (night_forecast) => night_forecast.filter((r) => r.probability != null).reduce((a, r) => (a == null || r.probability > a.probability ? r : a), null),
+});
 dash.calc('forecast_peak', {
   title: 'Highest 30 ppb chance',
   description: 'The largest of the three sites’ maximum chance of H2S above 30 ppb in the next 24 hours.',
@@ -504,6 +519,17 @@ function drawMap(el) {
 
 
 // ---------- recent nights strip ----------
+let nightsCut = 0.5;
+const nightOutcome = (r) => {
+  if (r.chance_night == null || r.peak_ppb == null) return null;
+  const w = r.chance_night >= nightsCut, e = r.peak_ppb > 30;
+  return e ? (w ? 'warned' : 'missed') : (w ? 'false alarm' : 'quiet');
+};
+document.querySelectorAll('#nights-cutoff button').forEach((btn) => btn.addEventListener('click', () => {
+  nightsCut = Number(btn.dataset.cut);
+  document.querySelectorAll('#nights-cutoff button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  drawNightsCard();
+}));
 function drawNights(el) {
   el.classList.remove('dash-skeleton');
   el.replaceChildren();
@@ -529,8 +555,15 @@ function drawNights(el) {
       const cx = x(r.night_of);
       svg.append('rect').attr('x', cx).attr('y', y0).attr('width', cell - gap).attr('height', cell).attr('rx', 2)
         .attr('fill', r.peak_ppb == null ? 'var(--cds-chart-grid)' : levelColor(r.peak_ppb));
+      const event = r.peak_ppb != null && r.peak_ppb > 30;
       if (r.persistence_warned) {
-        svg.append('circle').attr('cx', cx + (cell - gap) / 2).attr('cy', y0 - 3).attr('r', Math.min(2.5, cell / 4)).attr('fill', 'var(--color-fg)');
+        svg.append('circle').attr('cx', cx + (cell - gap) / 2).attr('cy', y0 - 4).attr('r', Math.min(2.5, cell / 4))
+          .attr('fill', event ? 'var(--color-fg)' : 'none').attr('stroke', 'var(--color-fg)').attr('stroke-width', event ? 0 : 1.2);
+      }
+      if (r.chance_night != null && r.chance_night >= nightsCut && r.peak_ppb != null) {
+        svg.append('rect').attr('x', cx + 0.75).attr('y', y0 + 0.75).attr('width', cell - gap - 1.5).attr('height', cell - 1.5).attr('rx', 2)
+          .attr('fill', 'none').attr('stroke', event ? 'var(--color-fg)' : 'var(--color-bad)').attr('stroke-width', 1.5)
+          .attr('stroke-dasharray', event ? null : '2.5 1.5');
       }
       if (r.chance_night != null) {
         const bh = Math.max(r.chance_night > 0 ? 1 : 0, r.chance_night * barH);
@@ -541,7 +574,7 @@ function drawNights(el) {
           const [a, b] = toCard(cx + cell / 2, y0);
           tip.show(a, b, `${SITE_NAME[st]} · night of ${dayFmt.format(dayDate(r.night_of))}`, [
             { text: `Measured peak ${r.peak_ppb == null ? '—' : f1(r.peak_ppb) + ' ppb'}` },
-            { text: `Night-target model ${r.chance_night == null ? 'not available' : pct(r.chance_night * 100) + '%'}${r.outcome_night ? ' · ' + r.outcome_night : ''}` },
+            { text: `Night-target model ${r.chance_night == null ? 'not available' : pct(r.chance_night * 100) + '%' + (r.night_source ? ' (' + r.night_source + ')' : '')}${nightOutcome(r) ? ' · ' + nightOutcome(r) + ' at ' + d3.format('.0%')(nightsCut) : ''}` },
             { text: `Current forecast ${r.chance_current == null ? 'not available' : pct(r.chance_current * 100) + '%'}${r.current_source ? ' (' + r.current_source + ')' : ''}` },
             { text: `Persistence: 24 h peak ${r.persistence_peak_24h == null ? '—' : f1(r.persistence_peak_24h) + ' ppb'}${r.outcome_persistence ? ' · ' + r.outcome_persistence : ''}` },
           ]);
@@ -553,12 +586,42 @@ function drawNights(el) {
   svg.selectAll('text.nt').data(ticks).join('text').attr('x', (d) => x(d)).attr('y', H - 6)
     .attr('fill', 'var(--color-fg-muted)').attr('font-size', 'var(--cds-font-size-caption)').text((d) => fmtTick.format(dayDate(d)));
 }
+function drawNightsCard() {
+  const nEl = document.getElementById('ch-nights'), nSum = document.getElementById('nights-summary');
+  const ns = statusOf(['forecast_nights']);
+  if (ns !== 'ok') { pending(nEl, ns); nSum.textContent = ''; return; }
+  drawNights(nEl);
+  const rows = dash.data('forecast_nights').data;
+  const ev = rows.filter((r) => r.peak_ppb != null && r.peak_ppb > 30).length;
+  const out = rows.map(nightOutcome);
+  const cnt = (k) => out.filter((o) => o === k).length;
+  const pHit = rows.filter((r) => r.outcome_persistence === 'warned').length, pFa = rows.filter((r) => r.outcome_persistence === 'false alarm').length;
+  const nightsN = new Set(rows.map((r) => r.night_of)).size;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  nSum.textContent = `Last ${nightsN} nights: ${plural(ev, 'station-night')} over 30 ppb. Night model at ${d3.format('.0%')(nightsCut)}: warned ${cnt('warned')}, missed ${cnt('missed')}, ${plural(cnt('false alarm'), 'false alarm')}. Persistence: warned ${pHit}, ${plural(pFa, 'false alarm')}.`;
+}
+
 // ---------- draw ----------
 const lgH2s = document.getElementById('lg-h2s'), lgFc = document.getElementById('lg-fc'), lgTemp = document.getElementById('lg-temp');
 const siteLegend = SITES.map((s) => ({ name: SITE_NAME[s], color: siteColor(s) }));
 
 dash.onData(() => {
   // headline figures
+  const np0 = dash.data('night_peak');
+  setText('[data-source="night_peak"][data-field="probability"]', np0.status === 'ok' && np0.data ? pct(np0.data.probability * 100) : '—');
+  const nfd = dash.data('night_forecast');
+  const nfRows = nfd.status === 'ok' ? nfd.data : [];
+  SITES.forEach((st) => {
+    const el = document.querySelector(`[data-source="night_forecast"][data-field="probability"][data-where="station=${st}"]`);
+    const r = nfRows.find((x) => x.station === st);
+    el.textContent = r && r.probability != null ? pct(r.probability * 100) + '%' : '—';
+    el.style.color = r && r.probability >= 0.5 ? 'var(--color-bad)' : r && r.probability >= 0.3 ? 'var(--color-warn)' : '';
+    el.style.fontWeight = r && r.probability >= 0.3 ? '600' : '';
+    el.classList.remove('dash-skeleton');
+  });
+  setText('[data-source="night_forecast"][data-field="issued_at"]', nfRows[0] && nfRows[0].issued_at ? fmtHour.format(new Date(nfRows[0].issued_at.replace(' ', 'T'))) : '—');
+  setText('[data-source="night_forecast"][data-field="night_of"]', nfRows[0] ? dayFmt.format(dayDate(nfRows[0].night_of)) : '—');
+  document.getElementById('night-issued').title = nfRows[0] ? `Trained on ${nfRows[0].trained_on_nights} station-nights; issued by the ${nfRows[0].source}. Tonight's weather inputs are forecasts.` : '';
   const fp = dash.data('forecast_peak');
   setText('[data-source="forecast_peak"][data-field="max_prob_30"]', fp.status === 'ok' && fp.data ? pct(fp.data.max_prob_30) : '—');
   const fs = dash.data('h2s_forecast_24h');
@@ -669,17 +732,7 @@ dash.onData(() => {
       : d3.format(',')(v);
     el.classList.remove('dash-skeleton');
   });
-  const nEl = document.getElementById('ch-nights'), nSum = document.getElementById('nights-summary');
-  const ns = statusOf(['forecast_nights']);
-  if (ns === 'ok') {
-    drawNights(nEl);
-    const rows = dash.data('forecast_nights').data;
-    const ev = rows.filter((r) => r.peak_ppb != null && r.peak_ppb > 30);
-    const byNight = ev.filter((r) => r.outcome_night === 'warned').length, byPers = ev.filter((r) => r.outcome_persistence === 'warned').length;
-    const faNight = rows.filter((r) => r.outcome_night === 'false alarm').length, faPers = rows.filter((r) => r.outcome_persistence === 'false alarm').length;
-    const nightsN = new Set(rows.map((r) => r.night_of)).size;
-    nSum.textContent = `Last ${nightsN} nights: ${ev.length} station-night${ev.length === 1 ? '' : 's'} over 30 ppb. Night-target model at 50% warned ${byNight} (${faNight} false alarm${faNight === 1 ? '' : 's'}); persistence warned ${byPers} (${faPers} false alarm${faPers === 1 ? '' : 's'}).`;
-  } else { pending(nEl, ns); nSum.textContent = ''; }
+  drawNightsCard();
 
   const tn = dash.data('temp_now');
   const w = tn.status === 'ok' ? tn.data : null;

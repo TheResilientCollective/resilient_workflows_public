@@ -39,7 +39,8 @@ def main():
         print('put', f's3://{a.bucket}/{a.prefix}{key}', len(data))
 
     files = sorted(glob.glob(os.path.join(a.out_dir, '*.json')))
-    datasets = [os.path.basename(f)[:-5] for f in files if not f.endswith('forecast_log.json')]
+    logs = ('forecast_log.json', 'night_log.json')  # running records kept in the bucket, not page datasets
+    datasets = [os.path.basename(f)[:-5] for f in files if not f.endswith(logs)]
     # data first, so the page never points at files that are not there yet
     for f in files:
         put('data/' + os.path.basename(f), open(f).read(), 'application/json')
