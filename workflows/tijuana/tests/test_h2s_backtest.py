@@ -152,6 +152,7 @@ def test_simulate_shape_and_no_leakage(preds, hourly, cfg):
     assert set(preds["p_persistence"].unique()) <= {0.0, 1.0}
     assert preds["p_history"].notna().all()
     assert preds["p_night"].notna().all()
+    assert preds["p_binary"].notna().all()
     # each (station, issue, target hour) is scored exactly once
     assert not preds.duplicated(["site_name", "issue_time", "target_time"]).any()
     assert (preds.groupby(["site_name", "issue_time"])["fold"].nunique() == 1).all()
@@ -247,9 +248,33 @@ def test_episode_positions_and_false_alarm_timing():
     fa = bt.false_alarm_timing(nights, "night", 0.5)
     # day 0 is one day before the first episode; day 4 one day after it; day 8 two days after the single night
     assert fa["1 day before"] == 1 and fa["1 day after"] == 1 and fa["2 days after"] == 1 and sum(fa.values()) == 3
-    tm = bt.timing_summary(nights.assign(p_deployed=0.0, p_served_time=0.0, p_history=0.0, p_persistence=0.0), bt.BacktestConfig())
+    tm = bt.timing_summary(nights.assign(p_deployed=0.0, p_served_time=0.0, p_history=0.0, p_binary=0.0, p_persistence=0.0), bt.BacktestConfig())
     assert tm["episodes"] == 2 and tm["positions"] == {"single": 1, "start": 1, "middle": 1, "end": 1}
     k = tm["by_variant"]["night@0.5"]
     assert k["hits_by_position"] == {"single": 1, "start": 0, "middle": 1, "end": 1}
     assert k["night_before_episode"]["n"] == 2 and k["night_before_episode"]["share_warned"] == 0.5
+
+
+def test_binary_model_sees_no_h2s_values(nightly, cfg):
+    """Every H2S-derived input of the binary model is an indicator or a count, never a concentration."""
+    numeric_h2s = {"hist_last_h2s", "hist_max_24h", "hist_mean_24h", "hist_max_72h", "prev1_peak_log", "prev3_peak_log", "prev7_peak_log", "h2s_max", "peak_h2s"}
+    assert not numeric_h2s & set(cfg.features_binary)
+    assert not any(f.startswith("h2s_") for f in cfg.features_binary)
+    for c in ("exc_last_night", "exc_last_24h", "exc_last_72h"):
+        assert set(nightly[c].unique()) <= {0, 1}, c
+    assert nightly["exc_nights_last_7"].between(0, 7).all()
+    assert nightly["nights_since_exceedance"].between(0, cfg.max_nights_since_exceedance).all()
+    one = nightly[nightly["site_name"] == "NESTOR - BES"].reset_index(drop=True)
+    # last-night indicator is yesterday's target, and the 7-night count is the sum of the previous seven targets
+    assert (one["exc_last_night"].iloc[1:].to_numpy() == one["y_night"].iloc[:-1].to_numpy()).all()
+    assert one["exc_nights_last_7"].iloc[10] == one["y_night"].iloc[3:10].sum()
+    assert (one["exc_last_24h"] == (one["hist_max_24h"] > cfg.threshold).astype(int)).all()
+
+
+def test_focus_variant_drives_the_page(preds, nightly):
+    focus = bt.BacktestConfig(threshold=30, n_folds=2, n_estimators=25, min_train_positives=5, focus_variant="binary")
+    metrics = bt.score(preds, focus, nightly=nightly)
+    assert metrics["meteorology"]["variant"] == "binary"
+    page = bt.render_html(metrics, preds, focus, generated_at="test")
+    assert "binary night model" in page and "warned by the binary night model" in page
 

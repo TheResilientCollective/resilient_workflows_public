@@ -66,14 +66,15 @@ def _put_text(s3_resource, text: str, name: str, content_type: str):
     return latest_key
 
 
-def _backtest_asset(default_threshold: float, cron: str):
-    """One backtest asset per classifier threshold; all share the logic below."""
+def _backtest_asset(default_threshold: float, cron: str, focus_variant: str = "night", suffix: str = ""):
+    """One backtest asset per classifier threshold (and per focus model); all share the logic below."""
     t = f"{default_threshold:g}"
+    focus_note = "" if focus_variant == "night" else f" The page is built around the {bt.VARIANT_LABELS[focus_variant]}."
 
     @asset(
         group_name="tijuana",
         key_prefix="h2sforecast",
-        name=f"h2s_backtest_{t}ppb",
+        name=f"h2s_backtest_{t}ppb{suffix}",
         required_resource_keys={"s3"},
         deps=[AssetKey(["h2sforecast", "modeldata_h2s_nofill"]), AssetKey(["h2sforecast", "h2s_nightly_summary"])],
         metadata={
@@ -85,7 +86,7 @@ def _backtest_asset(default_threshold: float, cron: str):
                 "night-target, persistence and climatology comparison lines. Publishes "
                 "per-hour predictions, a metrics JSON and a self-contained HTML evaluation "
                 "page. Weather, tide and flow inputs are observed values, so the skill is "
-                "an upper bound on operational skill."
+                "an upper bound on operational skill." + focus_note
             ),
             "variableMeasured": ["H2S", "Exceedance Probability", "Forecast Skill"],
         },
@@ -93,12 +94,12 @@ def _backtest_asset(default_threshold: float, cron: str):
         automation_condition=AutomationCondition.on_cron(cron),
     )
     def _run(context, config: BacktestRunConfig) -> MaterializeResult:
-        return _run_backtest(context, config, default_threshold)
+        return _run_backtest(context, config, default_threshold, focus_variant, suffix)
 
     return _run
 
 
-def _run_backtest(context, config: BacktestRunConfig, default_threshold: float) -> MaterializeResult:
+def _run_backtest(context, config: BacktestRunConfig, default_threshold: float, focus_variant: str = "night", suffix: str = "") -> MaterializeResult:
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
     bucket = config.source_bucket or s3_resource.S3_BUCKET
@@ -106,9 +107,9 @@ def _run_backtest(context, config: BacktestRunConfig, default_threshold: float) 
         threshold=config.threshold if config.threshold is not None else default_threshold,
         issue_hour=config.issue_hour, horizon_hours=config.horizon_hours,
         n_folds=config.n_folds, initial_train_fraction=config.initial_train_fraction,
-        n_estimators=config.n_estimators, cutoff=config.cutoff,
+        n_estimators=config.n_estimators, cutoff=config.cutoff, focus_variant=focus_variant,
     )
-    name = f"h2s_backtest_{cfg.threshold:g}ppb"
+    name = f"h2s_backtest_{cfg.threshold:g}ppb{suffix}"
 
     raw = _load_parquet(s3_resource, bucket, SOURCE_KEY)
     logger.info(f"Loaded {len(raw):,} rows of {SOURCE_KEY} from bucket {bucket}")
@@ -156,3 +157,5 @@ def _run_backtest(context, config: BacktestRunConfig, default_threshold: float) 
 #: weekly runs do not compete for the same worker.
 h2s_backtest_30ppb = _backtest_asset(30.0, "0 14 * * 1")
 h2s_backtest_70ppb = _backtest_asset(70.0, "0 16 * * 1")
+#: Binary classifier (< 30 / >= 30 ppb) with no H2S concentration in any feature.
+h2s_backtest_30ppb_binary = _backtest_asset(30.0, "0 18 * * 1", focus_variant="binary", suffix="_binary")
