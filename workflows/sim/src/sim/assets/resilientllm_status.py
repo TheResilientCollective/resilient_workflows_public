@@ -47,7 +47,7 @@ from .sandiego_epidemiology_forecasts import (
 )
 
 RESILIENTLLM_POLL_SECONDS = int(os.environ.get("RESILIENTLLM_POLL_SECONDS", "300"))
-RESILIENTLLM_TIMEOUT_HOURS = float(os.environ.get("RESILIENTLLM_TIMEOUT_HOURS", "6"))
+RESILIENTLLM_TIMEOUT_HOURS = float(os.environ.get("RESILIENTLLM_TIMEOUT_HOURS", "144"))# six days for a weekly run
 RESILIENTLLM_MAX_TRACKED_RUNS = int(os.environ.get("RESILIENTLLM_MAX_TRACKED_RUNS", "20"))
 RETENTION_DAYS = 14
 PARSE_OP_NAME = "sandiego__resilientllm_sd_disease"
@@ -198,7 +198,7 @@ def _notify_failure(context: SensorEvaluationContext, reason: str) -> None:
         context.resources.slack.get_client().chat_postMessage(channel=SLACK_CHANNEL, text=text)
     except Exception as e:
         logger.error(f"Error sending Slack LLM failure alert: {e}")
-    send_email("[Dagster] ResilientLLM by-disease summary failed", text.replace("*", "").replace("`", ""))
+   # send_email("[Dagster] ResilientLLM by-disease summary failed", text.replace("*", "").replace("`", ""))
 
 
 @sensor(

@@ -1010,6 +1010,7 @@ def resilientllm_by_disease_request(context) -> Output[dict]:
 <body>
     <p>The San Diego epidemiology forecast simulation completed on {date_path} and the ResilientLLM summary has been requested (run id <code>{handle.id}</code>).</p>
     <p><strong>Diseases:</strong> {', '.join(DISEASES_CONFIG.keys())}</p>
+    <p><a href="{FORECAST_NETLIFY_PRODUCTION_2_URL}" target="_blank">View the forecast</a></p>
     <p>The summary will be published automatically once the LLM run finishes.</p>
     <hr>
     <small>This is an automated notification from the Resilient Workflows system.</small>
