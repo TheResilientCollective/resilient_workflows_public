@@ -147,6 +147,23 @@ Spearman with the night's peak:
 - The 2024 canal gauge is strongly anti-correlated with the border gauge
   (−0.8), consistent with it measuring diverted flow.
 
+### Break points in the observations (`05_sensor_breakpoints.py`)
+
+Independent of the health references, the record has its own structure
+(computed 2026-11-05). Hourly at NESTOR there is no break at 30 ppb: the
+survival curve's log-log slope is constant from 5 to 40 ppb, steepens near
+40 and again near 100, and the tail ends above 300. Nightly peaks are
+multimodal, with valleys near 6, 14, 35 and 100 ppb that hold across
+smoothing choices: five natural night classes, with 35 the neighbour of the
+30 ppb alert and the 70 ppb tier inside the elevated class. The second
+monitor wakes at about 5 ppb at NESTOR (IB Civic Center above 5 on 3% of
+nights below that, 29% just above), registers on most nights by 20–30, and
+the other monitors only start exceeding 30 themselves once NESTOR is above
+100 (on most nights above 200). An IB exceedance implies a NESTOR exceedance
+9 times in 10; a San Ysidro exceedance does not, so San Ysidro has a source
+regime of its own. Candidate observation-based tiers at NESTOR: 5, 35–40,
+100, 200.
+
 ### Choosing the upper threshold (`04_upper_threshold.py`)
 
 Is there a better break than 100 ppb? Three readings on the NESTOR record,
