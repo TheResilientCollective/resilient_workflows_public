@@ -363,6 +363,42 @@ What it says:
   cutoff near 0.2–0.3. The night-target model does not have this problem,
   which is the practical argument for Session 4 to build the product on it.
 
+### Binary night model: no H2S concentration in any feature (`h2s_backtest_30ppb_binary`)
+
+Decision (2026-11-05): add a binary classifier, below versus at or above
+30 ppb, whose features carry **no H2S concentration**. It is the night-target
+design with the H2S history reduced to exceedance indicators: did the last
+night exceed, how many of the last seven did, nights since the last one, and
+whether the 24 h and 72 h before issue reached the threshold, plus the
+night's meteorology, flow, SBIWTP and tide. It appears on every backtest page
+as the `binary` line, a third backtest asset publishes a page built around it
+(`h2s_backtest_30ppb_binary.html`), and `h2s_night_forecast_30ppb_binary`
+serves it alongside the night-target forecast. A test asserts no numeric H2S
+feature can enter it; where it lacks a nightly row it falls back to
+persistence, which is itself binary.
+
+First run, 2026-11-05, 1,075 station-nights from 2025-05-10, 196 events:
+
+| variant | nightly AUC | avg precision | Brier skill | at 0.5: warned / false alarms | at 0.3: warned / false alarms |
+|---|---|---|---|---|---|
+| night-target (with H2S values) | 0.86 | 0.64 | +0.32 | 99 / 55 | 151 / 130 |
+| **binary (indicators only)** | 0.84 | 0.61 | +0.28 | 96 / 53 | 135 / 144 |
+| persistence | 0.75 | 0.43 | +0.01 | 116 / 79 | same |
+
+Removing the concentrations costs little: two points of AUC and three of
+Brier skill, and at the 0.5 cutoff the two models are within three nights
+of each other on both hits and false alarms. At NESTOR they are identical
+(89 against 88 hits, 40 against 38 false alarms). The gap opens at lower
+cutoffs and on episode starts: at 0.3 the binary model warns of 18 of 37
+episode starts and 10 of 44 single nights against 23 and 19 for the
+night-target model, because "last night exceeded" carries less than "last
+night peaked at 25 ppb". Its false alarms fall in the same places, mostly the
+night before or after an event.
+
+Served: the first issue, for the night of 2026-11-04, gave NESTOR 0.19,
+IB CIVIC CTR 0.06 and SAN YSIDRO 0.04 (development bucket; the production
+issue needs a run of the forecast asset there).
+
 ### The same backtest at 70 ppb (`h2sforecast/h2s_backtest_70ppb`)
 
 The asset is built by a factory, one per classifier threshold, so the 70 ppb
