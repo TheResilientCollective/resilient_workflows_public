@@ -80,7 +80,7 @@ from .hysplit_forecasting import (
     modeldata_h2s_15min_24hour,
 )
 from .h2s_backtest import h2s_backtest_30ppb, h2s_backtest_70ppb, h2s_backtest_30ppb_binary
-from .h2s_night_forecast import h2s_night_forecast_30ppb, h2s_night_forecast_70ppb
+from .h2s_night_forecast import h2s_night_forecast_30ppb, h2s_night_forecast_70ppb, h2s_night_forecast_30ppb_binary
 from .tides import (
     tides_all_job,
     tides_monthly,tides_hourly,tidal_forecast,

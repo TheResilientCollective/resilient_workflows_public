@@ -33,11 +33,21 @@ from .night_analysis import summarize_nights
 REVIEW_CUTOFFS = (0.3, 0.4, 0.5)
 
 
-def train(nightly_rows: pd.DataFrame, cfg: bt.BacktestConfig):
+def features_for(cfg: bt.BacktestConfig, variant: str = "night") -> list:
+    """The feature list a served variant uses: ``night`` (peaks and H2S history) or
+    ``binary`` (exceedance indicators only, no H2S concentration)."""
+    if variant == "night":
+        return list(cfg.features_night)
+    if variant == "binary":
+        return list(cfg.features_binary)
+    raise ValueError(f"unknown served variant {variant!r}; expected 'night' or 'binary'")
+
+
+def train(nightly_rows: pd.DataFrame, cfg: bt.BacktestConfig, variant: str = "night"):
     """Fit the night-target model on every prepared station-night."""
     if nightly_rows.empty or nightly_rows["y_night"].nunique() < 2:
         raise ValueError("night-target training needs both event and non-event nights")
-    return bt._fit(nightly_rows, nightly_rows["y_night"].to_numpy(), list(cfg.features_night), cfg)
+    return bt._fit(nightly_rows, nightly_rows["y_night"].to_numpy(), features_for(cfg, variant), cfg)
 
 
 def night_of(issue: pd.Timestamp) -> pd.Timestamp:
@@ -106,11 +116,17 @@ def previous_peaks(nightly: pd.DataFrame, astro_day: pd.Timestamp, cfg: bt.Backt
     rows = []
     for site, g in n.groupby("site_name", sort=False):
         peaks = g["h2s_max"].to_numpy()
+        exceeded = peaks > cfg.threshold
+        since = (len(exceeded) - 1 - int(np.flatnonzero(exceeded)[-1])) if exceeded.any() else cfg.max_nights_since_exceedance
         rows.append({
             "site_name": site,
             "prev1_peak_log": float(np.log1p(peaks[-1])),
             "prev3_peak_log": float(np.log1p(peaks[-3:].mean())),
             "prev7_peak_log": float(np.log1p(peaks[-7:].mean())),
+            # exceedance-only history for the binary variant, as prepare_nightly builds it
+            "exc_last_night": int(exceeded[-1]),
+            "exc_nights_last_7": int(exceeded[-7:].sum()),
+            "nights_since_exceedance": int(min(since + 1, cfg.max_nights_since_exceedance)),
             "last_night_scored": g["astro_day_date"].iloc[-1],
         })
     return pd.DataFrame(rows)
@@ -146,13 +162,15 @@ def history_at_issue(hourly: pd.DataFrame, issue: pd.Timestamp, cfg: bt.Backtest
             continue
         st = bt.last_known_state(s, issue, cfg)
         rows.append({"site_name": site, **{k: st[k] for k in bt.NIGHT_HISTORY_FEATURES},
+                     "exc_last_24h": int(st["hist_max_24h"] > cfg.threshold),
+                     "exc_last_72h": int(st["hist_max_72h"] > cfg.threshold),
                      "last_h2s_time": s["time"].iloc[-1]})
     return pd.DataFrame(rows)
 
 
 def tonight_features(forecast: pd.DataFrame, nightly: pd.DataFrame, hourly: pd.DataFrame,
                      issue: pd.Timestamp, cfg: bt.BacktestConfig, recent: pd.DataFrame | None = None) -> pd.DataFrame:
-    """One row per station with every ``cfg.features_night`` column for the night ``issue`` covers.
+    """One row per station with every ``cfg.features_night`` and ``cfg.features_binary`` column for the night ``issue`` covers.
 
     ``recent`` (optional) holds the latest monitor readings with the astronomical frame
     attached; it fills the gap between the end of the training record and the issue.
@@ -172,14 +190,14 @@ def tonight_features(forecast: pd.DataFrame, nightly: pd.DataFrame, hourly: pd.D
     return out
 
 
-def forecast(models, features: pd.DataFrame, cfg: bt.BacktestConfig) -> pd.DataFrame:
+def forecast(models, features: pd.DataFrame, cfg: bt.BacktestConfig, variant: str = "night") -> pd.DataFrame:
     """Tonight's probability per station, with a warning flag at each review cutoff.
 
     A station missing any feature (for example, no forecast weather for it) gets
     no probability rather than a guess.
     """
     out = features.copy()
-    cols = list(cfg.features_night)
+    cols = features_for(cfg, variant)
     ok = out[cols].notna().all(axis=1)
     out["probability"] = np.nan
     if ok.any():

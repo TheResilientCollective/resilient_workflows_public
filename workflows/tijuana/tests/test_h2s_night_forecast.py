@@ -189,3 +189,34 @@ def test_train_refuses_a_single_class(prepared):
     cfg, _, _, rows = prepared
     with pytest.raises(ValueError):
         nf.train(rows.assign(y_night=0), cfg)
+
+
+def test_binary_history_matches_training_rows(prepared):
+    """The served exceedance indicators equal what prepare_nightly built for the same night."""
+    cfg, hourly, nightly, rows = prepared
+    for site in SITES:
+        r = rows[rows["site_name"] == site].iloc[-1]
+        p = nf.previous_peaks(nightly, r["astro_day_date"], cfg).set_index("site_name").loc[site]
+        for c in ("exc_last_night", "exc_nights_last_7", "nights_since_exceedance"):
+            assert p[c] == r[c], (site, c)
+        h = nf.history_at_issue(hourly, r["issue_time"], cfg).set_index("site_name").loc[site]
+        for c in ("exc_last_24h", "exc_last_72h"):
+            assert h[c] == r[c], (site, c)
+
+
+def test_binary_variant_serves_without_h2s_values(prepared):
+    cfg, hourly, nightly, rows = prepared
+    models = nf.train(rows, cfg, variant="binary")
+    day = pd.Timestamp(hourly["time"].max().tz_localize(None).normalize())
+    issue = (day + pd.Timedelta(hours=15)).tz_localize(TZ)
+    feats = nf.tonight_features(_forecast_frame(day), nightly, hourly, issue, cfg)
+    cols = nf.features_for(cfg, "binary")
+    assert set(cols) <= set(feats.columns)
+    assert not any(c.startswith(("hist_last", "hist_max", "hist_mean", "prev")) for c in cols)
+    # the numeric history may be absent and the binary model must still serve
+    feats = feats.drop(columns=[c for c in ("hist_last_h2s", "hist_max_24h", "hist_mean_24h", "hist_max_72h", "prev1_peak_log", "prev3_peak_log", "prev7_peak_log") if c in feats.columns])
+    out = nf.forecast(models, feats, cfg, variant="binary").set_index("site_name")
+    assert out["probability"].between(0, 1).all()
+    with pytest.raises(ValueError):
+        nf.features_for(cfg, "hourly")
+

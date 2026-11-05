@@ -109,14 +109,24 @@ def update_history(history: pd.DataFrame, issued: pd.DataFrame) -> pd.DataFrame:
     return out.drop_duplicates(["astro_day_date", "site_name"], keep="last").sort_values(["astro_day_date", "site_name"])
 
 
-def _night_forecast_asset(default_threshold: float):
-    """One serving asset per classifier threshold; all share the logic below."""
+def _night_forecast_asset(default_threshold: float, variant: str = "night", suffix: str = ""):
+    """One serving asset per classifier threshold and served variant; all share the logic below."""
     t = f"{default_threshold:g}"
+    variant_note = {
+        "night": "from the night-target model the backtest recommends: trained each run on every "
+                 "station-night of the record, served with tonight's forecast meteorology, flow, "
+                 "SBIWTP and tide, the previous nights' peaks and the H2S history at the issue. ",
+        "binary": "from the binary night model: a below / at-or-above classifier trained each run on "
+                  "every station-night of the record and served with tonight's forecast meteorology, "
+                  "flow, SBIWTP and tide plus exceedance indicators only (did the last night exceed, how "
+                  "many of the last seven did, nights since the last, whether the 24 h and 72 h before "
+                  "issue reached the threshold). No H2S concentration enters this model. ",
+    }[variant]
 
     @asset(
         group_name="tijuana",
         key_prefix="h2sforecast",
-        name=f"h2s_night_forecast_{t}ppb",
+        name=f"h2s_night_forecast_{t}ppb{suffix}",
         required_resource_keys={"s3"},
         deps=[
             AssetKey(["h2sforecast", "modeldata_h2s_nofill"]),
@@ -127,9 +137,7 @@ def _night_forecast_asset(default_threshold: float):
             "source": "h2sforecast/modeldata_forecast_15min_astronomical_day",
             "description": (
                 f"Tonight's chance that each monitor's night peak (sunset to sunrise) passes {t} ppb, "
-                "from the night-target model the backtest recommends: trained each run on every "
-                "station-night of the record, served with tonight's forecast meteorology, flow, "
-                "SBIWTP and tide, the previous nights' peaks and the H2S history at the issue. "
+                + variant_note +
                 "Flags warnings at cutoffs 0.3, 0.4 and 0.5 and keeps a per-night history for verification."
             ),
             "variableMeasured": ["H2S", "Exceedance Probability"],
@@ -138,12 +146,12 @@ def _night_forecast_asset(default_threshold: float):
         automation_condition=AutomationCondition.eager(),
     )
     def _run(context, config: NightForecastConfig) -> MaterializeResult:
-        return _serve(context, config, default_threshold)
+        return _serve(context, config, default_threshold, variant, suffix)
 
     return _run
 
 
-def _serve(context, config: NightForecastConfig, default_threshold: float) -> MaterializeResult:
+def _serve(context, config: NightForecastConfig, default_threshold: float, variant: str = "night", suffix: str = "") -> MaterializeResult:
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
     bucket = config.source_bucket or s3_resource.S3_BUCKET
@@ -151,13 +159,13 @@ def _serve(context, config: NightForecastConfig, default_threshold: float) -> Ma
         threshold=config.threshold if config.threshold is not None else default_threshold,
         issue_hour=config.issue_hour, n_estimators=config.n_estimators,
     )
-    name = f"h2s_night_forecast_{cfg.threshold:g}ppb"
+    name = f"h2s_night_forecast_{cfg.threshold:g}ppb{suffix}"
 
     hourly = bt.prepare_hourly(_parquet(s3_resource, bucket, SOURCE_KEY), cfg)
     nightly_raw = _parquet(s3_resource, bucket, NIGHTLY_KEY)
     rows = bt.prepare_nightly(nightly_raw, hourly, cfg)
     logger.info(f"Training on {len(rows):,} station-nights, {int(rows['y_night'].sum()):,} above {cfg.threshold:g} ppb")
-    models = nf.train(rows, cfg)
+    models = nf.train(rows, cfg, variant)
 
     frames = []
     for key in RECENT_KEYS:
@@ -172,7 +180,7 @@ def _serve(context, config: NightForecastConfig, default_threshold: float) -> Ma
     feats = nf.tonight_features(_parquet(s3_resource, bucket, FORECAST_KEY), nightly_raw, hourly, issue, cfg, recent=recent)
     if feats.empty:
         raise ValueError(f"No forecast rows for the night of {nf.night_of(issue).date()}; is the forecast data current?")
-    out = nf.forecast(models, feats, cfg)
+    out = nf.forecast(models, feats, cfg, variant)
     out["model_trained_on_nights"] = len(rows)
     out["astro_day_date"] = pd.to_datetime(out["astro_day_date"]).dt.strftime("%Y-%m-%d")
     for c in ("issue_time", "night_start", "last_h2s_time", "last_night_scored"):
@@ -185,7 +193,7 @@ def _serve(context, config: NightForecastConfig, default_threshold: float) -> Ma
         "threshold_ppb": cfg.threshold,
         "night_of": out["astro_day_date"].iloc[0],
         "cutoffs": list(nf.REVIEW_CUTOFFS),
-        "model": {"variant": "night", "trained_on_nights": len(rows), "event_nights": int(rows["y_night"].sum()),
+        "model": {"variant": variant, "trained_on_nights": len(rows), "event_nights": int(rows["y_night"].sum()),
                   "last_training_night": str(rows["astro_day_date"].max().date()), "n_estimators": cfg.n_estimators},
         "note": "Meteorology, flow, SBIWTP and tide for tonight are forecasts; the backtest scored the model on observed values.",
         "stations": json.loads(out.to_json(orient="records")),
@@ -217,3 +225,5 @@ def _serve(context, config: NightForecastConfig, default_threshold: float) -> Ma
 #: 30 ppb is the County's alert level; 70 ppb the ATSDR acute MRL tier, a NESTOR product for now.
 h2s_night_forecast_30ppb = _night_forecast_asset(30.0)
 h2s_night_forecast_70ppb = _night_forecast_asset(70.0)
+#: Binary classifier (< 30 / >= 30 ppb) served with no H2S concentration in any feature.
+h2s_night_forecast_30ppb_binary = _night_forecast_asset(30.0, variant="binary", suffix="_binary")
