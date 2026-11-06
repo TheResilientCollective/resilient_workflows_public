@@ -6,8 +6,12 @@ data published by USDA APHIS.
 Source: the "CSV" button on
 https://www.aphis.usda.gov/animals/animal-health/livestock-and-poultry-disease/current-status
 which points at a Drupal-hosted file that APHIS refreshes daily (after ~5:30pm
-Eastern). The file sits behind Akamai bot protection, so the request must send a
-full browser-like header set or the connection is reset.
+Eastern). The file sits behind Akamai bot protection. As of Nov 2026 a plain
+``requests.get`` with the default ``python-requests`` User-Agent is accepted,
+while sending browser-impersonating headers (see ``BROWSER_HEADERS``) gets a
+403: Akamai flags the mismatch between a Chrome header set and Python's TLS
+fingerprint. If this starts failing again, fetch via Playwright Chromium (a real
+browser downloads the file without issue) rather than tweaking headers.
 """
 
 import io
@@ -46,9 +50,10 @@ NWS_STATUS_PAGE = (
 )
 NWS_CSV_URL = "https://www.aphis.usda.gov/sites/default/files/nws-weekly-status.csv"
 
-# APHIS serves this file through Akamai; a partial header set gets the stream
-# reset (HTTP/2 INTERNAL_ERROR). Sending a complete Chrome header set lets it
-# through.
+# Browser-like header set used by the other APHIS/screwworm fetches below.
+# Do NOT use it for NWS_CSV_URL: since Nov 2026 Akamai returns 403 to this
+# spoofed Chrome fingerprint on that file, while the default requests headers
+# are accepted (see module docstring).
 BROWSER_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -96,7 +101,8 @@ def nws_weekly_status(context) -> pd.DataFrame:
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
 
-    response = requests.get(NWS_CSV_URL, headers=BROWSER_HEADERS, timeout=60)
+    # Deliberately no BROWSER_HEADERS here; see module docstring.
+    response = requests.get(NWS_CSV_URL, timeout=60)
     response.raise_for_status()
     logger.info(f"Downloaded NWS status CSV: {len(response.content)} bytes")
 
