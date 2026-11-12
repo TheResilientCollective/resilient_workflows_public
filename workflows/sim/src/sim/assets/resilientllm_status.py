@@ -46,7 +46,7 @@ from .sandiego_epidemiology_forecasts import (
     send_email,
 )
 
-RESILIENTLLM_POLL_SECONDS = int(os.environ.get("RESILIENTLLM_POLL_SECONDS", "3000"))
+RESILIENTLLM_POLL_SECONDS = int(os.environ.get("RESILIENTLLM_POLL_SECONDS", "1800"))
 RESILIENTLLM_TIMEOUT_HOURS = float(os.environ.get("RESILIENTLLM_TIMEOUT_HOURS", "144"))# six days for a weekly run
 RESILIENTLLM_MAX_TRACKED_RUNS = int(os.environ.get("RESILIENTLLM_MAX_TRACKED_RUNS", "20"))
 RETENTION_DAYS = 14
