@@ -16,6 +16,7 @@ dependencies = [
     "awswrangler",
     "pygithub>=2.8.1",
     "requests",
+    "tenacity==9.1.4",
     "epiweeks",
     "pyairtable>3",
     "pyyaml",

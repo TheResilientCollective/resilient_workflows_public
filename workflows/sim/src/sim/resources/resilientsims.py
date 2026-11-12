@@ -1,9 +1,33 @@
 import os
 import requests
 import time
-from typing import Dict, Any, Optional, List
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional, List, Callable, TypeVar
 from pydantic import Field
 from dagster import get_dagster_logger, ConfigurableResource
+from tenacity import (
+    Retrying,
+    RetryCallState,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+T = TypeVar("T")
+
+# HTTP statuses that indicate the server is temporarily unavailable and worth retrying.
+RETRYABLE_HTTP_STATUSES = {502, 503, 504}
+
+
+def is_transient_request_error(exc: BaseException) -> bool:
+    """True for DNS/connection/timeout failures and 5xx gateway errors, which are worth retrying.
+    Auth failures and 4xx client errors are not retried."""
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return True
+    if isinstance(exc, requests.HTTPError):
+        response = exc.response
+        return response is not None and response.status_code in RETRYABLE_HTTP_STATUSES
+    return False
 
 SLACK_CHANNEL = os.environ.get("SLACK_SIMS_CHANNEL", "#test")
 class ResourceWithResilientSimsConfiguration(ConfigurableResource):
@@ -28,6 +52,18 @@ class ResourceWithResilientSimsConfiguration(ConfigurableResource):
     RESILIENTSIMS_BUCKET: str = Field(
         description="S3 bucket for output"
     )
+    RESILIENTSIMS_RETRY_ATTEMPTS: int = Field(
+        default=5,
+        description="Total attempts for each ResilientSIMS HTTP call before giving up (1 = no retry)"
+    )
+    RESILIENTSIMS_RETRY_FIRST_WAIT_SECONDS: int = Field(
+        default=90,
+        description="Seconds to wait before the first retry; each later wait doubles, capped by RESILIENTSIMS_RETRY_MAX_WAIT_SECONDS"
+    )
+    RESILIENTSIMS_RETRY_MAX_WAIT_SECONDS: int = Field(
+        default=600,
+        description="Upper bound on the wait between retries, in seconds"
+    )
 class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
     """Resource for interacting with ResilientSIMS API"""
 
@@ -41,8 +77,54 @@ class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
         """Get or create HTTP session with authentication"""
         if self._session is None:
             self._session = requests.Session()
-            self._authenticate()
+            try:
+                self._authenticate()
+            except requests.RequestException:
+                # Drop the half-initialised session so the next attempt starts clean
+                self._session = None
+                raise
         return self._session
+
+    def _reset_session(self) -> None:
+        """Forget the current session so the next call re-authenticates."""
+        if self._session is not None:
+            try:
+                self._session.close()
+            except Exception:
+                pass
+        self._session = None
+        self._auth_token = None
+
+    def _with_retry(self, description: str, fn: Callable[[], T]) -> T:
+        """Run ``fn`` with tenacity retries on transient network/server errors.
+
+        Waits RESILIENTSIMS_RETRY_FIRST_WAIT_SECONDS before the first retry and doubles each time
+        (capped by RESILIENTSIMS_RETRY_MAX_WAIT_SECONDS). The session is reset between attempts so a
+        failed login or dropped connection is re-established rather than reused.
+        """
+        logger = get_dagster_logger()
+
+        def _log_before_sleep(retry_state: RetryCallState) -> None:
+            exc = retry_state.outcome.exception() if retry_state.outcome else None
+            wait = retry_state.next_action.sleep if retry_state.next_action else 0
+            logger.warning(
+                f"ResilientSIMS {description} failed on attempt {retry_state.attempt_number}"
+                f"/{self.RESILIENTSIMS_RETRY_ATTEMPTS}: {exc}. Retrying in {wait:.0f}s"
+            )
+            self._reset_session()
+
+        retrying = Retrying(
+            retry=retry_if_exception(is_transient_request_error),
+            wait=wait_exponential(
+                multiplier=self.RESILIENTSIMS_RETRY_FIRST_WAIT_SECONDS,
+                min=self.RESILIENTSIMS_RETRY_FIRST_WAIT_SECONDS,
+                max=self.RESILIENTSIMS_RETRY_MAX_WAIT_SECONDS,
+            ),
+            stop=stop_after_attempt(max(1, self.RESILIENTSIMS_RETRY_ATTEMPTS)),
+            before_sleep=_log_before_sleep,
+            reraise=True,
+        )
+        return retrying(fn)
 
     def _authenticate(self) -> None:
         """Authenticate with the ResilientSIMS API"""
@@ -114,14 +196,15 @@ class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
         """
         RESILIENTSIMS_BASE_URL = f"{self.RESILIENTSIMS_SERVER_URL}{self.RESILIENTSIMS_API_PATH}"
         logger = get_dagster_logger()
-        session = self._get_session()
+
+        def _call():
+            session = self._get_session()
+            response = session.get(f"{RESILIENTSIMS_BASE_URL}/simulators/")
+            response.raise_for_status()
+            return response.json()
 
         try:
-            url = f"{RESILIENTSIMS_BASE_URL}/simulators/"
-            response = session.get(url)
-            response.raise_for_status()
-
-            simulators = response.json()
+            simulators = self._with_retry("list simulators", _call)
             logger.info(f"Retrieved {len(simulators)} simulators")
             return simulators
 
@@ -153,14 +236,16 @@ class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
         """
         RESILIENTSIMS_BASE_URL = f"{self.RESILIENTSIMS_SERVER_URL}{self.RESILIENTSIMS_API_PATH}"
         logger = get_dagster_logger()
-        session = self._get_session()
 
-        try:
+        def _call():
+            session = self._get_session()
             url = f"{RESILIENTSIMS_BASE_URL}/simulators/{simulator_pk}/configurations/"
             response = session.post(url, json=config_data)
             response.raise_for_status()
+            return response.json()
 
-            configuration = response.json()
+        try:
+            configuration = self._with_retry(f"create configuration for simulator {simulator_pk}", _call)
             logger.info(f"Created configuration {configuration.get('id')} for simulator {simulator_pk}")
             return configuration
 
@@ -175,18 +260,20 @@ class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
         """
         RESILIENTSIMS_BASE_URL = f"{self.RESILIENTSIMS_SERVER_URL}{self.RESILIENTSIMS_API_PATH}"
         logger = get_dagster_logger()
-        session = self._get_session()
+        if run_data is None:
+            run_data = {}
 
-        try:
+        def _call():
+            session = self._get_session()
             url = f"{RESILIENTSIMS_BASE_URL}/simulators/{simulator_pk}/runs/"
-
-            if run_data is None:
-                run_data = {}
-
             response = session.post(url, json=run_data)
             response.raise_for_status()
+            return response.json()
 
-            run_info = response.json()
+        try:
+            # Note: a retry here may start a second run if the first POST reached the server
+            # but the response was lost. Transient errors at this stage are rare; accepted.
+            run_info = self._with_retry(f"start simulator {simulator_pk}", _call)
             run_id = run_info.get('id')
             name_label = f" ({simulator_name})" if simulator_name else ""
             logger.info(f"Started simulator {simulator_pk}{name_label} run with ID {run_id}")
@@ -203,14 +290,16 @@ class ResilientSimsResource(ResourceWithResilientSimsConfiguration):
         """
         RESILIENTSIMS_BASE_URL = f"{self.RESILIENTSIMS_SERVER_URL}{self.RESILIENTSIMS_API_PATH}"
         logger = get_dagster_logger()
-        session = self._get_session()
 
-        try:
+        def _call():
+            session = self._get_session()
             url = f"{RESILIENTSIMS_BASE_URL}/simulators/{simulator_pk}/runs/{run_id}/status/"
             response = session.get(url)
             response.raise_for_status()
+            return response.json()
 
-            status_info = response.json()
+        try:
+            status_info = self._with_retry(f"get status for run {run_id}", _call)
             task_status = status_info.get('task_status')
             logger.debug(f"Simulator {simulator_pk} run {run_id} status: {task_status}")
             return status_info
@@ -285,7 +374,7 @@ Run ID: {run_id}
 Status: {task_status}
 Duration: {time.time() - start_time:.0f} seconds
                             """
-                            slack_resource.get_client.chat_postMessage(channel=SLACK_CHANNEL,
+                            slack_resource.get_client().chat_postMessage(channel=SLACK_CHANNEL,
                                                         text=message)
                         except Exception as e:
                             logger.warning(f"Failed to send Slack notification: {e}")
@@ -334,6 +423,8 @@ Duration: {time.time() - start_time:.0f} seconds
             Dictionary with run information and final status
         """
         logger = get_dagster_logger()
+        workflow_start = time.time()
+        started_at = datetime.now(timezone.utc)
 
         # Step 1: Verify simulator exists
         simulator = self.verify_simulator_exists(simulator_pk)
@@ -364,9 +455,14 @@ Duration: {time.time() - start_time:.0f} seconds
                 simulator_pk, run_id, slack_resource=slack_resource
             )
 
+        duration = time.time() - workflow_start
+        logger.info(f"Simulator {simulator_pk} run {run_id} workflow finished in {duration:.0f}s")
         return {
             "simulator_pk": simulator_pk,
+            "simulator_name": simulator_name,
             "config_info": config_info,
             "run_info": run_info,
-            "final_status": final_status
+            "final_status": final_status,
+            "started_at": started_at.isoformat(),
+            "duration_seconds": round(duration, 1),
         }

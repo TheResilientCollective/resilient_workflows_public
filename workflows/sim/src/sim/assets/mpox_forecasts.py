@@ -25,6 +25,12 @@ from dagster import (
 
 from resilient_core.utils import store_assets
 
+from .sandiego_epidemiology_forecasts import (
+    find_run_directory,
+    list_run_files,
+    simulation_run_metadata,
+)
+
 # ── Environment variables ─────────────────────────────────────────────────────
 
 MPOX_BUCKET = os.environ.get("MPOX_RESILIENTSIMS_BUCKET", "resilientmpox")
@@ -133,17 +139,26 @@ def run_mpox_simulation(context) -> Output:
         monitor=True,
     )
 
-    run_path = _find_latest_mpox_run_path(s3_resource)
+    # Prefer the directory for this exact run id; fall back to the newest directory.
+    run_id = (result.get("run_info") or {}).get("id")
+    run_path = find_run_directory(s3_resource, run_id, bucket=MPOX_BUCKET, prefix=MPOX_API_RUN_PATH)
+    if run_path is None:
+        logger.warning(f"No S3 run directory ending in _run{run_id}; falling back to latest")
+        run_path = _find_latest_mpox_run_path(s3_resource)
     logger.info(f"Mpox simulation complete. Run path: {run_path}")
 
-    return Output(
-        run_path,
-        metadata={
-            "run_path": run_path,
-            "run_info": str(result.get("run_info", {})),
-            "final_status": str(result.get("final_status", {})),
-        },
+    run_files: list[dict] = []
+    try:
+        run_files = list_run_files(s3_resource, run_path, bucket=MPOX_BUCKET)
+    except Exception as e:
+        logger.warning(f"Could not list S3 outputs under {MPOX_BUCKET}/{run_path}: {e}")
+
+    metadata = simulation_run_metadata(
+        s3_resource, result, sims.RESILIENTSIMS_SIMULATOR_ID, MPOX_BUCKET,
+        run_path, run_files, config_id=run_data["config"],
     )
+    metadata["run_path"] = run_path
+    return Output(run_path, metadata=metadata)
 
 
 @asset(

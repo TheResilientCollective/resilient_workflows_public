@@ -30,7 +30,7 @@ from dagster import (
     define_asset_job,
     AssetKey,
     AutomationCondition, RunConfig, Config, EnvVar,
-Output, AssetIn
+Output, AssetIn, MetadataValue
 )
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -243,6 +243,63 @@ def parse_run_id(run_path: str) -> tuple[datetime, str]:
             return None, run_id
     return None, run_name
 
+def find_run_directory(s3_resource, run_id, bucket: str = FORECAST_BUCKET, prefix: str = FORECAST_API_RUN_PATH) -> str | None:
+    """Return the S3 directory (``api_run/<timestamp>_run<id>/``) written by a ResilientSIMS run.
+
+    The server fills in the timestamp, so the exact prefix isn't known up front; match on the
+    ``_run<id>`` suffix the run template uses.
+    """
+    suffix = f"_run{run_id}"
+    matches = [
+        obj.object_name
+        for obj in s3_resource.listPath(prefix, bucket=bucket)
+        if obj.object_name.rstrip("/").endswith(suffix)
+    ]
+    if not matches:
+        return None
+    return sorted(matches)[-1]
+
+
+def list_run_files(s3_resource, run_dir: str, bucket: str = FORECAST_BUCKET) -> list[dict]:
+    """List every object under a run directory with its public URL and size."""
+    client = s3_resource.getClient()
+    files = []
+    for obj in client.list_objects(bucket, prefix=run_dir, recursive=True):
+        if obj.is_dir:
+            continue
+        files.append({
+            "path": obj.object_name,
+            "url": s3_resource.publicUrl(obj.object_name, bucket=bucket),
+            "size_bytes": obj.size,
+        })
+    return files
+
+
+def simulation_run_metadata(s3_resource, result: dict, simulator_id, bucket: str,
+                            run_dir: str | None, run_files: list[dict],
+                            config_id=None, config_s3_url: str | None = None) -> dict:
+    """Materialization metadata shared by the ResilientSIMS simulation assets:
+    runtime, run/config identifiers, and links to the files written to S3."""
+    duration = result.get("duration_seconds")
+    return {
+        "run_id": str((result.get("run_info") or {}).get("id")),
+        "config_id": str(config_id),
+        "simulator": f"{simulator_id} ({result.get('simulator_name', '')})",
+        "task_status": str((result.get("final_status") or {}).get("task_status")),
+        "started_at": str(result.get("started_at")),
+        "runtime_seconds": MetadataValue.float(float(duration)) if duration is not None else "unknown",
+        "runtime_minutes": MetadataValue.float(round(float(duration) / 60, 2)) if duration is not None else "unknown",
+        "s3_bucket": bucket,
+        "s3_run_dir": run_dir or "not found",
+        "s3_run_url": MetadataValue.url(s3_resource.publicUrl(run_dir, bucket=bucket)) if run_dir else "not found",
+        "s3_file_count": len(run_files),
+        "s3_files": MetadataValue.md(
+            "\n".join(f"- [{f['path']}]({f['url']}) ({f['size_bytes']} bytes)" for f in run_files)
+        ) if run_files else "none",
+        "config_s3_url": MetadataValue.url(config_s3_url) if config_s3_url else "not stored",
+    }
+
+
 @asset(group_name="health",
     key_prefix="sandiego",
     name="sandiego_epidemiology_forecast",
@@ -281,9 +338,11 @@ def run_epidemic_simulation(context, sandiego_epidemiology_hyper_extraction: dic
       #logger.error(f"config file: {config_config_yaml} ")
       raise e
   config_info = sims.create_configuration(sims.RESILIENTSIMS_SIMULATOR_ID, config_config_yaml)
+  runs_path = f'sims/configs/epi2/config_{date_path}.yaml'
+  config_s3_url = None
   try:
-      runs_path = f'sims/configs/epi2/config_{date_path}.yaml'
       store_assets.text_to_s3(config_config_str,runs_path,s3_resource)
+      config_s3_url = s3_resource.publicUrl(runs_path)
   except Exception as e:
       logger.error(f"Error storing forecast_config.yaml to s3: {runs_path} {e} ")
       logger.error(f"config file: {config_config_str} ")
@@ -303,7 +362,28 @@ def run_epidemic_simulation(context, sandiego_epidemiology_hyper_extraction: dic
       run_data=config_run_yaml,
       slack_resource=slack
   )
-  return Output(result)
+  run_id = (result.get("run_info") or {}).get("id")
+
+  # Locate what the simulator wrote to S3 so the materialization links straight to it.
+  run_dir = None
+  run_files: list[dict] = []
+  try:
+      run_dir = find_run_directory(s3_resource, run_id)
+      if run_dir:
+          run_files = list_run_files(s3_resource, run_dir)
+      else:
+          logger.warning(f"No S3 run directory found for run {run_id} under {FORECAST_BUCKET}/{FORECAST_API_RUN_PATH}")
+  except Exception as e:
+      logger.warning(f"Could not list S3 outputs for run {run_id}: {e}")
+
+  result["run_dir"] = run_dir
+  result["run_files"] = run_files
+
+  metadata = simulation_run_metadata(
+      s3_resource, result, sims.RESILIENTSIMS_SIMULATOR_ID, FORECAST_BUCKET,
+      run_dir, run_files, config_id=config_info.get("id"), config_s3_url=config_s3_url,
+  )
+  return Output(result, metadata=metadata)
 
 class forecastsS3AssetConfig(Config):
     forecast_run_path: str
