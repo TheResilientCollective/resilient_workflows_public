@@ -31,7 +31,7 @@ FORECAST_ASSET_KEY = AssetKey(["sandiego", "sandiego_epidemiology_forecast"])
 FORECAST_STALE_AFTER = timedelta(days=7.5)
 FORECAST_FRESHNESS_POLICY = FreshnessPolicy.time_window(fail_window=FORECAST_STALE_AFTER)
 FORECAST_FRESHNESS_REALERT_HOURS = float(os.environ.get("FORECAST_FRESHNESS_REALERT_HOURS", "24"))
-DAGSTER_URL = f'https://{os.environ.get("SCHED_HOSTNAME", "sched")}.{os.environ.get("HOST", "local")}/'
+DAGSTER_URL = f'https://{os.environ.get("SCHED_HOSTNAME", "sched")}.{os.environ.get("HOST", "local")}/assets/sandiego/sandiego_epidemiology_forecast?view=events'
 
 
 def forecast_staleness(
