@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tijuana River</title>
+<meta name="description" content="Tijuana River: H2S at the three APCD monitors with wind, the H2S forecast and how well it warns, river flow at the border, South Bay plant flows, weather and spills.">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+/* Design tokens the page expects (supplied by the Claude dashboard runtime there) */
+:root {
+  --font-anthropic-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-anthropic-serif: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  --color-fg: #1f1e1c; --color-fg-muted: #6b6862; --color-bg: #faf9f6; --color-panel: #ffffff;
+  --color-border-line: #e4e1da; --color-ok: #2f8f5b; --color-warn: #c98a00; --color-bad: #c8412e;
+  --cds-font-size-caption: 12px; --cds-font-size-body: 14px; --cds-font-size-heading: 16px; --cds-font-size-title: 30px;
+  --cds-font-weight-medium: 600;
+  --cds-gap-xs: 4px; --cds-gap-sm: 8px; --cds-gap-md: 16px; --cds-gap-lg: 24px; --cds-gap-xl: 32px;
+  --cds-pad-xs: 4px; --cds-pad-sm: 8px; --cds-pad-md: 12px; --cds-pad-lg: 16px; --cds-pad-xl: 24px;
+  --cds-radius: 8px; --cds-dur-slow: 300ms; --cds-ease-out: cubic-bezier(.2, .8, .2, 1);
+  --cds-chart-grid: #ece9e2; --cds-chart-axis: #c9c5bc; --cds-chart-reference: #9a958b;
+  --cds-chart-muted: #b4afa6; --cds-chart-status-critical: #c8412e;
+  --cds-surface-popover: #ffffff; --cds-border: #e4e1da; --cds-shadow-popover: 0 4px 16px rgba(0, 0, 0, .12);
+  --cds-text-secondary: #6b6862;
+  --tj-s0: #2a6fdb; --tj-s1: #d9730d; --tj-s2: #7b5cc4; --tj-s3: #1a9e8f; --tj-s4: #c2417a; --tj-s5: #6f8f1f; --tj-s6: #8a6d3b; --tj-s7: #4a6a8a;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-fg: #eceae5; --color-fg-muted: #a39f97; --color-bg: #1b1a18; --color-panel: #24231f;
+    --color-border-line: #3a3833; --color-ok: #5cc28a; --color-warn: #e3b13c; --color-bad: #ef7b67;
+    --cds-chart-grid: #34322d; --cds-chart-axis: #55524b; --cds-chart-reference: #8a857c; --cds-chart-muted: #6e6a62;
+    --cds-chart-status-critical: #ef7b67; --cds-surface-popover: #2c2b27; --cds-border: #3a3833; --cds-text-secondary: #a39f97;
+    --tj-s0: #6ea2f5; --tj-s1: #f0a35a; --tj-s2: #a993e6; --tj-s3: #4fc7b8; --tj-s4: #e47aa6; --tj-s5: #a3c15a; --tj-s6: #c9a56b; --tj-s7: #88a6c4;
+    color-scheme: dark;
+  }
+}
+html, body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-anthropic-sans); font-size: var(--cds-font-size-body); line-height: 1.45; }
+#dash-root { --dash-gutter: clamp(16px, 4vw, 40px); padding: var(--dash-gutter); max-width: 1400px; margin: 0 auto; box-sizing: border-box; }
+#dash-root a { color: var(--tj-s0); }
+.dash-skeleton { color: transparent !important; background: var(--cds-chart-grid); border-radius: 4px; }
+.tj-site-footer { margin-top: var(--cds-gap-xl); color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+</style>
+<script>
+// A small stand-in for the Claude dashboard runtime: loads each dataset from data/<id>.json
+// and gives the page the same dash.data / dash.calc / dash.onData calls it uses there.
+window.dash = (() => {
+  const DATASETS = __DATASETS__;
+  const state = {}, calcs = {}, subs = [];
+  const run = () => subs.forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
+  const data = (id) => {
+    const c = calcs[id];
+    if (!c) return state[id] || { status: 'loading', data: [], meta: [] };
+    const inputs = c.inputs.map(data);
+    const bad = inputs.find((x) => x.status !== 'ok');
+    if (bad) return { status: bad.status === 'error' ? 'error' : 'loading', data: [], meta: [] };
+    try { return { status: 'ok', data: c.fn(...inputs.map((x) => x.data)), meta: [] }; }
+    catch (e) { console.error(e); return { status: 'error', data: [], meta: [], message: String(e) }; }
+  };
+  DATASETS.forEach((id) => {
+    state[id] = { status: 'loading', data: [], meta: [] };
+    fetch(`data/${id}.json`, { cache: 'no-cache' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((rows) => { state[id] = { status: 'ok', data: rows, columns: rows[0] ? Object.keys(rows[0]) : [], meta: [] }; run(); })
+      .catch((e) => { state[id] = { status: 'error', data: [], meta: [], message: String(e) }; run(); });
+  });
+  let pending = null;
+  window.addEventListener('resize', () => { clearTimeout(pending); pending = setTimeout(run, 150); });
+  return {
+    data,
+    onData(fn) { subs.push(fn); try { fn(); } catch (e) { console.error(e); } },
+    calc(id, opts) { calcs[id] = opts; },
+    loader() {},
+    colors: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => `var(--tj-s${i})`),
+    params: () => ({}), setParams() {}, resetParams() {}, setLink() {}, refresh() {},
+  };
+})();
+</script>
+</head>
+<body>
+<div id="dash-root">
+__PAGE__
+<p class="tj-site-footer">Data from the Resilient Collective pipeline (San Diego APCD, IBWC, Open-Meteo and the H2S forecast), refreshed at 10:45 am and 7:45 pm Pacific. Part of the <a href="https://resilient.ucsd.edu/">Resilient Collective</a>.</p>
+</div>
+</body>
+</html>
