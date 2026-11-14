@@ -39,11 +39,12 @@ def check_mpox_weekly_completeness(context) -> AssetCheckResult:
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
+    bucket = s3_resource.bucket_name
 
     try:
         # Load the basic epidemiology schema data
         s3_path = 'pathogens/cdc/nndss/output/validated_epi_schema/mpox_weekly_basic'
-        df = load_resilient_epi_data(s3_resource, s3_path)
+        df = load_resilient_epi_data(bucket, s3_path)
 
         if df.empty:
             return AssetCheckResult(
@@ -108,11 +109,11 @@ def check_measles_weekly_completeness(context) -> AssetCheckResult:
     """
     logger = get_dagster_logger()
     s3_resource = context.resources.s3
-
+    bucket = s3_resource.bucket_name
     try:
         # Load the basic epidemiology schema data
         s3_path = 'pathogens/cdc/nndss/output/validated_epi_schema/measles_weekly_basic'
-        df = load_resilient_epi_data(s3_resource, s3_path)
+        df = load_resilient_epi_data(bucket, s3_path)
 
         if df.empty:
             return AssetCheckResult(
@@ -177,12 +178,12 @@ def check_mpox_statistical_extension_completeness(context) -> AssetCheckResult:
     Validates statistical extension format data for metric completeness and temporal coverage.
     """
     logger = get_dagster_logger()
-    s3_resource = context.resources.s3
+    bucket = context.resources.s3.bucket_name
 
     try:
         # Load the statistical extension schema data
         s3_path = 'pathogens/cdc/nndss/output/validated_epi_schema/mpox_weekly_statistical'
-        df = load_resilient_epi_data(s3_resource, s3_path)
+        df = load_resilient_epi_data(bucket, s3_path)
 
         if df.empty:
             return AssetCheckResult(

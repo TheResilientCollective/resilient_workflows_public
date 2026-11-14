@@ -90,6 +90,7 @@ defs = Definitions(
         assets_pkg.vectorsurv_weekly_schedule,
         assets_pkg.arbonet_weekly_schedule,
         assets_pkg.vectorborne_unified_schedule,
+        assets_pkg.mpox_california_weekly_schedule,
     ],
     sensors=[slack_on_run_failure, assets_pkg.wahis_upload_sensor, assets_pkg.mpox_upstream_sensor],
 )

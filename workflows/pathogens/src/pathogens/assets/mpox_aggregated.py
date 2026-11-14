@@ -271,7 +271,7 @@ mpox_aggregated_job = define_asset_job(
     ],
     job=mpox_aggregated_job,
     name="mpox_upstream_sensor",
-    minimum_interval_seconds=60,
+    minimum_interval_seconds=300,
 )
 def mpox_upstream_sensor(context: MultiAssetSensorEvaluationContext):
     """Fire mpox_aggregated_job when any upstream asset materializes."""

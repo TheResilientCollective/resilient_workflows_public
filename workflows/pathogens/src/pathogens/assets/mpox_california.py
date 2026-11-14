@@ -89,7 +89,7 @@ def scrape_mpox_data(shinyapp_url: str = DASHBOARD_URL) -> pd.DataFrame:
        name="mpox_california_daily",
 required_resource_keys={"s3"},
        metadata={
-           "source": "https://api.tidesandcurrents.noaa.gov/api/prod/"
+           "source": DASHBOARD_URL
        ,"description":'''
            CDPH Mpox Cases Data Scraper
            Extracted the "Cases by Episode Date" chart data from the California Mpox dashboard. 
