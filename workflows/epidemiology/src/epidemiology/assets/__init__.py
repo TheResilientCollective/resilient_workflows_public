@@ -26,3 +26,10 @@ from .sandiego_epidemiology_testing import (
     sandiego_epidemiology_testing_job,
     sandiego_epidemiology_testing_sensor,
 )
+from .sandiego_epidemiology_testing_v2 import (
+    sandiego_epidemiology_testing_workbook_download_v2,
+    sandiego_epidemiology_testing_hyper_extraction_v2,
+    sd_testing_v2,
+    sandiego_epidemiology_testing_v2_job,
+    sandiego_epidemiology_testing_v2_sensor,
+)

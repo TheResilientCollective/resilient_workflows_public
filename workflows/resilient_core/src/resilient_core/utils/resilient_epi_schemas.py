@@ -121,14 +121,14 @@ statistical_extension_schema_base = DataFrameSchema({
     "metric": Column(
         str,
         checks=[
-            Check.isin(['cases', 'deaths', 'hospitalizations', 'tests', 'vaccinations']),
+            Check.isin(['cases', 'deaths', 'hospitalizations', 'tests', 'vaccinations', 'test_positivity', 'ed_visits', 'ed_visits_cases']),
         ],
         description="Type of metric being reported"
     ),
     "observation_type": Column(
         str,
         checks=[
-            Check.isin(['actual', 'partial-data estimate', 'preliminary estimate', 'corrected', 'reported', 'prediction', 'forecast']),
+            Check.isin(['actual', 'partial-data estimate', 'preliminary estimate', 'corrected', 'reported', 'prediction', 'forecast', 'calculated']),
         ],
         description="Type of observation"
     ),

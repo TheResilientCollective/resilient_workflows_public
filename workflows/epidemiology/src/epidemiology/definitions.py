@@ -37,6 +37,7 @@ all_sensors = [
     assets_pkg.sandiego_epidemiology_sensor,
     assets_pkg.sandiego_wastewater_sensor,
     assets_pkg.sandiego_epidemiology_testing_sensor,
+    assets_pkg.sandiego_epidemiology_testing_v2_sensor,
     assets_pkg.mpox_epidemiology_sensor,
 ]
 
