@@ -4,7 +4,49 @@ https://www.sandiegocounty.gov/content/sdc/hhsa/programs/phs/community_epidemiol
 Development dashboard
 https://public.tableau.com/app/profile/epidemiology.immunization.services.branch
 
+###
+https://public.tableau.com/app/profile/epidemiology.immunization.services.branch/viz/DraftCombinedUpdates/DashPercPos
+https://public.tableau.com/workbooks/DraftCombinedUpdates.twb
 
+https://public.tableau.com/profile/api/single_workbook/DraftCombinedUpdates
+
+```json
+{
+    "showInProfile": false,
+    "allowDataAccess": true,
+    "showByline": false,
+    "showShareOptions": true,
+    "showTabs": false,
+    "showToolbar": true,
+    "showWatermark": true,
+    "warnDataAccess": false,
+    "id": 18922445,
+    "ownerId": 2391973,
+    "firstPublishDate": 1785446484720,
+    "lastPublishDate": 1793829251413,
+    "createdAt": 1785446484726,
+    "lastUpdateDate": 1793829252473,
+    "size": 84651,
+    "description": "Draft Combined Updates",
+    "luid": "9af45c99-c969-4b2e-8bd8-2b7dfcc33d84",
+    "permalink": null,
+    "revision": "6.0",
+    "title": "Draft Combined Updates",
+    "workbookRepoUrl": "DraftCombinedUpdates",
+    "extractInfo": null,
+    "viewCount": 845,
+    "defaultViewName": "Dash PercPos",
+    "defaultViewRepoUrl": "DraftCombinedUpdates/sheets/DashPercPos",
+    "defaultViewLuid": "e20badce-7547-4c7d-b7bc-3fcfa05cfac8",
+    "authorProfileName": "epidemiology.immunization.services.branch",
+    "authorDisplayName": "Epidemiology & Immunization Services Branch",
+    "externalLink": null,
+    "numberOfFavorites": 0,
+    "attributions": []
+}
+```
+
+###
 Original data in 
 
 data/sandiego_epideimilogy/SEASONAL_RESP_VIRUSES_DATA
