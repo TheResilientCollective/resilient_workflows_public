@@ -119,3 +119,12 @@ tijuana = { workspace = true }
 pathogens = { workspace = true }
 epidemiology = { workspace = true }
 sim = { workspace = true }
+
+[tool.uv]
+# resilient_core[tabular] (torch, gluonts via tabpfn-time-series) needs toolz<1, while dask in
+# the Dagster code locations resolves toolz 1.x. Declaring the conflict lets uv resolve tabular
+# separately, so the code-location environments keep their existing versions.
+conflicts = [
+    [{ package = "resilient-core", extra = "tabular" }, { package = "tijuana" }],
+    [{ package = "resilient-core", extra = "tabular" }, { extra = "workflows" }],
+]
