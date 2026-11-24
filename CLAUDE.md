@@ -97,7 +97,7 @@ This is a Dagster-based data pipeline system for environmental monitoring and pu
 ### Core Structure
 The project is organized as a uv workspace with multiple Dagster code locations:
 
-- **workflows/resilient_core/**: Shared utilities, resources, and constants used across all code locations
+- **workflows/resilient_core/**: Shared utilities, resources, and constants used across all code locations. Its base install is Dagster-free (pandas, pandera, epiweeks, requests, pydantic) and covers `utils.resilient_epi_schemas` and `utils.tableau_workbook`; heavy deps are extras (`dagster`, `s3`, `geo`, `airtable`, `sharepoint`, `foursquare`, `tableau`, `all`). Code locations depend on `resilient_core[all]`. Keep those two modules free of Dagster/heavy top-level imports (guarded by `workflows/resilient_core/tests/test_dagster_free.py`).
 - **workflows/tijuana/**: Regional/border environmental monitoring — air quality, water quality, beach monitoring, IBWC spills, complaints, weather (15 asset modules)
 - **workflows/pathogens/**: CDC NNDSS, mpox, WAHIS disease surveillance
 - **workflows/epidemiology/**: San Diego county disease surveillance and epidemiological data
