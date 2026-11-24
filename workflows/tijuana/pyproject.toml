@@ -7,7 +7,7 @@ dependencies = [
     "dagster>=1.12.2",
     "dagster-aws>=0.28.2",
     "dagster-slack>=0.28.2",
-    "resilient_core",
+    "resilient_core[all]",
     "pandas>=2.2.0",
     "geopandas",
     "pandera[pandas]",

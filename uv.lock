@@ -1212,7 +1212,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "requests" },
     { name = "requests-cache" },
-    { name = "resilient-core" },
+    { name = "resilient-core", extra = ["all"] },
     { name = "sharepoint" },
     { name = "simplepbi" },
     { name = "tableau-parser" },
@@ -1235,7 +1235,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2,<3.0.0" },
     { name = "requests" },
     { name = "requests-cache" },
-    { name = "resilient-core", editable = "workflows/resilient_core" },
+    { name = "resilient-core", extras = ["all"], editable = "workflows/resilient_core" },
     { name = "sharepoint", specifier = ">=0.4.2" },
     { name = "simplepbi", specifier = ">=1.0" },
     { name = "tableau-parser" },
@@ -3283,7 +3283,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "requests" },
     { name = "requests-cache" },
-    { name = "resilient-core" },
+    { name = "resilient-core", extra = ["all"] },
     { name = "simplepbi" },
     { name = "tableauscraper" },
 ]
@@ -3307,7 +3307,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2,<3.0.0" },
     { name = "requests" },
     { name = "requests-cache" },
-    { name = "resilient-core", editable = "workflows/resilient_core" },
+    { name = "resilient-core", extras = ["all"], editable = "workflows/resilient_core" },
     { name = "simplepbi", specifier = ">=1.0" },
     { name = "tableauscraper" },
 ]
@@ -4420,6 +4420,18 @@ name = "resilient-core"
 version = "0.1.0"
 source = { editable = "workflows/resilient_core" }
 dependencies = [
+    { name = "epiweeks" },
+    { name = "pandas" },
+    { name = "pandera", extra = ["pandas"] },
+    { name = "pydantic" },
+    { name = "requests" },
+]
+
+[package.optional-dependencies]
+airtable = [
+    { name = "pyairtable" },
+]
+all = [
     { name = "awswrangler" },
     { name = "dagster" },
     { name = "dagster-aws" },
@@ -4427,33 +4439,61 @@ dependencies = [
     { name = "geopandas" },
     { name = "minio" },
     { name = "office365-rest-python-client" },
-    { name = "pandas" },
-    { name = "pandera", extra = ["geopandas", "pandas"] },
+    { name = "pandera", extra = ["geopandas"] },
     { name = "pyairtable" },
     { name = "pyarrow" },
     { name = "pydantic-schemaorg" },
-    { name = "requests" },
     { name = "sharepoint" },
+    { name = "tableauhyperapi" },
+]
+dagster = [
+    { name = "dagster" },
+    { name = "dagster-aws" },
+]
+foursquare = [
+    { name = "foursquare-data-sdk" },
+]
+geo = [
+    { name = "geopandas" },
+    { name = "pandera", extra = ["geopandas"] },
+]
+s3 = [
+    { name = "awswrangler" },
+    { name = "minio" },
+    { name = "pyarrow" },
+    { name = "pydantic-schemaorg" },
+]
+sharepoint = [
+    { name = "office365-rest-python-client" },
+    { name = "sharepoint" },
+]
+tableau = [
+    { name = "tableauhyperapi" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "awswrangler" },
-    { name = "dagster", specifier = ">=1.12.2" },
-    { name = "dagster-aws", specifier = ">=0.28.2" },
-    { name = "foursquare-data-sdk" },
-    { name = "geopandas" },
-    { name = "minio", specifier = "==7.1.13" },
-    { name = "office365-rest-python-client", specifier = ">=2.6.2" },
+    { name = "awswrangler", marker = "extra == 's3'" },
+    { name = "dagster", marker = "extra == 'dagster'", specifier = ">=1.12.2" },
+    { name = "dagster-aws", marker = "extra == 'dagster'", specifier = ">=0.28.2" },
+    { name = "epiweeks" },
+    { name = "foursquare-data-sdk", marker = "extra == 'foursquare'" },
+    { name = "geopandas", marker = "extra == 'geo'" },
+    { name = "minio", marker = "extra == 's3'", specifier = "==7.1.13" },
+    { name = "office365-rest-python-client", marker = "extra == 'sharepoint'", specifier = ">=2.6.2" },
     { name = "pandas", specifier = ">=2.2.0" },
-    { name = "pandera", extras = ["geopandas"] },
+    { name = "pandera", extras = ["geopandas"], marker = "extra == 'geo'" },
     { name = "pandera", extras = ["pandas"] },
-    { name = "pyairtable", specifier = ">3" },
-    { name = "pyarrow", specifier = ">=20" },
-    { name = "pydantic-schemaorg", git = "https://github.com/TheResilientCollective/pydantic_schemaorg.git?rev=pydantic_v2" },
+    { name = "pyairtable", marker = "extra == 'airtable'", specifier = ">3" },
+    { name = "pyarrow", marker = "extra == 's3'", specifier = ">=20" },
+    { name = "pydantic", specifier = ">=2,<3.0.0" },
+    { name = "pydantic-schemaorg", marker = "extra == 's3'", git = "https://github.com/TheResilientCollective/pydantic_schemaorg.git?rev=pydantic_v2" },
     { name = "requests" },
-    { name = "sharepoint", specifier = ">=0.4.2" },
+    { name = "resilient-core", extras = ["dagster", "s3", "geo", "airtable", "sharepoint", "foursquare", "tableau"], marker = "extra == 'all'", editable = "workflows/resilient_core" },
+    { name = "sharepoint", marker = "extra == 'sharepoint'", specifier = ">=0.4.2" },
+    { name = "tableauhyperapi", marker = "extra == 'tableau'", specifier = "==0.0.22502" },
 ]
+provides-extras = ["dagster", "s3", "geo", "airtable", "sharepoint", "foursquare", "tableau", "all"]
 
 [[package]]
 name = "resilient-workflows-public"
@@ -4997,7 +5037,7 @@ dependencies = [
     { name = "pygithub" },
     { name = "pyyaml" },
     { name = "requests" },
-    { name = "resilient-core" },
+    { name = "resilient-core", extra = ["all"] },
     { name = "scikit-learn" },
     { name = "tenacity" },
 ]
@@ -5023,7 +5063,7 @@ requires-dist = [
     { name = "pygithub", specifier = ">=2.8.1" },
     { name = "pyyaml" },
     { name = "requests" },
-    { name = "resilient-core", editable = "workflows/resilient_core" },
+    { name = "resilient-core", extras = ["all"], editable = "workflows/resilient_core" },
     { name = "scikit-learn" },
     { name = "tenacity", specifier = "==9.1.4" },
 ]
@@ -5353,7 +5393,7 @@ dependencies = [
     { name = "pydash" },
     { name = "pyyaml" },
     { name = "requests-cache" },
-    { name = "resilient-core" },
+    { name = "resilient-core", extra = ["all"] },
     { name = "retry-requests" },
     { name = "scikit-learn" },
     { name = "tenacity" },
@@ -5387,7 +5427,7 @@ requires-dist = [
     { name = "pydash" },
     { name = "pyyaml" },
     { name = "requests-cache" },
-    { name = "resilient-core", editable = "workflows/resilient_core" },
+    { name = "resilient-core", extras = ["all"], editable = "workflows/resilient_core" },
     { name = "retry-requests" },
     { name = "scikit-learn" },
     { name = "tenacity", specifier = "==9.1.4" },
