@@ -11,9 +11,11 @@ import pandera.pandas as pa
 from pandera.pandas import Column, DataFrameSchema, Check
 from typing import Dict, List, Optional, Union, Any
 from datetime import datetime, timedelta
-from dagster import get_dagster_logger
+import logging
 import re
 from epiweeks import Week, Year
+
+logger = logging.getLogger(__name__)
 
 
 class EpidemiologyValidationError(Exception):
@@ -228,7 +230,6 @@ class BasicEpidemiologySchema:
         try:
             return cls.schema.validate(df, lazy=True)
         except pa.errors.SchemaErrors as e:
-            logger = get_dagster_logger()
             logger.error(f"Basic epidemiology schema validation failed: {e}")
             raise EpidemiologyValidationError(f"Validation failed: {e}")
 
@@ -318,7 +319,6 @@ class StatisticalExtensionSchema:
             # Finally validate business rules
             return validate_statistical_extension_requirements(validated_df)
         except pa.errors.SchemaErrors as e:
-            logger = get_dagster_logger()
             logger.error(f"Statistical Extension schema validation failed: {e}")
             raise EpidemiologyValidationError(f"Validation failed: {e}")
 
@@ -362,7 +362,7 @@ class ResilientEpiProcessor:
     """
 
     def __init__(self):
-        self.logger = get_dagster_logger()
+        self.logger = logger
 
     def process_basic_epidemiology_data(self,
                                        df: pd.DataFrame,
@@ -481,8 +481,6 @@ def detailed_epidemiology_format(df: pd.DataFrame) -> pd.DataFrame:
     """
     import geopandas as gpd
     from shapely.geometry import Point
-
-    logger = get_dagster_logger()
 
     if df.empty:
         logger.warning("Empty DataFrame provided to detailed_epidemiology_format")

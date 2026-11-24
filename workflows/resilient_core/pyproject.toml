@@ -3,22 +3,46 @@ name = "resilient_core"
 version = "0.1.0"
 description = "Shared utilities and resources for Resilient Collective Dagster projects"
 requires-python = ">=3.12"
+# Base install: only what the epi schemas (resilient_core.utils.resilient_epi_schemas) need.
+# Dagster resources, S3 storage, geo and other integrations live in extras below.
 dependencies = [
+    "pandas>=2.2.0",
+    "pandera[pandas]",
+    "epiweeks",
+    "requests",
+    "pydantic<3.0.0,>=2",
+]
+
+[project.optional-dependencies]
+dagster = [
     "dagster>=1.12.2",
     "dagster-aws>=0.28.2",
-    "pandas>=2.2.0",
-    "geopandas",
-    "pyarrow>=20",
+]
+s3 = [
     "minio==7.1.13",
     "awswrangler",
-    "pyairtable>3",
-    "requests",
-    "pandera[pandas]",
+    "pyarrow>=20",
+    "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+]
+geo = [
+    "geopandas",
     "pandera[geopandas]",
+]
+airtable = [
+    "pyairtable>3",
+]
+sharepoint = [
     "office365-rest-python-client>=2.6.2",
     "sharepoint>=0.4.2",
+]
+foursquare = [
     "foursquare-data-sdk",
-    "pydantic_schemaorg @ git+https://github.com/TheResilientCollective/pydantic_schemaorg.git@pydantic_v2",
+]
+tableau = [
+    "tableauhyperapi==0.0.22502",
+]
+all = [
+    "resilient_core[dagster,s3,geo,airtable,sharepoint,foursquare,tableau]",
 ]
 
 [build-system]
