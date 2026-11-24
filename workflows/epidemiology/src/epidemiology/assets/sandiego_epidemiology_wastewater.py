@@ -15,7 +15,8 @@ import datetime
 from resilient_core.resources import minio
 from resilient_core.utils import store_assets
 
-from ..utils.tableau_workbook import TableauWastewaterConfig, TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
+from resilient_core.utils.tableau_workbook import TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
+from ..utils.tableau_workbook import TableauWastewaterConfig
 from resilient_core.utils.date import check_missing_weeks
 from resilient_core.utils.resilient_epi_schemas import (
     BasicEpidemiologySchema,

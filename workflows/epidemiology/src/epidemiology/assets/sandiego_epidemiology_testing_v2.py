@@ -15,7 +15,8 @@ from resilient_core.utils import store_assets
 from resilient_core.utils.resilient_epi_schemas import ResilientEpiProcessor, EpidemiologyValidationError
 from resilient_core.utils.store_assets import store_dataframe_to_s3
 
-from ..utils.tableau_workbook import TableauWorkbookConfig, TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
+from resilient_core.utils.tableau_workbook import TableauWorkbookProcessor, convert_tableau_timestamps_to_datetime
+from ..utils.tableau_workbook import TableauWorkbookConfig
 from .sandiego_epidemiology_testing import dates3Path, fixTableNames
 
 s3_output_path = 'pathogens/sandiego/sandiego_epidemiology/'
