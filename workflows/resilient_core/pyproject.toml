@@ -3,9 +3,11 @@ name = "resilient_core"
 version = "0.1.0"
 description = "Shared utilities and resources for Resilient Collective Dagster projects"
 requires-python = ">=3.12"
-# Base install: only what the epi schemas (resilient_core.utils.resilient_epi_schemas) need.
-# Dagster resources, S3 storage, geo and other integrations live in extras below.
+# Base install: only what the epi schemas (resilient_core.utils.resilient_epi_schemas) and the
+# forecasting metrics/backtest (resilient_core.forecasting) need.
+# Dagster resources, S3 storage, geo, model libraries and other integrations live in extras below.
 dependencies = [
+    "numpy",
     "pandas>=2.2.0",
     "pandera[pandas]",
     "epiweeks",
@@ -41,6 +43,22 @@ foursquare = [
 tableau = [
     "tableauhyperapi==0.0.22502",
 ]
+# Renewal-equation Rt (resilient_core.forecasting.renewal).
+renewal = [
+    "scipy",
+]
+# Foundation-model predictors (resilient_core.forecasting.load_*) and TabPFN Bayesian
+# optimisation for the renewal fit. Pulls in torch; not part of `all`.
+tabular = [
+    "resilient_core[renewal]",
+    "pandas>=2.3,<2.4",
+    "torch>=2.15.0",
+    "timesfm[torch]>=3.0.2",
+    "timestral @ git+https://github.com/mistralai/timestral.git@a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff",
+    "tabpfn-time-series>=1.4.0",
+    "tabpfn-extensions[bayesian-optimization]>=0.6.3",
+]
+# Everything the Dagster code locations use. Excludes `tabular` (torch and model weights).
 all = [
     "resilient_core[dagster,s3,geo,airtable,sharepoint,foursquare,tableau]",
 ]
